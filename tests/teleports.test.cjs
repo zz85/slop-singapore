@@ -39,12 +39,10 @@ test('preset and map teleports share arrival resets and mark the resolved landin
   const main = read('js/main.js');
   const start = main.indexOf('  function teleportTo(');
   const end = main.indexOf('  const openMapBtn', start);
-  const handlers = new Map();
   const calls = [];
   const landed = { x: -305.7, z: 5210 };
   let map;
   const environment = {
-    TELEPORT_LOCATIONS,
     controllerManager: {
       teleportActiveTo: (...args) => { calls.push(['teleport', ...args]); return landed; }
     },
@@ -60,16 +58,13 @@ test('preset and map teleports share arrival resets and mark the resolved landin
     NYCMapSystem: class {
       constructor(options) { this.onTeleport = options.onTeleport; map = this; }
     },
-    teleportButtons: Object.keys(TELEPORT_LOCATIONS).map((key) => ({
-      getAttribute: () => key,
-      addEventListener: (_event, handler) => handlers.set(key, handler)
-    })),
     closePopovers: () => {}
   };
   vm.runInNewContext(main.slice(start, end), environment);
-  for (const [name, point] of Object.entries(TELEPORT_LOCATIONS)) {
+  // the Navigate menu's teleports (navigation-ui.js) go through teleportTo with each place's arrival
+  for (const point of Object.values(TELEPORT_LOCATIONS)) {
     calls.length = 0;
-    handlers.get(name)();
+    environment.teleportTo(point.x, point.z, point.heading);
     assert.deepEqual(calls, [
       ['teleport', point.x, point.z, point.heading], ['touch'], ['gamepad'], ['camera'], ['selectCamera', 'chase', true]
     ]);

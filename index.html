@@ -161,10 +161,7 @@
         <svg class="icon" aria-hidden="true"><use href="#i-storm"/></svg><span class="seg-label">Storm</span>
       </button>
       <span class="toolbar-divider" aria-hidden="true"></span>
-      <button id="btn-teleport" class="tool-btn" type="button" popovertarget="teleport-popover" title="Teleport the active player">
-        <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg><span class="tool-label">Teleport</span><svg class="icon icon-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg>
-      </button>
-      <button id="btn-navigate" class="tool-btn" type="button" popovertarget="navigate-popover" title="Drive to a destination [G]">
+      <button id="btn-navigate" class="tool-btn" type="button" popovertarget="navigate-popover" title="Go somewhere: drive, self-drive, take a Crazy Taxi or teleport [G]">
         <svg class="icon" aria-hidden="true"><use href="#i-route"/></svg><span class="tool-label">Navigate</span><kbd>G</kbd>
       </button>
       <button id="btn-open-map" class="tool-btn" type="button" title="Full Singapore street map [M]">
@@ -180,25 +177,20 @@
     </div>
   </div>
 
-  <!-- Teleport Destinations (native popover: light-dismiss & Esc) -->
-  <div id="teleport-popover" class="popover" popover data-side="below" data-anchor="hud-toolbar" aria-label="Teleport the active player">
-    <div class="pop-title">Teleport to</div>
-    <!-- the city's destinations (city-config.js TELEPORT_LOCATIONS), listed by main.js -->
-  </div>
-
-  <!-- Navigation (js/navigation.js): who drives, where to -->
-  <div id="navigate-popover" class="popover" popover data-side="below" data-anchor="hud-toolbar" aria-label="Drive to a destination">
-    <div class="pop-title">Who drives</div>
-    <div class="nav-drivers" role="radiogroup" aria-label="Who drives">
+  <!-- Navigation (js/navigation.js, js/navigation-ui.js): how to go, where to -->
+  <div id="navigate-popover" class="popover" popover data-side="below" data-anchor="hud-toolbar" aria-label="Go somewhere">
+    <div class="pop-title">How</div>
+    <div class="nav-drivers" role="radiogroup" aria-label="How to go">
       <button class="pop-item nav-driver active" data-driver="you" type="button" role="radio" aria-checked="true"><span class="pop-name">You drive</span><span class="pop-sub">Turn-by-turn directions</span></button>
       <button class="pop-item nav-driver" data-driver="self" type="button" role="radio" aria-checked="false"><span class="pop-name">Self-driving</span><span class="pop-sub">Keeps its lane, up to 90 km/h, stops at reds</span></button>
       <button class="pop-item nav-driver" data-driver="crazy" type="button" role="radio" aria-checked="false"><span class="pop-name">Crazy Taxi</span><span class="pop-sub">On the clock. Lights are suggestions · T: cockpit cam</span></button>
+      <button class="pop-item nav-driver" data-driver="teleport" type="button" role="radio" aria-checked="false"><span class="pop-name">Teleport</span><span class="pop-sub">Be there now</span></button>
     </div>
-    <div class="pop-title">Drive to</div>
+    <div class="pop-title">Where to</div>
     <button id="nav-pick" class="pop-item" type="button"><span class="pop-name">Pick a spot on the map…</span></button>
-    <button id="nav-random" class="pop-item" type="button"><span class="pop-name">Surprise me</span><span class="pop-sub">A random fare across town</span></button>
+    <button id="nav-random" class="pop-item" type="button"><span class="pop-name">Surprise me</span><span class="pop-sub">Somewhere across town</span></button>
     <button id="nav-stop" class="pop-item" type="button" hidden><span class="pop-name">End the trip</span></button>
-    <div id="nav-places"><!-- the city's places, listed by main.js --></div>
+    <div id="nav-places"><!-- the city's places (city-config.js TELEPORT_LOCATIONS), listed by navigation-ui.js --></div>
   </div>
 
   <!-- Turn-by-turn guidance & the Crazy Taxi meter -->
@@ -337,7 +329,7 @@
     </div>
 
     <div class="map-controls">
-      <div class="panel map-compass" title="True north · the map turns with the streets">
+      <div class="panel map-compass" title="North is up">
         <svg viewBox="0 0 44 44" aria-hidden="true">
           <g id="map-compass-needle">
             <path d="M22 9.5 25.6 22h-7.2z" fill="#f05a4f"/>
@@ -356,9 +348,19 @@
       </div>
     </div>
 
+    <!-- A tap on the map: go there (js/navigation-ui.js) -->
+    <div id="map-pick-menu" class="panel map-pick" role="menu" aria-labelledby="map-pick-title" hidden>
+      <div id="map-pick-title" class="map-pick-title">Here</div>
+      <button class="pop-item" data-go="you" type="button" role="menuitem"><svg class="icon" aria-hidden="true"><use href="#i-route"/></svg><span class="pop-name">Navigate here</span></button>
+      <button class="pop-item" data-go="self" type="button" role="menuitem"><svg class="icon" aria-hidden="true"><use href="#i-car"/></svg><span class="pop-name">Self-drive here</span></button>
+      <button class="pop-item" data-go="crazy" type="button" role="menuitem"><svg class="icon" aria-hidden="true"><use href="#i-car"/></svg><span class="pop-name">Crazy Taxi here</span></button>
+      <button class="pop-item" data-go="teleport" type="button" role="menuitem"><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg><span class="pop-name">Teleport here</span></button>
+      <button id="map-pick-cancel" class="map-pick-cancel" type="button">Cancel</button>
+    </div>
+
     <div class="fullmap-footer">
       <div class="panel fullmap-status">
-        <span id="fullmap-hover-info">Click anywhere to teleport &amp; set your GPS route · Drag to pan · Scroll to zoom</span>
+        <span id="fullmap-hover-info">Click anywhere to go there: drive, self-drive, Crazy Taxi or teleport · Drag to pan · Scroll to zoom</span>
       </div>
     </div>
 

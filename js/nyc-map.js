@@ -32,8 +32,9 @@ import {
 
 // js/nyc-map.js
 // GTA 6-Style Live Radar Minimap + Full-Screen Interactive New York City Cartographic Atlas.
-// Synchronized 1:1 with the 3D world (1 unit = 1 m; x = Manhattan-grid east, z = grid south, so both maps are drawn
-// "grid north up", the way Manhattan's street map is read, 29° east of true north). They draw the very geography the
+// Synchronized 1:1 with the 3D world (1 unit = 1 m; x = grid east, z = grid south, the world's axes turned along the
+// city's street grid, 29° east of true north in Manhattan, 31.8° in Singapore). Both maps turn that back, so true north
+// is up (MapView), with the names upright. They draw the very geography the
 // city is built from (GEO, from NYC Open Data & OpenStreetMap): Manhattan's bulkhead line and piers, every
 // curb island (block) with the building footprints standing on it, the parks, Central Park's meadows, water bodies &
 // drives, the shore highways, the real street centrelines (labelled along their course), the surrounding boroughs and
@@ -44,6 +45,16 @@ const MIN_ZOOM = 0.015; // full map, pixels per metre: the whole harbour, Staten
 const MAX_ZOOM = 3.0; // single lots
 const RADAR_SCALE = 0.32; // radar pixels per metre on the ground (zooms out with altitude)
 const GRID_BEARING = (GEO.frame && GEO.frame.bearingDeg) || 29.02; // Manhattan's grid north, degrees east of true north
+// The maps' turn (radians, clockwise on screen) that puts true north up: true north in the world frame is
+// (x, z) = (-sin b, -cos b) (tools/city/frame.mjs), and turning the screen by b brings it to (0, -1)
+const MAP_ROTATION = (GRID_BEARING * Math.PI) / 180;
+// An angle in screen space kept within (-90°, 90°], for text that reads left to right
+const upright = (a) => {
+  let r = Math.atan2(Math.sin(a), Math.cos(a));
+  if (r > Math.PI * 0.5 + 0.01) r -= Math.PI;
+  else if (r <= -Math.PI * 0.5 - 0.01) r += Math.PI;
+  return r;
+};
 
 // Map palette, shared by the radar & the atlas (in step with css/style.css): graphite ground with the streets a shade
 // lighter than the blocks they run between, muted parks & water; a taxi-yellow GPS route, white landmarks & player,
@@ -420,43 +431,80 @@ function addTileFootprints(key, ox, oz, { pts, offsets, tops }) {
   TILE_FOOTPRINTS.version++;
 }
 
-/** A map viewport: centre (cx, cz) in world metres, s pixels per metre, w x h CSS pixels on a canvas of pixel ratio dpr */
+/**
+ * A map viewport: centre (cx, cz) in world metres, s pixels per metre, w x h CSS pixels on a canvas of pixel ratio dpr,
+ * the world turned `rot` radians (clockwise) on screen so true north is up. min/max X/Z bound what it sees.
+ */
 class MapView {
-  constructor(cx, cz, s, w, h, dpr = 1) {
+  constructor(cx, cz, s, w, h, dpr = 1, rot = MAP_ROTATION) {
     this.cx = cx;
     this.cz = cz;
     this.s = s;
     this.w = w;
     this.h = h;
     this.dpr = dpr;
-    this.minX = cx - w / (2 * s);
-    this.maxX = cx + w / (2 * s);
-    this.minZ = cz - h / (2 * s);
-    this.maxZ = cz + h / (2 * s);
+    this.rot = rot;
+    this.cos = Math.cos(rot);
+    this.sin = Math.sin(rot);
+    // the world box around the turned screen rectangle
+    const hx = w / (2 * s);
+    const hz = h / (2 * s);
+    const ex = hx * Math.abs(this.cos) + hz * Math.abs(this.sin);
+    const ez = hx * Math.abs(this.sin) + hz * Math.abs(this.cos);
+    this.minX = cx - ex;
+    this.maxX = cx + ex;
+    this.minZ = cz - ez;
+    this.maxZ = cz + ez;
   }
 
   /** Canvas transform for world metres */
   world(ctx) {
-    const { s, dpr } = this;
-    ctx.setTransform(s * dpr, 0, 0, s * dpr, dpr * (this.w * 0.5 - this.cx * s), dpr * (this.h * 0.5 - this.cz * s));
+    const { s, dpr, cos, sin, cx, cz } = this;
+    const a = s * cos;
+    const b = s * sin;
+    const c = -s * sin;
+    const d = s * cos;
+    ctx.setTransform(a * dpr, b * dpr, c * dpr, d * dpr, dpr * (this.w * 0.5 - (a * cx + c * cz)), dpr * (this.h * 0.5 - (b * cx + d * cz)));
   }
 
-  /** Canvas transform for CSS pixels from the canvas centre (what toX / toY return) */
+  /** Canvas transform for CSS pixels from the canvas centre (what pt returns) */
   screen(ctx) {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, this.dpr * this.w * 0.5, this.dpr * this.h * 0.5);
   }
 
-  toX(x) {
-    return (x - this.cx) * this.s;
+  /** World (x, z) as CSS pixels from the canvas centre: [X, Y] */
+  pt(x, z, out = [0, 0]) {
+    const dx = x - this.cx;
+    const dz = z - this.cz;
+    out[0] = (dx * this.cos - dz * this.sin) * this.s;
+    out[1] = (dx * this.sin + dz * this.cos) * this.s;
+    return out;
   }
 
-  toY(z) {
-    return (z - this.cz) * this.s;
+  /** CSS pixels from the canvas centre as world { x, z } */
+  unproject(X, Y) {
+    const u = X / this.s;
+    const v = Y / this.s;
+    return { x: this.cx + u * this.cos + v * this.sin, z: this.cz - u * this.sin + v * this.cos };
+  }
+
+  /** A world direction (heading h faces (sin h, cos h)) as a canvas rotation for an arrow drawn pointing up */
+  headingAngle(h) {
+    return -h + Math.PI + this.rot;
   }
 
   sees(b) {
     return b && b.maxX >= this.minX && b.minX <= this.maxX && b.maxZ >= this.minZ && b.minZ <= this.maxZ;
   }
+}
+
+// How far a world box reaches across the turned map, in metres: { w, h }
+function turnedExtent(b, rot = MAP_ROTATION) {
+  const bw = b.maxX - b.minX;
+  const bh = b.maxZ - b.minZ;
+  const c = Math.abs(Math.cos(rot));
+  const s = Math.abs(Math.sin(rot));
+  return { w: bw * c + bh * s, h: bw * s + bh * c };
 }
 
 // Player heading arrow at the (already rotated) origin: white, on a dark halo
@@ -475,14 +523,18 @@ function drawPlayerArrow(ctx, tipY, halfWidth, tailY) {
   ctx.fill();
 }
 
-// GPS route from the player to the waypoint, along the grid (x first, then z): taxi yellow on a dark casing
-function drawRoute(ctx, x0, y0, x1, y1, width) {
+// GPS route from the player to the waypoint along the grid (x first, then z: an L turned with the map), world
+// coordinates in view v: taxi yellow on a dark casing
+function drawRoute(ctx, v, ax, az, bx, bz, width) {
+  const p0 = v.pt(ax, az);
+  const p1 = v.pt(bx, az);
+  const p2 = v.pt(bx, bz);
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.moveTo(x0, y0);
-  ctx.lineTo(x1, y0);
-  ctx.lineTo(x1, y1);
+  ctx.moveTo(p0[0], p0[1]);
+  ctx.lineTo(p1[0], p1[1]);
+  ctx.lineTo(p2[0], p2[1]);
   ctx.strokeStyle = MAP.halo;
   ctx.lineWidth = width + 3;
   ctx.stroke();
@@ -492,13 +544,18 @@ function drawRoute(ctx, x0, y0, x1, y1, width) {
 }
 
 // The navigator's route (js/navigation.js): the road it actually takes, [{ x, z }] in world metres
-function drawRoutePath(ctx, pts, toX, toY, width) {
+function drawRoutePath(ctx, pts, v, width) {
   if (!pts || pts.length < 2) return;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.moveTo(toX(pts[0].x), toY(pts[0].z));
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(toX(pts[i].x), toY(pts[i].z));
+  const q = [0, 0];
+  v.pt(pts[0].x, pts[0].z, q);
+  ctx.moveTo(q[0], q[1]);
+  for (let i = 1; i < pts.length; i++) {
+    v.pt(pts[i].x, pts[i].z, q);
+    ctx.lineTo(q[0], q[1]);
+  }
   ctx.strokeStyle = MAP.halo;
   ctx.lineWidth = width + 3;
   ctx.stroke();
@@ -526,12 +583,14 @@ function drawWaypoint(ctx, x, y, r) {
 const overlaps = (boxes, b) => boxes.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
 
 class NYCMapSystem {
-  constructor({ controllerManager, cameraSystem, trafficSystem, allBlocks = [], onTeleport, onToggle }) {
+  constructor({ controllerManager, cameraSystem, trafficSystem, allBlocks = [], onTeleport, onToggle, onPick = null }) {
     this.controllerManager = controllerManager;
     this.cameraSystem = cameraSystem;
     this.trafficSystem = trafficSystem;
     this.allBlocks = allBlocks;
     this.onTeleport = onTeleport;
+    // (set by the app to offer what to do at a tapped spot: onPick(x, z, name, clientX, clientY); else a tap teleports)
+    this.onPick = onPick;
     this.onToggle = onToggle;
 
     this.miniCanvas = document.getElementById('minimap-canvas');
@@ -543,9 +602,9 @@ class NYCMapSystem {
     const elCounts = document.getElementById('fullmap-counts');
     if (elCounts) elCounts.textContent = `${ROAD_NAME_COUNT} streets · ${BLOCKS.length.toLocaleString('en-US')} blocks`;
 
-    // The map is drawn grid north up; the compass needle points to true north, 29° to its left
+    // The map is drawn true north up: the compass needle points straight up
     const needle = document.getElementById('map-compass-needle');
-    if (needle) needle.setAttribute('transform', `rotate(${-GRID_BEARING} 22 22)`);
+    if (needle) needle.removeAttribute('transform');
 
     this.modal = document.getElementById('fullmap-modal');
     this.fullCanvas = document.getElementById('fullmap-canvas');
@@ -644,9 +703,10 @@ class NYCMapSystem {
         // Fits all of Manhattan, from the Harlem River to the Battery (or the whole island beyond a detailed city)
         const b = ISLAND.bounds || ISLAND_BOUNDS;
         const { w, h } = this.fullSize();
+        const e = turnedExtent(b);
         this.viewCenterX = (b.minX + b.maxX) * 0.5;
         this.viewCenterZ = (b.minZ + b.maxZ) * 0.5;
-        this.viewZoom = Math.max(MIN_ZOOM, Math.min(w / ((b.maxX - b.minX) * 1.15), h / ((b.maxZ - b.minZ) * 1.06)));
+        this.viewZoom = Math.max(MIN_ZOOM, Math.min(w / (e.w * 1.15), h / (e.h * 1.06)));
         this.renderFullMap();
       });
     }
@@ -691,8 +751,11 @@ class NYCMapSystem {
           const dx = e.clientX - this.panStart.x;
           const dy = e.clientY - this.panStart.y;
           if (Math.hypot(dx, dy) > 5) this.dragMoved = true;
-          this.viewCenterX = this.panStart.cx - dx / this.viewZoom;
-          this.viewCenterZ = this.panStart.cz - dy / this.viewZoom;
+          // (the world under the pointer stays under it: the drag turned back into the world frame)
+          const c = Math.cos(MAP_ROTATION);
+          const sn = Math.sin(MAP_ROTATION);
+          this.viewCenterX = this.panStart.cx - (dx * c + dy * sn) / this.viewZoom;
+          this.viewCenterZ = this.panStart.cz - (-dx * sn + dy * c) / this.viewZoom;
           this.renderFullMap();
           return;
         }
@@ -701,7 +764,7 @@ class NYCMapSystem {
           const wPos = this.screenToWorld(mx, my, rect.width, rect.height);
           this.hoverWorld = wPos;
           if (this.elHoverInfo) {
-            this.elHoverInfo.textContent = `${getLocationLabel(wPos.x, wPos.z)} · ${this.pickHandler ? 'Click to drive here' : 'Click to teleport here'}`;
+            this.elHoverInfo.textContent = `${getLocationLabel(wPos.x, wPos.z)} · ${this.pickHandler ? 'Click to go here' : this.onPick ? 'Click to drive, take a taxi or teleport here' : 'Click to teleport here'}`;
           }
         }
       });
@@ -721,6 +784,10 @@ class NYCMapSystem {
               this.pickHandler = null;
               pick(wPos.x, wPos.z, getLocationLabel(wPos.x, wPos.z));
               this.renderFullMap();
+              return;
+            }
+            if (this.onPick) {
+              this.onPick(wPos.x, wPos.z, getLocationLabel(wPos.x, wPos.z), e.clientX, e.clientY);
               return;
             }
             this.waypoint = {
@@ -754,8 +821,12 @@ class NYCMapSystem {
         const before = this.screenToWorld(mx, my, rect.width, rect.height);
         const factor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
         this.viewZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, this.viewZoom * factor));
-        this.viewCenterX = before.x - (mx - rect.width * 0.5) / this.viewZoom;
-        this.viewCenterZ = before.z - (my - rect.height * 0.5) / this.viewZoom;
+        const c = Math.cos(MAP_ROTATION);
+        const sn = Math.sin(MAP_ROTATION);
+        const ux = (mx - rect.width * 0.5) / this.viewZoom;
+        const uy = (my - rect.height * 0.5) / this.viewZoom;
+        this.viewCenterX = before.x - (ux * c + uy * sn);
+        this.viewCenterZ = before.z - (-ux * sn + uy * c);
         this.renderFullMap();
       }, { passive: false });
     }
@@ -793,7 +864,8 @@ class NYCMapSystem {
         const { w, h } = this.fullSize();
         this.viewCenterX = (b.minX + b.maxX) * 0.5;
         this.viewCenterZ = (b.minZ + b.maxZ) * 0.5;
-        const fit = Math.min(w / ((b.maxX - b.minX) * 1.3 + 1), h / ((b.maxZ - b.minZ) * 1.3 + 1));
+        const e = turnedExtent(b);
+        const fit = Math.min(w / (e.w * 1.3 + 1), h / (e.h * 1.3 + 1));
         this.viewZoom = Math.max(0.05, Math.min(1.2, fit));
       }
     }
@@ -850,10 +922,7 @@ class NYCMapSystem {
   }
 
   screenToWorld(sx, sy, width, height) {
-    return {
-      x: this.viewCenterX + (sx - width * 0.5) / this.viewZoom,
-      z: this.viewCenterZ + (sy - height * 0.5) / this.viewZoom
-    };
+    return new MapView(this.viewCenterX, this.viewCenterZ, this.viewZoom, width, height).unproject(sx - width * 0.5, sy - height * 0.5);
   }
 
   // Teleports land on Manhattan: inside the island's extent at that latitude (anywhere on the island once its land is
@@ -1076,14 +1145,16 @@ class NYCMapSystem {
     let n = 0;
     for (const c of cands) {
       if (n >= maxLabels) break;
-      const X = v.toX(c.a.x);
-      const Y = v.toY(c.a.z);
+      const [X, Y] = v.pt(c.a.x, c.a.z);
+      // (on screen: inside the view, with room for the name; and turned with the map, kept upright)
+      if (Math.abs(X) > v.w * 0.5 - fontPx * 2.5 || Math.abs(Y) > v.h * 0.5 - fontPx * 2.5) continue;
+      const ang = upright(c.a.ang + v.rot);
       const same = byName.get(c.l.text);
       if (same && same.some(([x, y]) => Math.hypot(x - X, y - Y) < sameNameGap)) continue;
       const hw = c.width * 0.5 + 3;
       const hh = fontPx * 0.5 + 2;
-      const ca = Math.abs(Math.cos(c.a.ang));
-      const sa = Math.abs(Math.sin(c.a.ang));
+      const ca = Math.abs(Math.cos(ang));
+      const sa = Math.abs(Math.sin(ang));
       const bx = hw * ca + hh * sa;
       const by = hw * sa + hh * ca;
       const box = [X - bx, Y - by, X + bx, Y + by];
@@ -1093,7 +1164,7 @@ class NYCMapSystem {
       else byName.set(c.l.text, [[X, Y]]);
       ctx.save();
       ctx.translate(X, Y);
-      ctx.rotate(c.a.ang);
+      ctx.rotate(ang);
       ctx.fillStyle = c.hit ? MAP.search : c.l.highway ? '#e3a857' : c.l.major ? '#e8ebf0' : '#9ba5b3';
       ctx.strokeText(c.l.text, 0, 0);
       ctx.fillText(c.l.text, 0, 0);
@@ -1153,9 +1224,12 @@ class NYCMapSystem {
     const fp = footprintLayers(this.allBlocks);
     const version = `${fp ? fp.version : 0}|${ISLAND.version}|${TILE_FOOTPRINTS.version}`;
     let c = this.miniCache;
+    // (where the cache's centre is on the radar now, in pixels: it covers the radar while that is under its half size)
+    const off = c ? new MapView(px, pz, scale, w, h, dpr).pt(c.cx, c.cz) : null;
+    const kc = c ? scale / c.s : 1;
     if (!c || c.version !== version || Math.abs(scale / c.s - 1) > 0.12 ||
-      Math.abs(px - c.cx) > w / c.s - w / (2 * scale) - 8 / scale ||
-      Math.abs(pz - c.cz) > h / c.s - h / (2 * scale) - 8 / scale) {
+      Math.abs(off[0]) > w * kc - w / 2 - 8 ||
+      Math.abs(off[1]) > h * kc - h / 2 - 8) {
       if (!c) {
         c = this.miniCache = { canvas: document.createElement('canvas') };
         c.canvas.width = bw * 2;
@@ -1181,20 +1255,18 @@ class NYCMapSystem {
     ctx.fillStyle = MAP.water;
     ctx.fillRect(0, 0, bw, bh);
     const k = scale / c.s;
-    ctx.drawImage(c.canvas, dpr * ((c.cx - w / c.s - px) * scale + w * 0.5), dpr * ((c.cz - h / c.s - pz) * scale + h * 0.5),
-      dpr * w * 2 * k, dpr * h * 2 * k);
+    const [ox, oy] = v.pt(c.cx, c.cz);
+    ctx.drawImage(c.canvas, dpr * (ox - w * k + w * 0.5), dpr * (oy - h * k + h * 0.5), dpr * w * 2 * k, dpr * h * 2 * k);
 
     v.screen(ctx);
-    const toX = (wx) => v.toX(wx);
-    const toY = (wz) => v.toY(wz);
+    const q = [0, 0];
 
     // Live moving traffic blips on radar
     if (this.trafficSystem && this.trafficSystem.cars) {
       ctx.fillStyle = 'rgba(226, 232, 240, 0.34)';
       for (let i = 0; i < this.trafficSystem.cars.length; i += 2) {
         const car = this.trafficSystem.cars[i];
-        const cx = toX(car.x);
-        const cy = toY(car.z);
+        const [cx, cy] = v.pt(car.x, car.z, q);
         if (Math.abs(cx) < w * 0.5 && Math.abs(cy) < h * 0.5) {
           ctx.fillRect(cx - 1, cy - 1, 2, 2);
         }
@@ -1203,17 +1275,15 @@ class NYCMapSystem {
 
     // GPS route to the active waypoint
     if (this.waypoint) {
-      const wx = toX(this.waypoint.x);
-      const wy = toY(this.waypoint.z);
-      if (this.routeLine) drawRoutePath(ctx, this.routeLine, toX, toY, 3);
-      else drawRoute(ctx, 0, 0, wx, wy, 3);
+      const [wx, wy] = v.pt(this.waypoint.x, this.waypoint.z);
+      if (this.routeLine) drawRoutePath(ctx, this.routeLine, v, 3);
+      else drawRoute(ctx, v, px, pz, this.waypoint.x, this.waypoint.z, 3);
       drawWaypoint(ctx, wx, wy, 4.5);
     }
 
     // Landmark blips
     for (const lm of NYC_LANDMARKS) {
-      const lx = toX(lm.x);
-      const ly = toY(lm.z);
+      const [lx, ly] = v.pt(lm.x, lm.z, q);
       if (Math.abs(lx) < w * 0.48 && Math.abs(ly) < h * 0.48) {
         ctx.fillStyle = MAP.halo;
         ctx.beginPath();
@@ -1231,7 +1301,7 @@ class NYCMapSystem {
     const camAngle = Math.atan2(camDir.x, camDir.z);
 
     ctx.save();
-    ctx.rotate(-camAngle + Math.PI);
+    ctx.rotate(v.headingAngle(camAngle));
     const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, 58);
     grad.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
     grad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
@@ -1245,7 +1315,7 @@ class NYCMapSystem {
 
     // Player heading arrow
     ctx.save();
-    ctx.rotate(-ent.heading + Math.PI);
+    ctx.rotate(v.headingAngle(ent.heading));
     drawPlayerArrow(ctx, -9, 6.5, 7);
     ctx.restore();
 
@@ -1289,21 +1359,17 @@ class NYCMapSystem {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(this.fullStatic, 0, 0);
     v.screen(ctx);
-    const toX = (wx) => v.toX(wx);
-    const toY = (wz) => v.toY(wz);
 
     // GPS route on the full map
     if (this.waypoint) {
-      const wx = toX(this.waypoint.x);
-      const wy = toY(this.waypoint.z);
-      if (this.routeLine) drawRoutePath(ctx, this.routeLine, toX, toY, 4);
-      else drawRoute(ctx, toX(ent.position.x), toY(ent.position.z), wx, wy, 4);
+      const [wx, wy] = v.pt(this.waypoint.x, this.waypoint.z);
+      if (this.routeLine) drawRoutePath(ctx, this.routeLine, v, 4);
+      else drawRoute(ctx, v, ent.position.x, ent.position.z, this.waypoint.x, this.waypoint.z, 4);
       drawWaypoint(ctx, wx, wy, 7);
     }
 
     // Live Player Blip & Heading Arrow, with a slow pulse to find it at a glance
-    const px = toX(ent.position.x);
-    const py = toY(ent.position.z);
+    const [px, py] = v.pt(ent.position.x, ent.position.z);
 
     ctx.save();
     ctx.translate(px, py);
@@ -1316,7 +1382,7 @@ class NYCMapSystem {
     ctx.beginPath();
     ctx.arc(0, 0, 13, 0, Math.PI * 2);
     ctx.fill();
-    ctx.rotate(-ent.heading + Math.PI);
+    ctx.rotate(v.headingAngle(ent.heading));
     drawPlayerArrow(ctx, -11, 7.5, 8);
     ctx.restore();
 
@@ -1335,16 +1401,14 @@ class NYCMapSystem {
     this.drawWorld(ctx, v, false);
 
     v.screen(ctx);
-    const toX = (wx) => v.toX(wx);
-    const toY = (wz) => v.toY(wz);
+    const q = [0, 0];
 
     // 3. Iconic Landmark Pins & Collision-Free Labels (placed first: their boxes keep the other names clear)
     ctx.font = `700 11px ${FONT}`;
     const placed = [];
     const pins = [];
     for (const lm of NYC_LANDMARKS) {
-      const lx = toX(lm.x);
-      const ly = toY(lm.z);
+      const [lx, ly] = v.pt(lm.x, lm.z, q);
       if (Math.abs(lx) > w * 0.48 || Math.abs(ly) > h * 0.48) continue;
       const labelW = this.textWidth(ctx, lm.short) + 6;
       const box = [lx + 6, ly - 8, lx + 8 + labelW, ly + 7];
@@ -1361,8 +1425,7 @@ class NYCMapSystem {
     for (const [label, x, z, kind] of AREA_LABELS) {
       if (kind === 0 && s > 0.07) continue;
       if (kind === 2 && (s < 0.035 || s > 1.2)) continue;
-      const dx = toX(x);
-      const dy = toY(z);
+      const [dx, dy] = v.pt(x, z, q);
       if (Math.abs(dx) > w * 0.47 || Math.abs(dy) > h * 0.47) continue;
       if (kind === 0) {
         ctx.font = `700 15px ${FONT}`;
@@ -1446,4 +1509,4 @@ class NYCMapSystem {
   }
 }
 
-export { NYCMapSystem };
+export { NYCMapSystem, MapView, MAP_ROTATION };

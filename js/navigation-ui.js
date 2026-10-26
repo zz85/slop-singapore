@@ -1,13 +1,17 @@
-import { NYC_LANDMARKS, CITY } from './city-config.js';
+import { NYC_LANDMARKS, TELEPORT_LOCATIONS, CITY } from './city-config.js';
 
 // js/navigation-ui.js
-// The HUD for js/navigation.js: the Navigate menu (who drives, where to), the turn-by-turn card, the Crazy Taxi meter
-// and its call-outs, and the route on the radar and the full map. All DOM text through textContent.
+// The HUD for js/navigation.js: the Navigate menu (how to go: drive yourself, self-driving, Crazy Taxi or teleport;
+// and where to), the menu a tap on the full map opens (go there each of those ways), the turn-by-turn card, the Crazy
+// Taxi meter and its call-outs, and the route on the radar and the full map. All DOM text through textContent.
+
+// The ways to go: three drivers (navigation.js DRIVERS) and teleporting
+const HOW = ['you', 'self', 'crazy', 'teleport'];
 
 const ARROWS = { left: 'i-turn-left', right: 'i-turn-right', keepleft: 'i-keep-left', keepright: 'i-keep-right', uturn: 'i-uturn', arrive: 'i-arrive' };
 const WORDS = { left: 'Turn left', right: 'Turn right', keepleft: 'Keep left', keepright: 'Keep right', uturn: 'Make a U-turn', arrive: 'Arrive' };
 
-function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode, closePopovers }) {
+function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode, closePopovers, teleport = null }) {
   const $ = (id) => document.getElementById(id);
   const panel = $('nav-panel');
   const popover = $('navigate-popover');
@@ -20,6 +24,7 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
     stop: $('nav-stop')
   };
   let earned = 0; // Crazy Taxi: the shift's takings
+  let how = navigator.driver.id; // the way the menu goes: a driver, or 'teleport'
   let toastTimer = 0;
 
   const formatDistance = (m) => {
@@ -41,26 +46,39 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
     toastTimer = setTimeout(() => el.toast.classList.remove('show'), ms);
   }
 
-  // Places: the city's landmarks, nearest last so the list reads as a choice of trips
+  // Places: the city's destinations, each with its arrival on the street (city-config.js TELEPORT_LOCATIONS)
   const places = $('nav-places');
-  for (const lm of NYC_LANDMARKS) {
+  for (const loc of Object.values(TELEPORT_LOCATIONS)) {
     const btn = document.createElement('button');
     btn.className = 'pop-item';
     btn.type = 'button';
     const name = document.createElement('span');
     name.className = 'pop-name';
-    name.textContent = lm.name;
+    name.textContent = loc.name;
     const sub = document.createElement('span');
     sub.className = 'pop-sub';
-    sub.textContent = lm.district || '';
+    sub.textContent = loc.sub || '';
     btn.append(name, sub);
-    btn.addEventListener('click', () => go(lm.x, lm.z, lm.name));
+    btn.addEventListener('click', () => go(how, loc.x, loc.z, loc.name, loc.heading));
     places?.appendChild(btn);
   }
 
-  function go(x, z, name) {
+  /** Go to (x, z) `way`: driving there (yourself, self-driving or Crazy Taxi), or teleporting there */
+  function go(way, x, z, name, heading) {
     closePopovers();
-    // the autopilots drive the car: hop in
+    if (way === 'teleport') {
+      if (!teleport) return;
+      // (a trip on the go carries on from the new spot)
+      teleport(x, z, heading);
+      if (navigator.active) navigator.reroute(true);
+      toast(name ? `Teleported to ${name}` : 'Teleported', 1400);
+      return;
+    }
+    if (way !== navigator.driver.id) {
+      // the autopilots drive the car: hop in
+      if (way !== 'you' && controllerManager.activeMode !== 'car') selectMode('car');
+      navigator.setDriver(way);
+    }
     if (navigator.driver.auto && controllerManager.activeMode !== 'car') selectMode('car');
     if (!navigator.setDestination(x, z, name)) return;
     mapSystem.waypoint = { x, z, name };
@@ -73,14 +91,18 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
     const far = NYC_LANDMARKS.filter((l) => { const d = Math.hypot(l.x - p.x, l.z - p.z); return d > 400 && d < 2500; });
     const list = far.length ? far : NYC_LANDMARKS;
     const lm = list[Math.floor(Math.random() * list.length)];
-    if (lm) go(lm.x, lm.z, lm.name);
+    if (lm) go(how === 'teleport' ? navigator.driver.id : how, lm.x, lm.z, lm.name);
   }
 
   for (const btn of popover.querySelectorAll('[data-driver]')) {
     btn.addEventListener('click', () => {
       const id = btn.dataset.driver;
-      if (id !== 'you' && controllerManager.activeMode !== 'car') selectMode('car');
-      navigator.setDriver(id);
+      if (!HOW.includes(id)) return;
+      how = id;
+      if (id !== 'teleport') {
+        if (id !== 'you' && controllerManager.activeMode !== 'car') selectMode('car');
+        navigator.setDriver(id);
+      }
       syncDrivers();
       // Crazy Taxi with nowhere to go yet: a fare
       if (id === 'crazy' && !navigator.active) randomTrip();
@@ -92,8 +114,8 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
     document.body.classList.add('nav-picking');
     mapSystem.pickHandler = (x, z, name) => {
       document.body.classList.remove('nav-picking');
-      mapSystem.toggleFullMap(false);
-      go(x, z, name);
+      if (how !== 'teleport') mapSystem.toggleFullMap(false);
+      go(how, x, z, name);
     };
     mapSystem.toggleFullMap(true);
     const hint = $('fullmap-hover-info');
@@ -107,9 +129,57 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
   el.stop?.addEventListener('click', () => { stop(); closePopovers(); });
   $('nav-close')?.addEventListener('click', stop);
 
+  // A tap on the full map: a menu at the spot to go there any of the ways
+  const pickMenu = $('map-pick-menu');
+  const pickTitle = $('map-pick-title');
+  let picked = null;
+  function closePick() {
+    picked = null;
+    if (pickMenu) pickMenu.hidden = true;
+  }
+  if (pickMenu) {
+    mapSystem.onPick = (x, z, name, clientX, clientY) => {
+      picked = { x, z, name };
+      if (pickTitle) pickTitle.textContent = name || 'Here';
+      for (const b of pickMenu.querySelectorAll('[data-go]')) b.hidden = b.dataset.go === 'teleport' && !teleport;
+      pickMenu.hidden = false;
+      // beside the tap, kept on screen
+      const w = pickMenu.offsetWidth || 220;
+      const h = pickMenu.offsetHeight || 200;
+      const vw = window.innerWidth || 1024;
+      const vh = window.innerHeight || 768;
+      const left = Math.max(8, Math.min(vw - w - 8, clientX + 12));
+      const top = Math.max(8, Math.min(vh - h - 8, clientY - h * 0.5));
+      pickMenu.style.left = `${left}px`;
+      pickMenu.style.top = `${top}px`;
+      pickMenu.querySelector('[data-go]')?.focus?.();
+    };
+    for (const b of pickMenu.querySelectorAll('[data-go]')) {
+      b.addEventListener('click', () => {
+        if (!picked) return;
+        const { x, z, name } = picked;
+        const way = b.dataset.go;
+        closePick();
+        if (way !== 'teleport') mapSystem.toggleFullMap(false);
+        go(way, x, z, name);
+        mapSystem.renderFullMap?.();
+      });
+    }
+    $('map-pick-cancel')?.addEventListener('click', closePick);
+    // a drag, a zoom, Esc or closing the map puts it away
+    mapSystem.fullCanvas?.addEventListener('pointerdown', closePick);
+    mapSystem.fullCanvas?.addEventListener('wheel', closePick, { passive: true });
+    window.addEventListener('keydown', (e) => { if (e.code === 'Escape') closePick(); });
+    const toggle = mapSystem.toggleFullMap.bind(mapSystem);
+    mapSystem.toggleFullMap = (open) => {
+      if (!open) closePick();
+      toggle(open);
+    };
+  }
+
   function syncDrivers() {
     for (const btn of popover.querySelectorAll('[data-driver]')) {
-      const on = btn.dataset.driver === navigator.driver.id;
+      const on = btn.dataset.driver === how;
       btn.classList.toggle('active', on);
       btn.setAttribute('aria-checked', String(on));
     }
@@ -145,7 +215,11 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
     }
   }
 
-  navigator.onChange = sync;
+  navigator.onChange = (st) => {
+    // (a driver change made elsewhere, the controls taken over: the menu follows, unless it is set to teleport)
+    if (how !== 'teleport') how = navigator.driver.id;
+    sync(st);
+  };
   navigator.onEvent = (kind, d) => {
     if (kind === 'arrived') {
       if (d.fare) {
@@ -174,7 +248,9 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
     },
     toggleMenu() {
       if (typeof popover.togglePopover === 'function') popover.togglePopover();
-    }
+    },
+    go,
+    get how() { return how; }
   };
 }
 
