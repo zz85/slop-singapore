@@ -30,6 +30,7 @@ import { Weather } from './weather.js';
 import { Navigator } from './navigation.js';
 import { setupNavigationUI } from './navigation-ui.js';
 import { PerceptionOverlay } from './perception-overlay.js';
+import { createIslandNetwork } from './island-network.js';
 
 // js/main.js
 // Main entry point for the city simulation (Singapore by default, ?city=nyc for New York) in Three.js WebGPURenderer &
@@ -639,7 +640,16 @@ async function initApp() {
 
   // Drive to a destination (js/navigation.js): turn-by-turn for you, or the self-driving or Crazy Taxi autopilot driving
   // the car over the traffic's own road graph
-  const routeNavigator = new Navigator({ network: trafficSystem.network, trafficSystem, islandTraffic, controllerManager, audioSystem });
+  // (beyond the detailed city, over the island's main roads: their graph joined to the city's the first time a trip
+  // starts or ends out there, ~0.5 s, and kept)
+  let joinedNetwork = null;
+  const resolveNetwork = (a, b) => {
+    if (joinedNetwork) return joinedNetwork;
+    if (!islandRoads || (islandRoads.inCore(a.x, a.z) && islandRoads.inCore(b.x, b.z))) return trafficSystem.network;
+    joinedNetwork = createIslandNetwork(islandRoads, { keepLeft: CITY.driveSide === 'left', city: trafficSystem.network, coreRing: cityTiles.index.coreRing });
+    return joinedNetwork;
+  };
+  const routeNavigator = new Navigator({ network: trafficSystem.network, trafficSystem, islandTraffic, controllerManager, audioSystem, resolveNetwork });
   const navigationUI = setupNavigationUI({ navigator: routeNavigator, mapSystem, controllerManager, selectMode, closePopovers, teleport: teleportTo });
   // What the autopilot sees, over the view (js/perception-overlay.js): the Navigate menu's switch & [O], remembered
   const perceptionOverlay = new PerceptionOverlay(document.body, { metric: CITY.units === 'metric' });

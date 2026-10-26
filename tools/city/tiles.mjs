@@ -10,7 +10,7 @@
 //     roads: [class, width (dm), points..., dx dz (dm) from the point before (the first from the tile's corner)] runs
 //   }
 // and tiles/<city>/roads.json, the island's main roads for the maps (js/nyc-map.js), the island's traffic and teleports
-// (js/island-roads.js), outside the detailed area:
+// (js/island-roads.js), beyond the detail box (through its margin, up to where the city's own road graph takes over):
 //   { classes, names, roads: [[class, name index or -1, x0, z0, then each point's dx dz (m) from the one before]],
 //     oneway: [1 along the points, -1 against them, 0 both ways, per road], lanes: [travel lanes per road],
 //     signals: [x, z (m), kind (0 a junction's, 1 a pedestrian crossing's), ...] the traffic lights beyond the detailed
@@ -53,6 +53,10 @@ export async function buildTiles(cityOrId, { data, out, geo } = {}) {
   const m = city.margin;
   const coreRing = [toWorld(W - m, N + m), toWorld(E + m, N + m), toWorld(E + m, S - m), toWorld(W - m, S - m)];
   const inCore = (x, z) => pointInRing(x, z, coreRing);
+  // (the detail box itself: the city's own road graph covers it, so the maps' road layer runs up to it, through the
+  // margin, for the island's routes to join the city's)
+  const detailRing = [toWorld(W, N), toWorld(E, N), toWorld(E, S), toWorld(W, S)];
+  const inDetail = (x, z) => pointInRing(x, z, detailRing);
 
   // --- Downloads, each element once -------------------------------------------------------------------------------------
   const seen = new Set();
@@ -178,25 +182,47 @@ export async function buildTiles(cityOrId, { data, out, geo } = {}) {
   const mapRoads = [];
   const mapOneway = [];
   const mapLanes = [];
-  for (const e of roadsOSM) {
+  // (the slip roads too, as their road's class: they are what joins the expressways to the rest; and each way cut at the
+  // junctions it shares with the others, so a road's ends are where the roads meet, for the island's route planning)
+  const mapWays = roadsOSM.filter((e) => {
     const t = e.tags || {};
-    const ci = ROAD_CLASSES.indexOf(t.highway);
-    if (ci < 0 || !e.geometry || t.area === 'yes') continue;
-    const pts = rdp(e.geometry.map((g) => toWorld(g.lon, g.lat)), 4);
-    if (pts.length < 2 || pts.every(([x, z]) => inCore(x, z))) continue;
+    return ROAD_CLASSES.includes((t.highway || '').replace(/_link$/, '')) && e.geometry && t.area !== 'yes';
+  });
+  const waysAt = new Map(); // OSM node -> how many of the ways pass through it
+  for (const e of mapWays) for (const n of new Set(e.nodes || [])) waysAt.set(n, (waysAt.get(n) || 0) + 1);
+  for (const e of mapWays) {
+    const t = e.tags || {};
+    const link = /_link$/.test(t.highway);
+    const cls = t.highway.replace(/_link$/, '');
+    const ci = ROAD_CLASSES.indexOf(cls);
     const name = t.name || t.ref || '';
-    if (name && !nameIndex.has(name)) { nameIndex.set(name, mapNames.length); mapNames.push(name); }
-    const r = [ci, name ? nameIndex.get(name) : -1];
-    let px = 0, pz = 0;
-    for (const [x, z] of pts) {
-      const qx = Math.round(x), qz = Math.round(z);
-      r.push(qx - px, qz - pz);
-      px = qx; pz = qz;
+    const oneway = t.oneway === '-1' ? -1 : t.oneway === 'yes' || t.oneway === '1' || t.highway === 'motorway' || t.highway === 'motorway_link' || t.junction === 'roundabout' ? 1 : 0;
+    const lanes = Math.max(1, Math.min(6, Math.round(num(t.lanes)) || (link ? 1 : oneway ? (cls === 'motorway' ? 3 : 2) : 2)));
+    const geom = e.geometry.map((g) => toWorld(g.lon, g.lat));
+    const nodes = e.nodes && e.nodes.length === geom.length ? e.nodes : null;
+    const pieces = [];
+    let from = 0;
+    for (let k = 1; k < geom.length; k++) {
+      if (k === geom.length - 1 || (nodes && waysAt.get(nodes[k]) > 1)) {
+        pieces.push(geom.slice(from, k + 1));
+        from = k;
+      }
     }
-    mapRoads.push(r);
-    const oneway = t.oneway === '-1' ? -1 : t.oneway === 'yes' || t.oneway === '1' || t.highway === 'motorway' || t.junction === 'roundabout' ? 1 : 0;
-    mapOneway.push(oneway);
-    mapLanes.push(Math.max(1, Math.min(6, Math.round(num(t.lanes)) || (oneway ? (t.highway === 'motorway' ? 3 : 2) : 2))));
+    for (const piece of pieces) {
+      const pts = rdp(piece, 4);
+      if (pts.length < 2 || pts.every(([x, z]) => inDetail(x, z))) continue;
+      if (name && !nameIndex.has(name)) { nameIndex.set(name, mapNames.length); mapNames.push(name); }
+      const r = [ci, name ? nameIndex.get(name) : -1];
+      let px = 0, pz = 0;
+      for (const [x, z] of pts) {
+        const qx = Math.round(x), qz = Math.round(z);
+        r.push(qx - px, qz - pz);
+        px = qx; pz = qz;
+      }
+      mapRoads.push(r);
+      mapOneway.push(oneway);
+      mapLanes.push(lanes);
+    }
   }
 
   // --- Write ---------------------------------------------------------------------------------------------------------

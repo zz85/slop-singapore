@@ -37,6 +37,7 @@ const DRIVERS = {
   you: { id: 'you', label: 'You drive', auto: false, offRoute: 28 },
   self: {
     id: 'self', label: 'Self-driving', auto: true, offRoute: 14,
+    limits: true, // keeps to the island roads' speed limits (js/island-roads.js), up to its cruise
     cruise: 25, // 90 km/h, Singapore's expressway limit (slower where the curves, the lights or the traffic say so)
     aLat: 2.0, brake: 2.6, hardBrake: 7, gap0: 4.0, gapTime: 1.3, margin: 0.45,
     signals: true, peds: true,
@@ -70,6 +71,13 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 // Routing
 // ---------------------------------------------------------------------------------------------------------------------
 
+// The moves on from edge e: its own, and any a joined network adds (island-network.js: the city's edges handing over to
+// the island's roads, kept off the edges themselves so the city's traffic never takes them)
+const movesOf = (network, e) => {
+  const extra = network.extraMoves && network.extraMoves.get(e);
+  return extra ? [...e.moves, ...extra] : e.moves;
+};
+
 // Where (x, z) is on edge e: distance along it (clamped), across it (to its right) and from it
 function onEdge(e, x, z) {
   const ax = x - e.sx;
@@ -95,7 +103,8 @@ function findStartEdge(network, x, z, heading, radius = 45) {
     const p = onEdge(e, x, z);
     if (p.dist > radius) continue;
     const facing = hx * e.dx + hz * e.dz;
-    const score = p.dist + (1 - facing) * 9;
+    // (an edge cut off from the rest of the roads only when nothing else is near: there is no way on from it)
+    const score = p.dist + (1 - facing) * 9 + (e.stranded ? 500 : 0);
     if (!best || score < best.score) best = { edge: e, s: p.s, across: p.across, score };
   }
   return best;
@@ -111,6 +120,9 @@ function findGoalEdges(network, x, z, radius = 260) {
     const p = onEdge(e, x, z);
     if (p.dist <= radius) found.push({ edge: e, s: clamp(p.s, Math.min(3, e.len * 0.5), e.len), dist: p.dist });
   }
+  // (edges cut off from the rest of the roads only when no other is near)
+  const connected = found.filter((g) => !g.edge.stranded);
+  if (connected.length) found.length = 0, found.push(...connected);
   found.sort((a, b) => a.dist - b.dist);
   if (!found.length) return [];
   const near = found[0].dist + 120;
@@ -161,7 +173,9 @@ class Heap {
  */
 function planRoute(network, start, goal, driver = DRIVERS.self) {
   const from = findStartEdge(network, start.x, start.z, start.heading) || findStartEdge(network, start.x, start.z, start.heading, 300);
-  const goals = findGoalEdges(network, goal.x, goal.z);
+  // (a destination off the roads: the nearest road to it, out to 1.5 km)
+  let goals = findGoalEdges(network, goal.x, goal.z);
+  if (!goals.length) goals = findGoalEdges(network, goal.x, goal.z, 1500);
   if (!from || !goals.length) return null;
   const goalS = new Map(goals.map((g) => [g.edge, g.s]));
   const goalExtra = new Map(goals.map((g) => [g.edge, g.extra || 0]));
@@ -188,8 +202,8 @@ function planRoute(network, start, goal, driver = DRIVERS.self) {
   const startEdge = from.edge;
   const sGoalStart = goalS.get(startEdge);
   if (sGoalStart !== undefined && sGoalStart > s0 + 4) heap.push([sGoalStart - s0 + goalExtra.get(startEdge), sGoalStart - s0, startEdge, 'direct']);
-  for (const m of startEdge.moves) {
-    const c = startEdge.len - s0 + stepCost(startEdge, m);
+  for (const m of movesOf(network, startEdge)) {
+    const c = (startEdge.len - s0) * (startEdge.costFactor || 1) + stepCost(startEdge, m);
     if (!g.has(m.to) || c < g.get(m.to)) {
       g.set(m.to, c);
       prev.set(m.to, [startEdge, m]);
@@ -222,10 +236,11 @@ function planRoute(network, start, goal, driver = DRIVERS.self) {
     if (closed.has(e)) continue;
     closed.add(e);
     if (goalS.has(e)) heap.push([cost + goalS.get(e) + goalExtra.get(e), cost + goalS.get(e), e, 'goal']);
-    for (const m of e.moves) {
+    for (const m of movesOf(network, e)) {
       const f = m.to;
       if (closed.has(f)) continue;
-      const c = cost + e.len + stepCost(e, m);
+      // (a road's length weighed by how slow it is: an expressway costs its length, a 40 km/h road half as much again)
+      const c = cost + e.len * (e.costFactor || 1) + stepCost(e, m);
       if (!g.has(f) || c < g.get(f)) {
         g.set(f, c);
         prev.set(f, [e, m]);
@@ -281,10 +296,10 @@ function buildPath(network, route, x, z, driver = DRIVERS.self) {
   const pts = [];
   const maneuvers = [];
   const stops = [];
-  const add = (px, pz, edge = null, lane = 0) => {
+  const add = (px, pz, edge = null, lane = 0, vmax = edge?.speedLimit) => {
     const last = pts[pts.length - 1];
     if (last && Math.hypot(px - last.x, pz - last.z) < 0.4) return;
-    pts.push({ x: px, z: pz, s: 0, tx: 0, tz: 1, nx: 1, nz: 0, k: 0, ks: 0, v: 0, edge, lane });
+    pts.push({ x: px, z: pz, s: 0, tx: 0, tz: 1, nx: 1, nz: 0, k: 0, ks: 0, v: 0, edge, lane, vmax });
   };
   add(x, z);
   const { edges, moves } = route;
@@ -328,9 +343,11 @@ function buildPath(network, route, x, z, driver = DRIVERS.self) {
     if (e.to.signal) stops.push({ i: at, edge: e });
     maneuvers.push({ i: at, turn: m.turn, uturn: !!m.uturn, cross: m.cross || 0, edge: f, from: e });
     const c = network.connector(e, exit, f, j);
+    // (through the junction at the lower of the two roads' limits)
+    const vmax = Math.min(e.speedLimit ?? Infinity, f.speedLimit ?? Infinity);
     for (let s = CURVE_SAMPLE; s < c.len; s += CURVE_SAMPLE) {
       network.curvePoint(c, s, pt);
-      add(pt.x, pt.z);
+      add(pt.x, pt.z, null, 0, vmax);
     }
     entry = j;
   }
@@ -378,8 +395,10 @@ function speedProfile(path, driver) {
   const b = driver.brake ?? 3;
   for (const p of pts) {
     const k = Math.max(p.k, 1e-4);
+    // the road's limit, for a driver who keeps to them
+    const limit = driver.limits && p.vmax !== undefined ? p.vmax : Infinity;
     // (a corner tighter than full lock allows is taken at a crawl)
-    p.v = k > MAX_CURVATURE * 0.9 ? Math.min(cruise, 2.5) : Math.min(cruise, Math.sqrt(aLat / k));
+    p.v = k > MAX_CURVATURE * 0.9 ? Math.min(cruise, 2.5) : Math.min(cruise, limit, Math.sqrt(aLat / k));
   }
   if (pts.length) pts[pts.length - 1].v = 0;
   for (let i = pts.length - 2; i >= 0; i--) {
@@ -499,8 +518,9 @@ class Navigator {
    * @param {object} deps network (road-network.js), trafficSystem (cars, buses, peds), controllerManager, audioSystem,
    *   and onChange(state) / onEvent(kind, detail) callbacks for the HUD
    */
-  constructor({ network, trafficSystem, islandTraffic = null, controllerManager, audioSystem = null, onChange = null, onEvent = null }) {
+  constructor({ network, trafficSystem, islandTraffic = null, controllerManager, audioSystem = null, onChange = null, onEvent = null, resolveNetwork = null }) {
     this.network = network;
+    this.resolveNetwork = resolveNetwork;
     this.traffic = trafficSystem;
     // the island's main-road traffic (js/island-traffic.js), seen through stand-ins shaped like the city's vehicles
     this.island = islandTraffic;
@@ -549,6 +569,12 @@ class Navigator {
   }
 
   get active() { return Boolean(this.destination); }
+
+  /** Drive on another road graph (the city's joined with the island's, once those load): a trip on the go replans */
+  setNetwork(network) {
+    this.network = network;
+    if (this.destination && !this.arrived) this.reroute(true);
+  }
   get autopilot() { return this.active && this.driver.auto && !this.arrived && this.controllers.activeMode === 'car'; }
 
   setDriver(id) {
@@ -598,7 +624,10 @@ class Navigator {
     if (!force && this.time - this.lastReroute < 1.5) return Boolean(this.path);
     this.lastReroute = this.time;
     const ent = this.controllers.getActiveEntity();
-    const route = planRoute(this.network, { x: ent.position.x, z: ent.position.z, heading: ent.heading }, this.destination, this.driver.auto ? this.driver : DRIVERS.self);
+    const start = { x: ent.position.x, z: ent.position.z, heading: ent.heading };
+    // (the road graph for this trip: the app may join the island's roads to the city's the first time one needs them)
+    if (this.resolveNetwork) this.network = this.resolveNetwork(start, this.destination) || this.network;
+    const route = planRoute(this.network, start, this.destination, this.driver.auto ? this.driver : DRIVERS.self);
     if (!route) return false;
     this.path = buildPath(this.network, route, ent.position.x, ent.position.z, this.driver.auto ? this.driver : DRIVERS.self);
     this.index = 0;
@@ -902,7 +931,7 @@ class Navigator {
         const dist = st.s - s - CAR_HALF_L - 0.8;
         if (dist < -2) continue;
         if (dist > Math.max(90, (speed * speed) / (2 * d.brake) + 30)) break;
-        const phase = signalPhase(elapsed, st.edge.axisIndex === 0);
+        const phase = st.edge.phaseAt ? st.edge.phaseAt(elapsed) : signalPhase(elapsed, st.edge.axisIndex === 0);
         if (phase === 'green') continue;
         // amber: go on if it's too late to stop comfortably
         if (phase === 'amber' && speed * speed > 2 * d.brake * 1.6 * Math.max(0, dist)) continue;

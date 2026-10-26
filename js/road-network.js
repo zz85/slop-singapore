@@ -1280,4 +1280,4 @@ function curvePoint(c, s, out) {
   return out;
 }
 
-export { buildRoadNetwork, CROSSWALK };
+export { buildRoadNetwork, CROSSWALK, makeCurve, curvePoint };
