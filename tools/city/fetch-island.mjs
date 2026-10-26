@@ -1,6 +1,6 @@
 // tools/city/fetch-island.mjs — downloads OpenStreetMap's buildings and main roads across a city's whole `island` box
 // (tools/city/cities/<city>.mjs), cell by cell, plus the island's coastline and inland water, for the streamed outer
-// tiles (tools/city/tiles.mjs). Into tools/data/<city>/island/ (not committed: tens of megabytes of raw Overpass JSON).
+// tiles (tools/city/tiles.mjs), and its traffic lights. Into tools/data/<city>/island/ (not committed: tens of megabytes of raw Overpass JSON).
 // usage: node tools/city/fetch-island.mjs <city> [--force] [--jobs 2]
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,6 +24,8 @@ export function islandQueries(city) {
   }
   const bb = `(${S},${W},${N},${E})`;
   out.coast = `[out:json][timeout:300];way["natural"="coastline"]${bb};out geom;`;
+  // signalised junctions & crossings (traffic lights)
+  out.signals = `[out:json][timeout:300];node["highway"="traffic_signals"]${bb};out;`;
   out.water = `[out:json][timeout:300];(way["natural"="water"]${bb};relation["natural"="water"]${bb};way["landuse"="reservoir"]${bb};relation["landuse"="reservoir"]${bb};);out geom;`;
   return out;
 }

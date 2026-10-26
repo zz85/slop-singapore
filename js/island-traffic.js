@@ -7,7 +7,8 @@ import { vehicleContact } from './vehicle-physics.js';
 // doesn't reach: a small pool of cars kept around the camera. Each drives one road at a time in its own lane (keeping
 // left), follows the car or player ahead with the IDM, carries on to a connected road at the end of each (straight on
 // most likely) and is recycled once far from the camera or into the detailed city, reappearing on a road 180-650 m
-// away, preferably out of view. The player bumps into them like any other car; they stop, then pull away.
+// away, preferably out of view. It stops at the island's traffic lights (js/island-roads.js signals: red, and amber
+// where it can still stop in comfort). The player bumps into them like any other car; they stop, then pull away.
 // Two LODs: the full model within ISL_NEAR m, a ~250-triangle proxy out to ISL_FAR.
 
 const ISL_DRIVER = { a: 1.5, b: 2.6, T: 1.4, s0: 3 };
@@ -125,7 +126,7 @@ function createIslandTraffic(scene, { vehicles, keepLeft = true, count = 40 } = 
     return true;
   }
 
-  function update(dt, camera, entity, mode) {
+  function update(dt, camera, entity, mode, time = 0) {
     if (!roads) return;
     for (const kind of KINDS) for (const mesh of meshes[kind]) mesh.count = 0;
     const cam = camera.position;
@@ -162,6 +163,19 @@ function createIslandTraffic(scene, { vehicles, keepLeft = true, count = 40 } = 
         if (along > 0 && along < 120 && Math.abs(rx * c.dz - rz * c.dx) < 2.2) {
           const g = along - ISL_CAR_LEN;
           if (g < gap) { gap = g; dv = c.v - Math.max(0, plSpeed * (Math.sin(pl.heading || 0) * c.dx + Math.cos(pl.heading || 0) * c.dz)); }
+        }
+      }
+      // the traffic light ahead: its stop line a standing car's leader on red, and on amber unless too close to stop
+      const light = roads.signalAhead(c.road, c.dir, c.s);
+      c.light = null;
+      if (light) {
+        const phase = roads.phase(light.signal, light.group, time);
+        const g = light.d - ISL_CAR_LEN / 2;
+        const stoppable = g > (c.v * c.v) / (2 * D.b * 1.6) + 1;
+        if ((phase === 'red' || (phase === 'amber' && stoppable)) && g < gap) {
+          gap = g;
+          dv = c.v;
+          c.light = phase;
         }
       }
       const v0 = c.road.speed * c.desire;

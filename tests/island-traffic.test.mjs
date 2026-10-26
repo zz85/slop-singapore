@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { createRequire } from 'node:module';
-import { createIslandRoads } from '../js/island-roads.js';
+import { createIslandRoads, signalPhase } from '../js/island-roads.js';
 
 const require = createRequire(import.meta.url);
 const { loadModule } = require('./helpers/module.cjs');
@@ -148,4 +148,63 @@ test('island traffic stops behind the player and gets bumped out of the way', ()
     { x: c.x, z: c.z, sin: c.dx, cos: c.dz, halfW: 0.92, halfL: 2.25 }, hit);
   assert.ok(!overlap || hit.depth < 1e-6, `no overlap left (${overlap && hit.depth})`);
   assert.ok(c.stunned > 0 && c.v < 0.2, 'the car stops for a moment');
+});
+
+// A crossroads with traffic lights at (1500, 0): Test Avenue east-west and a two-way north-south road through it
+function crossroads() {
+  const data = encode([
+    { cls: 'primary', name: 'Test Avenue', pts: [[1000, 0], [1500, 0], [2000, 0]], lanes: 4 },
+    { cls: 'secondary', name: 'Cross Street', pts: [[1500, -500], [1500, 0], [1500, 500]], lanes: 2 },
+    { cls: 'motorway', name: 'Test Expressway', pts: [[1520, -500], [1520, 500]], oneway: 1, lanes: 3 }
+  ]);
+  data.signals = [1500, 0, 0];
+  return createIslandRoads(data, { coreRing: CORE });
+}
+
+test('traffic lights: on the roads through their junction, the widest one\'s axis green while the other\'s is red', () => {
+  const roads = crossroads();
+  assert.equal(roads.signals.length, 1);
+  const [avenue, cross, expressway] = roads.roads;
+  const signal = roads.signals[0];
+  assert.deepEqual(avenue.signals.map((g) => [g.group, Math.round(g.s)]), [[0, 500]], 'the avenue along the axis');
+  assert.deepEqual(cross.signals.map((g) => g.group), [1], 'the cross street across it');
+  assert.equal(expressway.signals, undefined, 'none on the expressway passing by');
+  assert.equal(signal.approaches.length, 4, 'two ways in on each road');
+  // the two groups are never green together, and each gets its turn
+  const seen = { 0: new Set(), 1: new Set() };
+  for (let t = 0; t < 60; t += 0.25) {
+    const a = signalPhase(signal, 0, t), b = signalPhase(signal, 1, t);
+    assert.ok(a === 'red' || b === 'red', `t ${t}: ${a} / ${b}`);
+    seen[0].add(a); seen[1].add(b);
+  }
+  assert.deepEqual([...seen[0]].sort(), ['amber', 'green', 'red']);
+  assert.deepEqual([...seen[1]].sort(), ['amber', 'green', 'red']);
+  // the stop line ahead of a car driving east, 11 m before the junction; none once past it
+  const ahead = roads.signalAhead(avenue, 1, 400);
+  assert.equal(Math.round(ahead.d), 500 - 11 - 400);
+  assert.equal(roads.signalAhead(avenue, 1, 495), null);
+  // and driving west from the far end
+  assert.equal(Math.round(roads.signalAhead(avenue, -1, 400).d), 500 - 11 - 400);
+});
+
+test('island traffic stops at a red light and goes on green', () => {
+  const roads = crossroads();
+  const traffic = createIslandTraffic({ add() {} }, { keepLeft: true, count: 1 });
+  traffic.setRoads(roads);
+  const cam = camera(1500, 300);
+  traffic.update(1 / 30, cam, null, 'helicopter', 0);
+  const c = traffic.cars[0];
+  const signal = roads.signals[0];
+  // the time the avenue turns red: drive at it from 150 m out
+  let t = 0;
+  while (signalPhase(signal, 0, t) !== 'red') t += 0.1;
+  Object.assign(c, { road: roads.roads[0], dir: 1, s: 350, lane: 0, off: roads.laneOffset(roads.roads[0], 0), v: 14, desire: 1 });
+  for (let i = 0; i < 30 * 25 && signalPhase(signal, 0, t) === 'red'; i++, t += 1 / 30) traffic.update(1 / 30, cam, null, 'helicopter', t);
+  const stopLine = 500 - 11;
+  assert.ok(c.v < 0.3, `stopped (${c.v.toFixed(2)} m/s)`);
+  assert.ok(c.s + 2.3 <= stopLine + 0.5 && c.s > stopLine - 12, `at the stop line (front ${(c.s + 2.3).toFixed(1)}, line ${stopLine})`);
+  // then green: it pulls away through the junction
+  while (signalPhase(signal, 0, t) !== 'green') t += 0.5;
+  for (let i = 0; i < 30 * 15; i++, t += 1 / 30) traffic.update(1 / 30, cam, null, 'helicopter', t);
+  assert.ok(c.road !== roads.roads[0] || c.s > 520, `through the junction (${c.road.name} at ${c.s.toFixed(0)})`);
 });

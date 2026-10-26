@@ -12,7 +12,9 @@
 // and tiles/<city>/roads.json, the island's main roads for the maps (js/nyc-map.js), the island's traffic and teleports
 // (js/island-roads.js), outside the detailed area:
 //   { classes, names, roads: [[class, name index or -1, x0, z0, then each point's dx dz (m) from the one before]],
-//     oneway: [1 along the points, -1 against them, 0 both ways, per road], lanes: [travel lanes per road] }
+//     oneway: [1 along the points, -1 against them, 0 both ways, per road], lanes: [travel lanes per road],
+//     signals: [x, z (m), kind (0 a junction's, 1 a pedestrian crossing's), ...] the traffic lights beyond the detailed
+//     area, one per junction (OpenStreetMap's highway=traffic_signals nodes within 30 m of each other merged) }
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -248,7 +250,43 @@ export async function buildTiles(cityOrId, { data, out, geo } = {}) {
     tiles: index
   };
   fs.writeFileSync(path.join(outDir, 'index.json'), JSON.stringify(indexJson));
-  const roadsJson = JSON.stringify({ classes: ROAD_CLASSES, names: mapNames, roads: mapRoads, oneway: mapOneway, lanes: mapLanes });
+  // --- Traffic lights: OpenStreetMap's signal nodes (one per approach at the bigger junctions) merged within 30 m ----
+  const signals = [];
+  const signalsFile = path.join(dir, 'signals.json');
+  if (fs.existsSync(signalsFile)) {
+    const nodes = JSON.parse(fs.readFileSync(signalsFile, 'utf8')).elements
+      .filter((e) => e.type === 'node')
+      .map((e) => { const [x, z] = toWorld(e.lon, e.lat); return { x, z, crossing: !!(e.tags && (e.tags.crossing || /crossing/.test(e.tags.traffic_signals || ''))) }; })
+      .filter((n) => !inCore(n.x, n.z) && landAt(n.x, n.z));
+    const MERGE = 30;
+    const grid = new Map();
+    const gk = (x, z) => `${Math.floor(x / MERGE)},${Math.floor(z / MERGE)}`;
+    const clusters = [];
+    for (const n of nodes) {
+      let found = null;
+      const i0 = Math.floor(n.x / MERGE), j0 = Math.floor(n.z / MERGE);
+      for (let i = i0 - 1; i <= i0 + 1 && !found; i++) {
+        for (let j = j0 - 1; j <= j0 + 1 && !found; j++) {
+          for (const c of grid.get(`${i},${j}`) || []) if (Math.hypot(c.x - n.x, c.z - n.z) < MERGE) { found = c; break; }
+        }
+      }
+      if (found) {
+        found.n++;
+        found.x += (n.x - found.x) / found.n;
+        found.z += (n.z - found.z) / found.n;
+        found.crossing = found.crossing && n.crossing;
+      } else {
+        const c = { x: n.x, z: n.z, n: 1, crossing: n.crossing };
+        clusters.push(c);
+        const k = gk(n.x, n.z);
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(c);
+      }
+    }
+    for (const c of clusters) signals.push(Math.round(c.x), Math.round(c.z), c.crossing ? 1 : 0);
+    log(`${nodes.length} traffic signals beyond the detailed area: ${clusters.length} junctions & crossings`);
+  }
+  const roadsJson = JSON.stringify({ classes: ROAD_CLASSES, names: mapNames, roads: mapRoads, oneway: mapOneway, lanes: mapLanes, signals });
   fs.writeFileSync(path.join(outDir, 'roads.json'), roadsJson);
   log(`roads.json: ${mapRoads.length} main roads for the maps (${(roadsJson.length / 1024).toFixed(0)} KB)`);
   const indexBytes = fs.statSync(path.join(outDir, 'index.json')).size;

@@ -12,6 +12,7 @@ import { buildSingaporeLandmarks } from './singapore-landmarks.js';
 import { CityTiles } from './city-tiles.js';
 import { loadIslandRoads } from './island-roads.js';
 import { createIslandTraffic } from './island-traffic.js';
+import { createIslandSignals } from './island-signals.js';
 import { createLandMask } from './city-tiles-build.js';
 import { buildStreetDetails } from './street-details.js';
 import { buildOpenCityDetails } from './open-city-details.js';
@@ -143,10 +144,12 @@ async function initApp() {
     vehicles: CITY.vehicles, keepLeft: CITY.driveSide === 'left',
     count: navigator.hardwareConcurrency <= 4 || matchMedia('(pointer: coarse)').matches ? 20 : 36
   }) : null;
+  const islandSignals = cityTiles?.index ? createIslandSignals(scene, { keepLeft: CITY.driveSide === 'left' }) : null;
   const islandRoadsLoading = cityTiles?.index
     ? loadIslandRoads(`${cityTiles.url}roads.json`, { coreRing: cityTiles.index.coreRing }).then((roads) => {
       islandRoads = roads;
       islandTraffic.setRoads(roads);
+      islandSignals.setRoads(roads);
       return roads;
     }).catch((e) => { console.warn(`[island] no roads: ${e.message}`); return null; })
     : Promise.resolve(null);
@@ -289,7 +292,8 @@ async function initApp() {
     cityLandmarks?.group,
     cityTiles?.group,
     weather?.rain,
-    islandTraffic?.group
+    islandTraffic?.group,
+    islandSignals?.group
   ].filter(Boolean);
   scene.updateMatrixWorld(true);
   scene.matrixWorldAutoUpdate = false;
@@ -809,7 +813,7 @@ async function initApp() {
   }
 
   // For poking at from the console (and the browser checks): the simulation's main systems
-  globalThis.slop = { scene, navigator: routeNavigator, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, get islandRoads() { return islandRoads; }, teleportTo };
+  globalThis.slop = { scene, navigator: routeNavigator, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
 
   await precompileShaders();
   markInit('compile');
@@ -859,7 +863,8 @@ async function initApp() {
     mapSystem.update();
     if (weather) weather.update(dt, cameraSystem.camera);
     if (cityTiles) cityTiles.update(cameraSystem.camera);
-    if (islandTraffic) islandTraffic.update(dt, cameraSystem.camera, controllerManager.getActiveEntity(), controllerManager.activeMode);
+    if (islandTraffic) islandTraffic.update(dt, cameraSystem.camera, controllerManager.getActiveEntity(), controllerManager.activeMode, elapsed);
+    if (islandSignals) islandSignals.update(cameraSystem.camera, elapsed);
     audioSystem.setAmbience(lightingSystem.activePresetId, weather ? weather.storm : 0);
     audioSystem.update(dt, elapsed, cameraSystem.camera, lightingSystem.activePresetId === 'midnight');
     if (warmedUp) updateSceneCulling(cameraSystem.camera.position); // the warm-up frame draws every chunk

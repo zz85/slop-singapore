@@ -10,6 +10,10 @@
 // - next(road, dir, list): the roads carrying on from the end `dir` is heading for (1: its last point, -1: its first),
 //   as [{ road, dir }] that may be driven that way
 // - inCore(x, z): inside the detailed city (whose own road graph and traffic take over)
+// - signals: the island's traffic lights [{ x, z, crossing, axis: [dx, dz], offset (s), approaches }], each attached to
+//   the roads through it (road.signals: [{ signal, s (arc length along the points), group (0 travelling along its axis,
+//   1 across) }], by s); phase(signal, group, time): 'green' | 'amber' | 'red'
+// - approaches: a signal's ways in, [{ road, dir, group, x, z, heading (facing the traffic coming) }]
 // The world frame is the city's: x east, z south (north = -z); a heading h faces (sin h, cos h).
 
 const CELL = 100; // m: the segment index's cells
@@ -17,6 +21,20 @@ const LANE = 3.3; // m per travel lane
 // m/s by class: expressways at 90 km/h, Singapore's limit, the main roads 50-70 km/h
 const SPEED = { motorway: 25, trunk: 19.4, primary: 16.7, secondary: 13.9, tertiary: 11.1 };
 const JOIN = 3; // m: road ends this close are joined
+const SIGNAL_REACH = 22; // m: a road passing this close to a traffic light goes through its junction
+const STOP_BACK = 11; // m: the stop line, back from the junction's centre
+// A junction's cycle (s): the roads along its axis green, then amber, all red, the roads across it green, amber, all red;
+// a pedestrian crossing's road green for most of it (as js/city-common.js SIGNAL_TIMING for the detailed city)
+const CYCLE = { cycle: 60, aGreen: 26, aAmber: 29, aClear: 30, bGreen: 56, bAmber: 59 };
+const CROSSING = { cycle: 60, green: 44, amber: 48 };
+
+function signalPhase(signal, group, time) {
+  const t = (((time + signal.offset) % 60) + 60) % 60;
+  if (signal.crossing) return t < CROSSING.green ? 'green' : t < CROSSING.amber ? 'amber' : 'red';
+  const C = CYCLE;
+  if (group === 0) return t < C.aGreen ? 'green' : t < C.aAmber ? 'amber' : 'red';
+  return t < C.aClear ? 'red' : t < C.bGreen ? 'green' : t < C.bAmber ? 'amber' : 'red';
+}
 
 function ringContains(ring, x, z) {
   let inside = false;
@@ -178,7 +196,77 @@ function createIslandRoads(data, { coreRing = null } = {}) {
     return out;
   }
 
-  return { roads, data, nearest, snap, next, pose, laneOffset, inCore, LANE };
+  // The closest point of every road within r of (x, z): [{ road, s, x, z, dx, dz, dist }]
+  function near(x, z, r) {
+    const best = new Map();
+    for (let i = Math.floor((x - r) / CELL); i <= Math.floor((x + r) / CELL); i++) {
+      for (let j = Math.floor((z - r) / CELL); j <= Math.floor((z + r) / CELL); j++) {
+        const list = cells.get(key(i, j));
+        if (!list) continue;
+        for (let k = 0; k < list.length; k += 2) {
+          const road = list[k], sg = list[k + 1];
+          const P = road.pts;
+          const ax = P[sg * 2], az = P[sg * 2 + 1], sx = P[sg * 2 + 2] - ax, sz = P[sg * 2 + 3] - az;
+          const L2 = sx * sx + sz * sz;
+          if (!L2) continue;
+          const t = Math.max(0, Math.min(1, ((x - ax) * sx + (z - az) * sz) / L2));
+          const px = ax + sx * t, pz = az + sz * t;
+          const d = Math.hypot(px - x, pz - z);
+          if (d > r) continue;
+          const prev = best.get(road);
+          if (prev && prev.dist <= d) continue;
+          const L = Math.sqrt(L2);
+          best.set(road, { road, s: road.cum[sg] + L * t, x: px, z: pz, dx: sx / L, dz: sz / L, dist: d });
+        }
+      }
+    }
+    return [...best.values()];
+  }
+
+  // Traffic lights onto the roads through them; each junction's axis the widest of its roads (by lanes, then class)
+  const RANK = { motorway: 5, trunk: 4, primary: 3, secondary: 2, tertiary: 1 };
+  const signals = [];
+  const sig = data.signals || [];
+  for (let i = 0; i < sig.length; i += 3) {
+    const x = sig[i], z = sig[i + 1];
+    if (inCore(x, z)) continue;
+    const through = near(x, z, SIGNAL_REACH).filter((p) => p.road.cls !== 'motorway');
+    if (!through.length) continue;
+    through.sort((a, b) => b.road.lanes - a.road.lanes || RANK[b.road.cls] - RANK[a.road.cls] || a.dist - b.dist);
+    const axis = [through[0].dx, through[0].dz];
+    // a junction's own offset in the cycle, so neighbouring ones aren't all in step
+    const h = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+    const signal = { x, z, crossing: sig[i + 2] === 1, axis, offset: (h - Math.floor(h)) * 60, approaches: [] };
+    for (const p of through) {
+      const group = Math.abs(p.dx * axis[0] + p.dz * axis[1]) >= Math.SQRT1_2 ? 0 : 1;
+      (p.road.signals || (p.road.signals = [])).push({ signal, s: p.s, group });
+      // its ways in: from each end the road may be driven towards the junction, if there's room for a stop line
+      for (const dir of [1, -1]) {
+        if (p.road.oneway && p.road.oneway !== dir) continue;
+        const sIn = dir > 0 ? p.s - STOP_BACK : p.s + STOP_BACK;
+        if (sIn < 0 || sIn > p.road.len) continue;
+        signal.approaches.push({ road: p.road, dir, group, s: sIn });
+      }
+    }
+    signals.push(signal);
+  }
+  for (const road of roads) if (road.signals) road.signals.sort((a, b) => a.s - b.s);
+
+  // The next traffic light ahead of arc length s on `road` driven `dir` (s counted the way it's driven), within `range`
+  // m: { signal, group, d (m to its stop line) } or null; lights whose stop line is already behind are passed
+  function signalAhead(road, dir, s, range = 90) {
+    if (!road.signals) return null;
+    let best = null;
+    for (const g of road.signals) {
+      const at = dir > 0 ? g.s : road.len - g.s;
+      const d = at - STOP_BACK - s;
+      if (d < 0.5 || d > range) continue;
+      if (!best || d < best.d) best = { signal: g.signal, group: g.group, d };
+    }
+    return best;
+  }
+
+  return { roads, data, nearest, near, snap, next, pose, laneOffset, inCore, signals, signalAhead, phase: signalPhase, LANE, STOP_BACK };
 }
 
 // roads.json, fetched once and shared
@@ -193,4 +281,4 @@ function loadIslandRoads(url, options) {
   return loading;
 }
 
-export { createIslandRoads, loadIslandRoads, SPEED };
+export { createIslandRoads, loadIslandRoads, signalPhase, SPEED, STOP_BACK };
