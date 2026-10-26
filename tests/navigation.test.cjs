@@ -109,7 +109,7 @@ function stepCar(c, keys, dt) {
   updateCar.call({ entities: { car: c }, keys, resolveHorizontalCollision() {}, getGroundHeight: () => 0 }, dt);
 }
 
-function rig(network, car, traffic = { cars: [], buses: [], peds: [] }) {
+function rig(network, car, traffic = { cars: [], buses: [], peds: [] }, islandTraffic = null) {
   const keys = {};
   const controllers = {
     activeMode: 'car',
@@ -120,7 +120,7 @@ function rig(network, car, traffic = { cars: [], buses: [], peds: [] }) {
     userDriveInput: () => 0
   };
   const events = [];
-  const navigator = new nav.Navigator({ network, trafficSystem: traffic, controllerManager: controllers, onEvent: (kind, d) => events.push([kind, d]) });
+  const navigator = new nav.Navigator({ network, trafficSystem: traffic, islandTraffic, controllerManager: controllers, onEvent: (kind, d) => events.push([kind, d]) });
   return { navigator, keys, events };
 }
 
@@ -703,4 +703,117 @@ test('self-driving keeps going past people walking along the pavement beside its
     t += 1 / 60;
   }
   assert.ok(slowest > 12, `never brakes for them (${slowest.toFixed(1)} m/s)`);
+});
+
+test('the plan preview (for the overlay) starts at the car and runs along its line ahead', () => {
+  phase = 'green';
+  const net = grid(2, 300);
+  const car = makeCar(1.8, 20, 0);
+  const r = rig(net, car);
+  assert.equal(r.navigator.planPreview().length, 0, 'nothing before a trip');
+  r.navigator.setDriver('self');
+  r.navigator.setDestination(1.8, 560, 'x');
+  for (let t = 0; t < 5; t += 1 / 60) { r.navigator.update(1 / 60, t); stepCar(car, r.keys, 1 / 60); }
+  const plan = r.navigator.planPreview(60, 3);
+  assert.ok(plan.length > 15, `${plan.length} points`);
+  assert.ok(Math.hypot(plan[0].x - car.position.x, plan[0].z - car.position.z) < 1e-9, 'from the car');
+  for (const q of plan.slice(1)) assert.ok(Math.abs(q.x - 1.8) < 0.3 && q.z > car.position.z, 'down its lane ahead');
+  r.navigator.setDriver('you');
+  assert.equal(r.navigator.planPreview().length, 0, 'and none once you drive');
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The island's traffic (js/island-traffic.js) is seen too: its cars carry { active, x, z, dx, dz, v } and no road graph
+// edge, and are recycled across the map
+// ---------------------------------------------------------------------------------------------------------------------
+
+const islandCar = (x, z, v, dz = 1) => ({ active: true, x, z, dx: 0, dz, v });
+
+function islandRun(driver, islandCars, { T = 30, each = null, dest = [1.8, 560], onNav = null } = {}) {
+  phase = 'green';
+  const net = grid(2, 300);
+  const car = makeCar(1.8, 20, 0);
+  const r = rig(net, car, { cars: [], buses: [], peds: [] }, { cars: islandCars });
+  r.navigator.setDriver(driver);
+  r.navigator.setDestination(dest[0], dest[1], 'x');
+  if (onNav) onNav(r.navigator);
+  let minClear = Infinity;
+  let t = 0;
+  while (t < T && !r.navigator.arrived) {
+    for (const c of islandCars) {
+      if (each) each(c, t, car);
+      if (c.active) {
+        c.x += c.dx * c.v / 60;
+        c.z += c.dz * c.v / 60;
+      }
+    }
+    r.navigator.update(1 / 60, t);
+    stepCar(car, r.keys, 1 / 60);
+    for (const c of islandCars) {
+      if (!c.active) continue;
+      minClear = Math.min(minClear, clearance(car, { x: c.x, z: c.z, tx: c.dx, tz: c.dz, half: 2.3, halfWidth: 0.9 }));
+    }
+    t += 1 / 60;
+  }
+  return { car, navigator: r.navigator, minClear };
+}
+
+test('self-driving follows an island car in its lane, estimating its speed, and never closes on it', () => {
+  // ahead in its lane at 6 m/s, then stopping at 15 s
+  const ic = islandCar(1.8, 70, 6);
+  let seen = 0;
+  let followed = 0;
+  let nv = null;
+  const s = islandRun('self', [ic], {
+    T: 22,
+    onNav: (n) => { nv = n; },
+    each: (c, t) => {
+      c.v = t < 15 ? 6 : Math.max(0, c.v - 4 / 60);
+      if (nv) {
+        const tr = nv.tracker.get(nv.islandProxy(c));
+        if (tr) seen = Math.max(seen, tr.speed);
+        if (nv.leadObj === nv.islandProxy(c)) followed++;
+      }
+    }
+  });
+  assert.ok(Math.abs(seen - 6) < 0.6, `its speed estimated (${seen.toFixed(1)} m/s)`);
+  assert.ok(followed > 60, 'followed it');
+  assert.ok(s.minClear > 1, `never closer than 1 m, behind it or passing it (${s.minClear.toFixed(2)} m)`);
+});
+
+test('self-driving sees an island car crossing its junction and lets it pass', () => {
+  // crossing west to east along z 298.2 at 14 m/s, timed to meet the taxi at the junction
+  const ic = { active: true, x: -400, z: 298.2, dx: 1, dz: 0, v: 14 };
+  let launched = false;
+  const s = islandRun('self', [ic], {
+    T: 40,
+    each: (c, t, car) => {
+      if (!launched && 300 - car.position.z < 72) {
+        launched = true;
+        c.x = -(300 - car.position.z) * (14 / Math.max(1, car.speed));
+      }
+    }
+  });
+  assert.ok(launched, 'it went');
+  assert.ok(s.minClear > 0.8, `well clear (${s.minClear.toFixed(2)} m)`);
+});
+
+test('inactive island cars are not seen, and a recycled one is not mistaken for a fast one', () => {
+  const parked = { active: false, x: 1.8, z: 60, dx: 0, dz: 1, v: 0 };
+  const ic = islandCar(1.8, 200, 8);
+  let jumped = false;
+  const s = islandRun('self', [parked, ic], {
+    T: 12,
+    each: (c, t) => {
+      // recycled at 5 s: back 90 m further on, coming the other way
+      if (c === ic && !jumped && t > 5) {
+        jumped = true;
+        c.x = -1.8; c.z += 90; c.dz = -1;
+      }
+    }
+  });
+  assert.ok(!s.navigator.tracker.get(s.navigator.islandProxy(parked)), 'the inactive car is not tracked');
+  const tr = s.navigator.tracker.get(s.navigator.islandProxy(ic));
+  assert.ok(tr && tr.speed < 12, `the recycled car's speed is its own (${tr && tr.speed.toFixed(1)} m/s)`);
+  assert.ok(s.car.speed > 15, 'and the taxi drives on (the inactive car in its lane does not stop it)');
 });

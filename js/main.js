@@ -29,6 +29,7 @@ import { CityAudioSystem } from './audio-system.js';
 import { Weather } from './weather.js';
 import { Navigator } from './navigation.js';
 import { setupNavigationUI } from './navigation-ui.js';
+import { PerceptionOverlay } from './perception-overlay.js';
 
 // js/main.js
 // Main entry point for the city simulation (Singapore by default, ?city=nyc for New York) in Three.js WebGPURenderer &
@@ -638,8 +639,18 @@ async function initApp() {
 
   // Drive to a destination (js/navigation.js): turn-by-turn for you, or the self-driving or Crazy Taxi autopilot driving
   // the car over the traffic's own road graph
-  const routeNavigator = new Navigator({ network: trafficSystem.network, trafficSystem, controllerManager, audioSystem });
+  const routeNavigator = new Navigator({ network: trafficSystem.network, trafficSystem, islandTraffic, controllerManager, audioSystem });
   const navigationUI = setupNavigationUI({ navigator: routeNavigator, mapSystem, controllerManager, selectMode, closePopovers, teleport: teleportTo });
+  // What the autopilot sees, over the view (js/perception-overlay.js): the Navigate menu's switch & [O], remembered
+  const perceptionOverlay = new PerceptionOverlay(document.body, { metric: CITY.units === 'metric' });
+  const overlaySwitch = document.getElementById('nav-overlay');
+  function setOverlay(on) {
+    perceptionOverlay.setEnabled(on);
+    overlaySwitch?.setAttribute('aria-checked', String(on));
+    try { localStorage.setItem('perception-overlay', on ? '1' : '0'); } catch { /* storage unavailable */ }
+  }
+  overlaySwitch?.addEventListener('click', () => setOverlay(!perceptionOverlay.enabled));
+  try { if (localStorage.getItem('perception-overlay') === '1') setOverlay(true); } catch { /* storage unavailable */ }
 
   if (hudToggleBtn) {
     hudToggleBtn.addEventListener('click', () => {
@@ -685,6 +696,9 @@ async function initApp() {
         break;
       case 'Digit0':
         selectCamera('chryslerGCT', true);
+        break;
+      case 'KeyO':
+        if (!e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) setOverlay(!perceptionOverlay.enabled);
         break;
       case 'KeyT':
         if (!e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) selectCamera('taxi', true);
@@ -813,7 +827,7 @@ async function initApp() {
   }
 
   // For poking at from the console (and the browser checks): the simulation's main systems
-  globalThis.slop = { scene, navigator: routeNavigator, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
+  globalThis.slop = { scene, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
 
   await precompileShaders();
   markInit('compile');
@@ -870,6 +884,9 @@ async function initApp() {
     if (warmedUp) updateSceneCulling(cameraSystem.camera.position); // the warm-up frame draws every chunk
     // Traffic collisions can move the player after controller updates; finalize moving hierarchies here.
     for (const root of dynamicRoots) root.updateMatrixWorld();
+
+    // what the autopilot sees, over this frame (when shown)
+    perceptionOverlay.update(routeNavigator, controllerManager.getActiveEntity(), cameraSystem.camera, THREE.Vector3);
 
     // Render frame via TSL RenderPipeline (SSR + Bloom)
     if (!warmedUp) {

@@ -66,6 +66,7 @@
   <link rel="modulepreload" href="./js/weather.js" />
   <link rel="modulepreload" href="./js/perception.js" />
   <link rel="modulepreload" href="./js/navigation.js" />
+  <link rel="modulepreload" href="./js/perception-overlay.js" />
   <link rel="modulepreload" href="./js/navigation-ui.js" />
   <link rel="modulepreload" href="./js/main.js" />
   <script type="module" src="./js/main.js"></script>
@@ -192,6 +193,7 @@
     <button id="nav-pick" class="pop-item" type="button"><span class="pop-name">Pick a spot on the map…</span></button>
     <button id="nav-random" class="pop-item" type="button"><span class="pop-name">Surprise me</span><span class="pop-sub">Somewhere across town</span></button>
     <button id="nav-stop" class="pop-item" type="button" hidden><span class="pop-name">End the trip</span></button>
+    <button id="nav-overlay" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">Show what it sees <kbd>O</kbd></span><span class="pop-sub">The autopilot's tracks, predictions and plan</span></button>
     <div id="nav-places"><!-- the city's places (city-config.js TELEPORT_LOCATIONS), listed by navigation-ui.js --></div>
   </div>
 

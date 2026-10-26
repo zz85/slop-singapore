@@ -60,6 +60,9 @@ const DRIVERS = {
   }
 };
 
+// (the edge the island traffic's stand-ins drive on: they are on none of the road graph's, but in play)
+const ISLAND_EDGE = Object.freeze({ island: true });
+
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -496,9 +499,13 @@ class Navigator {
    * @param {object} deps network (road-network.js), trafficSystem (cars, buses, peds), controllerManager, audioSystem,
    *   and onChange(state) / onEvent(kind, detail) callbacks for the HUD
    */
-  constructor({ network, trafficSystem, controllerManager, audioSystem = null, onChange = null, onEvent = null }) {
+  constructor({ network, trafficSystem, islandTraffic = null, controllerManager, audioSystem = null, onChange = null, onEvent = null }) {
     this.network = network;
     this.traffic = trafficSystem;
+    // the island's main-road traffic (js/island-traffic.js), seen through stand-ins shaped like the city's vehicles
+    this.island = islandTraffic;
+    this.islandProxies = new WeakMap();
+    this.islandList = [];
     this.controllers = controllerManager;
     this.audio = audioSystem;
     this.onChange = onChange;
@@ -534,6 +541,7 @@ class Navigator {
     this.evadeHold = 0;
     this.evadeOffset = 0;
     this.threat = null;
+    this.leadObj = null;
     this.holdLane = null;
 
     this.line = null;
@@ -669,6 +677,64 @@ class Navigator {
     return out;
   }
 
+  /** The vehicles it knows of: the city's cars and buses, and the island traffic's (as stand-ins) */
+  vehicleLists() {
+    return [this.traffic.cars, this.traffic.buses, this.islandList];
+  }
+
+  /**
+   * The stand-in for island car `c`: the same object every frame (the tracker keys its tracks by it), shaped like the
+   * city's vehicles ({ edge, x, z, tx, tz, half, halfWidth, speed }; edge null while the car is out of play)
+   */
+  islandProxy(c) {
+    let p = this.islandProxies.get(c);
+    if (!p) this.islandProxies.set(c, (p = { island: c, edge: null, x: 0, z: 0, tx: 0, tz: 1, half: 2.3, halfWidth: 0.9, speed: 0 }));
+    return p;
+  }
+
+  // Refresh the island traffic's stand-ins: those within sight, in play
+  seeIsland() {
+    const cars = this.island?.cars;
+    const list = this.islandList;
+    list.length = 0;
+    if (!cars) return;
+    const ent = this.controllers.getActiveEntity();
+    const ex = ent.position.x;
+    const ez = ent.position.z;
+    for (const c of cars) {
+      const p = this.islandProxy(c);
+      if (!c.active) {
+        p.edge = null;
+        continue;
+      }
+      if (Math.abs(c.x - ex) > 160 || Math.abs(c.z - ez) > 160) continue;
+      p.edge = ISLAND_EDGE;
+      p.x = c.x;
+      p.z = c.z;
+      p.tx = c.dx;
+      p.tz = c.dz;
+      p.speed = c.v;
+      list.push(p);
+    }
+  }
+
+  /**
+   * The line it means to drive over the next `ahead` metres (every `step`), on the lane change or swerve it is making:
+   * [{ x, z }], for the perception overlay
+   */
+  planPreview(ahead = 60, step = 3) {
+    if (!this.path || !this.autopilot) return [];
+    const ent = this.controllers.getActiveEntity();
+    const speed = Math.max(1, Math.abs(ent.speed));
+    const out = [{ x: ent.position.x, z: ent.position.z }];
+    const q = {};
+    for (let d = step; d <= ahead && this.progress + d <= this.path.length; d += step) {
+      pointAt(this.path, this.progress + d, this.lineAt(d / speed).y, q);
+      out.push({ x: q.x, z: q.z });
+    }
+    return out;
+  }
+
   /** Call before controllerManager.update: follow the route, drive it when an autopilot is on */
   update(dt, elapsed) {
     this.time += dt;
@@ -732,7 +798,8 @@ class Navigator {
       return;
     }
     // what it sees around it
-    this.tracker.update(dt, [this.traffic.cars, this.traffic.buses, this.traffic.peds], ent);
+    this.seeIsland();
+    this.tracker.update(dt, [this.traffic.cars, this.traffic.buses, this.islandList, this.traffic.peds], ent);
     this.drive(dt, elapsed, ent);
   }
 
@@ -771,7 +838,7 @@ class Navigator {
     // near misses: passing another vehicle within a hand's breadth, fast
     const hx = Math.sin(ent.heading);
     const hz = Math.cos(ent.heading);
-    for (const list of [this.traffic.cars, this.traffic.buses]) {
+    for (const list of this.vehicleLists()) {
       if (!list) continue;
       for (const v of list) {
         if (!v.edge) continue;
@@ -858,6 +925,7 @@ class Navigator {
     const leadA = this.leadOnPath(s, this.offset, range, d.margin);
     const leadB = Math.abs(across - this.offset) > 0.6 ? this.leadOnPath(s, across, range, d.margin) : null;
     const lead = leadB && (!leadA || leadB.gap < leadA.gap) ? leadB : leadA;
+    this.leadObj = lead && !lead.oncoming && !lead.ped ? lead.obj : null; // (for the overlay: the car it follows)
     // (a car coming the other way in its lane is no car to follow: getting out of its way is 2b's)
     if (lead && !lead.oncoming) {
       // edging out round it (the car still behind it, steering for the other lane): creep up to a metre short
@@ -1291,7 +1359,7 @@ class Navigator {
         return;
       }
     };
-    for (const list of [this.traffic.cars, this.traffic.buses]) {
+    for (const list of this.vehicleLists()) {
       if (!list) continue;
       for (const v of list) {
         if (!v.edge) continue;
@@ -1339,7 +1407,7 @@ class Navigator {
     if (!p) return null;
     const cx = ent.position.x + p.nx * (off - this.offset);
     const cz = ent.position.z + p.nz * (off - this.offset);
-    for (const list of [this.traffic.cars, this.traffic.buses]) {
+    for (const list of this.vehicleLists()) {
       if (!list) continue;
       for (const v of list) {
         if (!v.edge) continue;
