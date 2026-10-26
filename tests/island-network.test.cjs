@@ -13,7 +13,7 @@ const pick = (src, re, what) => {
   assert.ok(m, `${what} is present`);
   return m[0];
 };
-const roadSrc = read('js/road-network.js');
+const roadSrc = read('js/lane-curves.js');
 const carSrc = read('js/controllers.js');
 const { makeCurve, curvePoint, updateCar } = vm.runInNewContext(`
   ${pick(roadSrc, /function makeCurve\(e, i, f, j\) \{[\s\S]*?\n\}/, 'makeCurve')}
@@ -24,9 +24,9 @@ const { makeCurve, curvePoint, updateCar } = vm.runInNewContext(`
   ({ makeCurve, curvePoint, updateCar });
 `, { Math, Float32Array });
 
-const G = { Math, Number, Map, Set, WeakMap, Array, Infinity, Object, String, Float32Array };
+const G = { Math, Number, Map, Set, WeakMap, Array, Infinity, Object, String, Float32Array, Float64Array, Int32Array, Promise, performance, setTimeout };
 const islandRoads = loadModule(read('js/island-roads.js'), { globals: { ...G, fetch: () => Promise.reject(new Error('no')) }, filename: 'island-roads.js' });
-const islandNet = loadModule(read('js/island-network.js'), { imports: { './road-network.js': { makeCurve, curvePoint } }, globals: G, filename: 'island-network.js' });
+const islandNet = loadModule(read('js/island-network.js'), { imports: { './lane-curves.js': { makeCurve, curvePoint } }, globals: G, filename: 'island-network.js' });
 const perception = loadModule(read('js/perception.js'), { globals: G, filename: 'perception.js' });
 let cityPhase = 'green';
 const nav = loadModule(read('js/navigation.js'), {
@@ -292,4 +292,156 @@ test('a destination well off the roads is driven to the road nearest it', () => 
   const last = r.edges[r.edges.length - 1];
   const end = { x: last.sx + last.dx * r.s1, z: last.sz + last.dz * r.s1 };
   assert.ok(Math.hypot(end.x - 600, end.z - 300) < 300, `to the nearest road (ends at ${end.x.toFixed(0)}, ${end.z.toFixed(0)})`);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Built in a worker: packed to typed arrays there, put back together on the main thread, the same network
+// ---------------------------------------------------------------------------------------------------------------------
+
+function sameNetwork(a, b) {
+  assert.equal(b.islandEdges.length, a.islandEdges.length, 'as many island edges');
+  const ia = new Map(a.islandEdges.map((e, i) => [e, i]));
+  const ib = new Map(b.islandEdges.map((e, i) => [e, i]));
+  const ca = new Map(a.city.edges.map((e, i) => [e, i]));
+  const cb = new Map(b.city.edges.map((e, i) => [e, i]));
+  const ref = (e, im, cm) => (e.island ? `i${im.get(e)}` : `c${cm.get(e)}`);
+  const close = (x, y, what) => assert.ok(Math.abs(x - y) < 1e-4, `${what}: ${x} vs ${y}`);
+  for (let i = 0; i < a.islandEdges.length; i++) {
+    const e = a.islandEdges[i], f = b.islandEdges[i];
+    assert.equal(f.road, e.road);
+    assert.equal(f.dir, e.dir);
+    for (const k of ['x0', 'z0', 'x1', 'z1', 'dx', 'dz', 'sx', 'sz', 'len', 'raw']) close(f[k], e[k], `${k} of edge ${i}`);
+    assert.equal(JSON.stringify(f.lanes.map((v) => +v.toFixed(4))), JSON.stringify(e.lanes.map((v) => +v.toFixed(4))));
+    assert.equal(f.stranded, e.stranded);
+    assert.equal(f.to.signal, e.to.signal);
+    assert.equal(Boolean(f.phaseAt), Boolean(e.phaseAt));
+    if (e.phaseAt) for (const t of [0, 17, 33, 51]) assert.equal(f.phaseAt(t), e.phaseAt(t));
+    assert.equal(f.speedLimit, e.speedLimit);
+    assert.equal(f.navName, e.navName);
+    assert.equal(
+      JSON.stringify(f.moves.map((m) => [ref(m.to, ib, cb), m.turn, !!m.uturn, !!m.handover, !!m.bridge, [...m.out]])),
+      JSON.stringify(e.moves.map((m) => [ref(m.to, ia, ca), m.turn, !!m.uturn, !!m.handover, !!m.bridge, [...m.out]]))
+    );
+  }
+  const extra = (n, im, cm) => JSON.stringify([...n.extraMoves].map(([c, list]) => [cm.get(c), list.map((m) => [ref(m.to, im, cm), m.turn, [...m.out]])]).sort((x, y) => x[0] - y[0]));
+  assert.equal(extra(b, ib, cb), extra(a, ia, ca), 'the same city moves onto the island');
+  assert.ok(a.extraMoves.size > 0 && a.islandEdges.some((e) => e.moves.some((m) => m.handover)), '(and there are some both ways)');
+}
+
+test('a network built from the city\'s topology, packed and unpacked, is the network built directly', () => {
+  const city = cityGrid();
+  const data = island({ cx: 300, z0: 640, zj: 1300, z1: 1600 });
+  const roads = islandRoads.createIslandRoads(data, { coreRing: CORE });
+  const direct = islandNet.createIslandNetwork(roads, { keepLeft: true, city, coreRing: CORE });
+  // what the worker does, through a structured clone as postMessage would
+  const topology = structuredClone(islandNet.cityTopology(city));
+  const packed = structuredClone(islandNet.buildPackedIslandNetwork(structuredClone(data), topology, { keepLeft: true, coreRing: CORE, createRoads: islandRoads.createIslandRoads }));
+  for (const k of ['geo', 'meta', 'lanes', 'mTo', 'mOut']) assert.ok(ArrayBuffer.isView(packed[k]), `${k} is a typed array`);
+  assert.equal(islandNet.packedTransferables(packed).length, 10);
+  const unpacked = islandNet.unpackIslandNetwork(packed, roads, { keepLeft: true, city });
+  sameNetwork(direct, unpacked);
+  // and it drives: into town from the island
+  const s = drive(unpacked, makeCar(300 - 6.65, 1500, Math.PI), 'self', [150, 305], { T: 200 });
+  assert.ok(s.arrived, 'drove into town on the unpacked network');
+});
+
+test('the worker answers a request with the packed network, and an error when it cannot', async () => {
+  const data = island({ cx: 300, z0: 640, zj: 1300, z1: 1600 });
+  const city = cityGrid();
+  const source = read('js/island-network-worker.js');
+  const posted = [];
+  const self = { postMessage: (msg, transfer) => posted.push({ msg, transfer }) };
+  const fetch = async (url) => (url === 'roads.json' ? { ok: true, json: async () => structuredClone(data) } : { ok: false, status: 404 });
+  loadModule(source, {
+    imports: {
+      './island-roads.js': islandRoads,
+      './island-network.js': islandNet
+    },
+    globals: { self, fetch, Error, String },
+    filename: 'island-network-worker.js'
+  });
+  await self.onmessage({ data: { id: 7, url: 'roads.json', topology: islandNet.cityTopology(city), keepLeft: true, coreRing: CORE } });
+  assert.equal(posted[0].msg.id, 7);
+  assert.ok(posted[0].msg.packed && posted[0].msg.packed.n > 0, 'packed');
+  assert.equal(posted[0].transfer.length, 10, 'its arrays transferred');
+  await self.onmessage({ data: { id: 8, url: 'missing.json', topology: null, keepLeft: true, coreRing: CORE } });
+  assert.equal(JSON.stringify(posted[1].msg), JSON.stringify({ id: 8, error: 'HTTP 404' }));
+});
+
+test('unpacking in slices gives the same network, a slice per pause', async () => {
+  const city = cityGrid();
+  const data = island({ cx: 300, z0: 640, zj: 1300, z1: 1600 });
+  const roads = islandRoads.createIslandRoads(data, { coreRing: CORE });
+  const packed = islandNet.buildPackedIslandNetwork(data, islandNet.cityTopology(city), { keepLeft: true, coreRing: CORE, createRoads: islandRoads.createIslandRoads });
+  let pauses = 0;
+  const yieldTo = (fn) => { pauses++; setImmediate(fn); };
+  // a zero budget: one step (2 edges here) per slice
+  const sliced = await islandNet.unpackIslandNetworkInSlices(packed, roads, { keepLeft: true, city }, { budget: 0, yieldTo, sliceEvery: 2 });
+  assert.ok(pauses >= 2, `paused (${pauses})`);
+  sameNetwork(islandNet.unpackIslandNetwork(packed, roads, { keepLeft: true, city }), sliced);
+});
+
+// The app's use of it (js/main.js): built in a (fake) worker that runs the real worker module
+function fakeWorkerFor(data, { fail = null } = {}) {
+  const source = read('js/island-network-worker.js');
+  return () => {
+    const w = { posted: 0, terminated: false };
+    const self = {
+      postMessage: (msg) => setImmediate(() => w.onmessage && w.onmessage({ data: msg }))
+    };
+    const fetch = async () => (fail ? { ok: false, status: fail } : { ok: true, json: async () => structuredClone(data) });
+    loadModule(source, { imports: { './island-roads.js': islandRoads, './island-network.js': islandNet }, globals: { self, fetch, Error, String }, filename: 'worker' });
+    w.postMessage = (msg) => { w.posted++; setImmediate(() => self.onmessage({ data: structuredClone(msg) })); };
+    w.terminate = () => { w.terminated = true; };
+    return w;
+  };
+}
+const until = async (f, ms = 3000) => {
+  const t0 = Date.now();
+  while (!f()) {
+    if (Date.now() - t0 > ms) throw new Error('timed out');
+    await new Promise((r) => setTimeout(r, 5));
+  }
+};
+const quiet = { warn() {}, info() {} };
+
+test('the app\'s island graph: built in the worker, a trip out of town waits on the city\'s graph and gets it when ready', async () => {
+  const city = cityGrid();
+  const data = island({ cx: 300, z0: 640, zj: 1300, z1: 1600 });
+  const roads = islandRoads.createIslandRoads(data, { coreRing: CORE });
+  const handed = [];
+  const graph = islandNet.createIslandGraph({ city, keepLeft: true, coreRing: CORE, makeWorker: fakeWorkerFor(data), onReady: (n) => handed.push(n), log: quiet });
+  const inTown = [{ x: 100, z: 100 }, { x: 500, z: 500 }];
+  const outOfTown = [{ x: 100, z: 100 }, { x: 306, z: 1500 }];
+  assert.equal(graph.resolve(...outOfTown), city, 'before the roads: the city\'s');
+  graph.start(roads, 'roads.json');
+  assert.equal(graph.state, 'building');
+  assert.equal(graph.resolve(...inTown), city);
+  assert.equal(graph.resolve(...outOfTown), city, 'building: the city\'s for now');
+  await until(() => graph.state === 'ready');
+  assert.equal(handed.length, 1, 'handed to the waiting trip');
+  const net = handed[0];
+  assert.ok(net.islandEdges.length > 0 && net.city === city, 'joined to the city');
+  assert.equal(graph.resolve(...inTown), net, 'and used from then on');
+  assert.equal(graph.resolve(...outOfTown), net);
+});
+
+test('the app\'s island graph falls back to the main thread when the worker fails, or there is none', async () => {
+  const city = cityGrid();
+  const data = island({ cx: 300, z0: 640, zj: 1300, z1: 1600 });
+  const roads = islandRoads.createIslandRoads(data, { coreRing: CORE });
+  const outOfTown = [{ x: 100, z: 100 }, { x: 306, z: 1500 }];
+  // the worker fails while a trip waits: it gets one built here
+  const handed = [];
+  const failing = islandNet.createIslandGraph({ city, keepLeft: true, coreRing: CORE, makeWorker: fakeWorkerFor(data, { fail: 500 }), onReady: (n) => handed.push(n), log: quiet });
+  failing.start(roads, 'roads.json');
+  assert.equal(failing.resolve(...outOfTown), city);
+  await until(() => handed.length === 1);
+  assert.equal(failing.state, 'ready');
+  // no worker at all: built the first time a trip needs it
+  const none = islandNet.createIslandGraph({ city, keepLeft: true, coreRing: CORE, makeWorker: () => { throw new Error('no workers'); }, log: quiet });
+  none.start(roads, 'roads.json');
+  assert.equal(none.state, 'main');
+  const net = none.resolve(...outOfTown);
+  assert.ok(net !== city && net.islandEdges.length > 0, 'built on demand');
 });

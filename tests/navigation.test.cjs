@@ -7,7 +7,7 @@ const { loadModule } = require('./helpers/module.cjs');
 
 // The navigator against a synthetic street grid, with the road network's own lane-to-lane curves and the player car's
 // own speed model (both lifted from the production sources), so the autopilot is tested on the physics it drives.
-const roadSource = readFileSync(join(__dirname, '../js/road-network.js'), 'utf8');
+const roadSource = readFileSync(join(__dirname, '../js/lane-curves.js'), 'utf8');
 const carSource = readFileSync(join(__dirname, '../js/controllers.js'), 'utf8');
 const pick = (src, re, what) => {
   const m = src.match(re);
