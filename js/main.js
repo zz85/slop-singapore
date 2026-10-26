@@ -635,7 +635,7 @@ async function initApp() {
 
   // Drive to a destination (js/navigation.js): turn-by-turn for you, or the self-driving or Crazy Taxi autopilot driving
   // the car over the traffic's own road graph
-  const routeNavigator = new Navigator({ network: trafficSystem.network, trafficSystem, controllerManager, audioSystem });
+  const routeNavigator = new Navigator({ network: trafficSystem.network, trafficSystem, islandTraffic, controllerManager, audioSystem });
   const navigationUI = setupNavigationUI({ navigator: routeNavigator, mapSystem, controllerManager, selectMode, closePopovers, teleport: teleportTo });
   // What the autopilot sees, over the view (js/perception-overlay.js): the Navigate menu's switch & [O], remembered
   const perceptionOverlay = new PerceptionOverlay(document.body, { metric: CITY.units === 'metric' });
