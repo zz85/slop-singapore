@@ -534,6 +534,7 @@ class Navigator {
     this.evadeHold = 0;
     this.evadeOffset = 0;
     this.threat = null;
+    this.leadObj = null;
     this.holdLane = null;
 
     this.line = null;
@@ -665,6 +666,23 @@ class Navigator {
       if (pts[i].s - lastS < 6 && i < pts.length - 1) continue;
       lastS = pts[i].s;
       out.push({ x: pts[i].x, z: pts[i].z });
+    }
+    return out;
+  }
+
+  /**
+   * The line it means to drive over the next `ahead` metres (every `step`), on the lane change or swerve it is making:
+   * [{ x, z }], for the perception overlay
+   */
+  planPreview(ahead = 60, step = 3) {
+    if (!this.path || !this.autopilot) return [];
+    const ent = this.controllers.getActiveEntity();
+    const speed = Math.max(1, Math.abs(ent.speed));
+    const out = [{ x: ent.position.x, z: ent.position.z }];
+    const q = {};
+    for (let d = step; d <= ahead && this.progress + d <= this.path.length; d += step) {
+      pointAt(this.path, this.progress + d, this.lineAt(d / speed).y, q);
+      out.push({ x: q.x, z: q.z });
     }
     return out;
   }
@@ -858,6 +876,7 @@ class Navigator {
     const leadA = this.leadOnPath(s, this.offset, range, d.margin);
     const leadB = Math.abs(across - this.offset) > 0.6 ? this.leadOnPath(s, across, range, d.margin) : null;
     const lead = leadB && (!leadA || leadB.gap < leadA.gap) ? leadB : leadA;
+    this.leadObj = lead && !lead.oncoming && !lead.ped ? lead.obj : null; // (for the overlay: the car it follows)
     // (a car coming the other way in its lane is no car to follow: getting out of its way is 2b's)
     if (lead && !lead.oncoming) {
       // edging out round it (the car still behind it, steering for the other lane): creep up to a metre short

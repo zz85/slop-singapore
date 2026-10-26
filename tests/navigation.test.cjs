@@ -704,3 +704,20 @@ test('self-driving keeps going past people walking along the pavement beside its
   }
   assert.ok(slowest > 12, `never brakes for them (${slowest.toFixed(1)} m/s)`);
 });
+
+test('the plan preview (for the overlay) starts at the car and runs along its line ahead', () => {
+  phase = 'green';
+  const net = grid(2, 300);
+  const car = makeCar(1.8, 20, 0);
+  const r = rig(net, car);
+  assert.equal(r.navigator.planPreview().length, 0, 'nothing before a trip');
+  r.navigator.setDriver('self');
+  r.navigator.setDestination(1.8, 560, 'x');
+  for (let t = 0; t < 5; t += 1 / 60) { r.navigator.update(1 / 60, t); stepCar(car, r.keys, 1 / 60); }
+  const plan = r.navigator.planPreview(60, 3);
+  assert.ok(plan.length > 15, `${plan.length} points`);
+  assert.ok(Math.hypot(plan[0].x - car.position.x, plan[0].z - car.position.z) < 1e-9, 'from the car');
+  for (const q of plan.slice(1)) assert.ok(Math.abs(q.x - 1.8) < 0.3 && q.z > car.position.z, 'down its lane ahead');
+  r.navigator.setDriver('you');
+  assert.equal(r.navigator.planPreview().length, 0, 'and none once you drive');
+});
