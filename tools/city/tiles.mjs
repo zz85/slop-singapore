@@ -9,8 +9,10 @@
 //     buildings: { types, data } as GEO.buildings (tools/city/build.mjs; outer rings only), relative to the tile's corner,
 //     roads: [class, width (dm), points..., dx dz (dm) from the point before (the first from the tile's corner)] runs
 //   }
-// and tiles/<city>/roads.json, the island's main roads for the maps (js/nyc-map.js), outside the detailed area:
-//   { classes, names, roads: [[class, name index or -1, x0, z0, then each point's dx dz (m) from the one before]] }
+// and tiles/<city>/roads.json, the island's main roads for the maps (js/nyc-map.js), the island's traffic and teleports
+// (js/island-roads.js), outside the detailed area:
+//   { classes, names, roads: [[class, name index or -1, x0, z0, then each point's dx dz (m) from the one before]],
+//     oneway: [1 along the points, -1 against them, 0 both ways, per road], lanes: [travel lanes per road] }
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -172,6 +174,8 @@ export async function buildTiles(cityOrId, { data, out, geo } = {}) {
   const mapNames = [];
   const nameIndex = new Map();
   const mapRoads = [];
+  const mapOneway = [];
+  const mapLanes = [];
   for (const e of roadsOSM) {
     const t = e.tags || {};
     const ci = ROAD_CLASSES.indexOf(t.highway);
@@ -188,6 +192,9 @@ export async function buildTiles(cityOrId, { data, out, geo } = {}) {
       px = qx; pz = qz;
     }
     mapRoads.push(r);
+    const oneway = t.oneway === '-1' ? -1 : t.oneway === 'yes' || t.oneway === '1' || t.highway === 'motorway' || t.junction === 'roundabout' ? 1 : 0;
+    mapOneway.push(oneway);
+    mapLanes.push(Math.max(1, Math.min(6, Math.round(num(t.lanes)) || (oneway ? (t.highway === 'motorway' ? 3 : 2) : 2))));
   }
 
   // --- Write ---------------------------------------------------------------------------------------------------------
@@ -241,7 +248,7 @@ export async function buildTiles(cityOrId, { data, out, geo } = {}) {
     tiles: index
   };
   fs.writeFileSync(path.join(outDir, 'index.json'), JSON.stringify(indexJson));
-  const roadsJson = JSON.stringify({ classes: ROAD_CLASSES, names: mapNames, roads: mapRoads });
+  const roadsJson = JSON.stringify({ classes: ROAD_CLASSES, names: mapNames, roads: mapRoads, oneway: mapOneway, lanes: mapLanes });
   fs.writeFileSync(path.join(outDir, 'roads.json'), roadsJson);
   log(`roads.json: ${mapRoads.length} main roads for the maps (${(roadsJson.length / 1024).toFixed(0)} KB)`);
   const indexBytes = fs.statSync(path.join(outDir, 'index.json')).size;

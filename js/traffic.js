@@ -31,8 +31,9 @@ import {
 // - Fixed-size local populations replenish distant roads and sidewalks in every direction, protecting the near view.
 // - The player's vehicle or character pushes and is pushed by the traffic (SAT contact, impulses, sparks).
 
-const NUM_CARS = 140; // (200 jammed the streets around the player)
-const NUM_BUSES = 12;
+const NUM_CARS = 100; // (200 jammed the streets around the player, 140 still crowded them)
+const NUM_BUSES = 8;
+const NUM_POLICE = 1; // patrol cars among them
 
 // Intelligent Driver Model: max acceleration, comfortable braking, time headway, standstill gap; and the sideways
 // acceleration drivers accept in bends, which sets how fast they take each turn or lane shift
@@ -185,7 +186,7 @@ function createTrafficSystem(scene, sidewalks, obstacles, signalIntersections) {
   let policeCount = 0;
 
   for (let i = 0; i < NUM_CARS; i++) {
-    const isPolice = (i % 100) === 6;
+    const isPolice = i % Math.ceil(NUM_CARS / NUM_POLICE) === 6;
     const isTaxi = !isPolice && (i % 5) === 0;
     const isSUV = !isPolice && !isTaxi && (i % 2 === 0);
 

@@ -54,6 +54,8 @@ test('preset and map teleports share arrival resets and mark the resolved landin
     selectCamera: (...args) => calls.push(['selectCamera', ...args]),
     getLocationLabel: (x, z) => `${x}, ${z}`,
     cityBlocks: { allBlocks: [] },
+    islandRoads: null,
+    CITY: { driveSide: 'left' },
     trafficSystem: {},
     NYCMapSystem: class {
       constructor(options) { this.onTeleport = options.onTeleport; map = this; }

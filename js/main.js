@@ -10,6 +10,8 @@ import { buildCityBlocks } from './buildings.js';
 import { buildOpenCityBuildings } from './open-city-buildings.js';
 import { buildSingaporeLandmarks } from './singapore-landmarks.js';
 import { CityTiles } from './city-tiles.js';
+import { loadIslandRoads } from './island-roads.js';
+import { createIslandTraffic } from './island-traffic.js';
 import { createLandMask } from './city-tiles-build.js';
 import { buildStreetDetails } from './street-details.js';
 import { buildOpenCityDetails } from './open-city-details.js';
@@ -134,6 +136,20 @@ async function initApp() {
   // The rest of the island (tools/city/tiles.mjs), streamed in tiles of buildings & main roads around the camera
   const cityTiles = CITY.open ? new CityTiles(scene, { url: `./tiles/${CITY.id}/` }) : null;
   if (cityTiles && !(await cityTiles.init())) cityTiles.index = null;
+  // ...its main roads (js/island-roads.js: loaded in the background for the maps, the traffic & teleports), and their
+  // traffic (a pool of cars kept around the camera beyond the detailed city)
+  let islandRoads = null;
+  const islandTraffic = cityTiles?.index ? createIslandTraffic(scene, {
+    vehicles: CITY.vehicles, keepLeft: CITY.driveSide === 'left',
+    count: navigator.hardwareConcurrency <= 4 || matchMedia('(pointer: coarse)').matches ? 20 : 36
+  }) : null;
+  const islandRoadsLoading = cityTiles?.index
+    ? loadIslandRoads(`${cityTiles.url}roads.json`, { coreRing: cityTiles.index.coreRing }).then((roads) => {
+      islandRoads = roads;
+      islandTraffic.setRoads(roads);
+      return roads;
+    }).catch((e) => { console.warn(`[island] no roads: ${e.message}`); return null; })
+    : Promise.resolve(null);
   markInit('islandTiles');
   const allColliders = [...landmarkColliders, ...(cityLandmarks?.colliders || []), ...cityBlocks.colliders, ...boroughs.colliders, ...(cityGrid.colliders || [])];
 
@@ -272,7 +288,8 @@ async function initApp() {
     // Singapore's: the Flyer's wheel & capsules, Spectra's beams; the island tiles streamed in around the camera; rain
     cityLandmarks?.group,
     cityTiles?.group,
-    weather?.rain
+    weather?.rain,
+    islandTraffic?.group
   ].filter(Boolean);
   scene.updateMatrixWorld(true);
   scene.matrixWorldAutoUpdate = false;
@@ -586,6 +603,13 @@ async function initApp() {
   }
 
   function teleportTo(x, z, heading = Math.PI) {
+    // beyond the detailed city, a ground arrival is on the nearest of the island's main roads, in its lane, with its
+    // traffic (the expressways only for the car)
+    const mode = controllerManager.activeMode;
+    if (islandRoads && mode !== 'helicopter' && !islandRoads.inCore(x, z)) {
+      const road = islandRoads.snap(x, z, heading, 800, CITY.driveSide === 'left', { expressways: mode === 'car' });
+      if (road) ({ x, z, heading } = road);
+    }
     const destination = controllerManager.teleportActiveTo(x, z, heading);
     touchControls.reset();
     gamepadControls.reset();
@@ -634,9 +658,7 @@ async function initApp() {
   if (cityTiles?.index) {
     const land = cityTiles.index.land;
     mapSystem.setIsland({ land });
-    fetch(`${cityTiles.url}roads.json`).then((r) => (r.ok ? r.json() : null)).then((roads) => {
-      if (roads) mapSystem.setIsland({ land, roads });
-    }).catch((e) => console.warn(`[map] no island roads: ${e.message}`));
+    islandRoadsLoading.then((roads) => { if (roads) mapSystem.setIsland({ land, roads: roads.data }); });
     cityTiles.onTileOutlines = (key, x, z, outlines) => mapSystem.addTile(key, x, z, outlines);
   }
   if (openMapBtn) openMapBtn.addEventListener('click', () => mapSystem.toggleFullMap(true));
@@ -818,7 +840,7 @@ async function initApp() {
   }
 
   // For poking at from the console (and the browser checks): the simulation's main systems
-  globalThis.slop = { scene, navigator: routeNavigator, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem };
+  globalThis.slop = { scene, navigator: routeNavigator, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, get islandRoads() { return islandRoads; }, teleportTo };
 
   await precompileShaders();
   markInit('compile');
@@ -868,6 +890,7 @@ async function initApp() {
     mapSystem.update();
     if (weather) weather.update(dt, cameraSystem.camera);
     if (cityTiles) cityTiles.update(cameraSystem.camera);
+    if (islandTraffic) islandTraffic.update(dt, cameraSystem.camera, controllerManager.getActiveEntity(), controllerManager.activeMode);
     audioSystem.setAmbience(lightingSystem.activePresetId, weather ? weather.storm : 0);
     audioSystem.update(dt, elapsed, cameraSystem.camera, lightingSystem.activePresetId === 'midnight');
     if (warmedUp) updateSceneCulling(cameraSystem.camera.position); // the warm-up frame draws every chunk
