@@ -34,6 +34,7 @@ import { PerceptionOverlay } from './perception-overlay.js';
 import { createIslandGraph } from './island-network.js';
 import { createAirbases } from './airbases.js';
 import { JetHUD } from './jet-hud.js';
+import { createAirForce } from './air-force.js';
 import { GEO } from './geodata.js';
 
 // js/main.js
@@ -248,7 +249,9 @@ async function initApp() {
   const soundButton = document.getElementById('btn-sound');
   // A tropical city (Singapore) has its koels, cicadas and thunderstorms
   const tropical = CITY.open && CITY.id === 'singapore';
-  const audioSystem = new CityAudioSystem({ controllerManager, trafficSystem, highwayTraffic, streetDetails, islandTraffic }, {
+  // The RSAF's other F-15SGs (js/air-force.js): a wingman for the jet, a flypast to order, from the Air Force menu
+  const airForce = airbases ? createAirForce(scene, controllerManager) : null;
+  const audioSystem = new CityAudioSystem({ controllerManager, trafficSystem, highwayTraffic, streetDetails, islandTraffic, aircraft: airForce?.aircraft }, {
     onStateChange: updateSoundButton,
     tropics: tropical
   });
@@ -311,6 +314,7 @@ async function initApp() {
     controllerManager.entities.jet.trails.mesh,
     controllerManager.entities.jet.explosion.fireball,
     controllerManager.entities.jet.explosion.smoke,
+    airForce?.group,
     airbases?.group,
     // Singapore's: the Flyer's wheel & capsules, Spectra's beams; the island tiles streamed in around the camera; rain
     cityLandmarks?.group,
@@ -665,6 +669,54 @@ async function initApp() {
   }
   if (openMapBtn) openMapBtn.addEventListener('click', () => mapSystem.toggleFullMap(true));
 
+  // The Air Force menu: the wingman and the runways on the map (both remembered), and a flypast to order
+  const afButton = document.getElementById('btn-airforce');
+  const afPopover = document.getElementById('airforce-popover');
+  const afWingman = document.getElementById('af-wingman');
+  const afFlypast = document.getElementById('af-flypast');
+  const afFlypastSub = document.getElementById('af-flypast-sub');
+  const afRunways = document.getElementById('af-runways');
+  const afFlypastText = afFlypastSub?.textContent || '';
+  const remember = (key, on) => { try { localStorage.setItem(key, on ? '1' : '0'); } catch { /* storage unavailable */ } };
+  const recalled = (key) => { try { return localStorage.getItem(key) === '1'; } catch { return false; } };
+  function setWingman(on) {
+    airForce?.setWingman(on);
+    afWingman?.setAttribute('aria-checked', String(on));
+    remember('airforce-wingman', on);
+  }
+  function setRunwaysOnMap(on) {
+    mapSystem.setRunways(airbases?.runways || [], on);
+    afRunways?.setAttribute('aria-checked', String(on));
+    remember('map-runways', on);
+  }
+  if (airForce) {
+    mapSystem.setAircraft(airForce.contacts);
+    afWingman?.addEventListener('click', () => setWingman(afWingman.getAttribute('aria-checked') !== 'true'));
+    afRunways?.addEventListener('click', () => setRunwaysOnMap(!mapSystem.runwaysShown));
+    afFlypast?.addEventListener('click', () => {
+      if (airForce.flypast.active) return;
+      const eta = airForce.orderFlypast(cameraSystem.camera);
+      closePopovers();
+      streetDetails.notice?.('RSAF FLYPAST', `Four F-15SGs inbound, dead ahead: bomb burst in ${Math.round(eta)} s`, false, 'erp');
+    });
+    setWingman(recalled('airforce-wingman'));
+    setRunwaysOnMap(recalled('map-runways'));
+  } else {
+    afButton?.remove();
+    afPopover?.remove();
+  }
+  // the flypast's countdown in the menu, while it's on its way
+  let afShown = '';
+  function updateAirForceMenu() {
+    if (!airForce || !afFlypast) return;
+    const f = airForce.flypast;
+    const text = !f.active ? afFlypastText : f.eta > 0 ? `Inbound dead ahead: bomb burst in ${Math.ceil(f.eta)} s` : 'Bomb burst: look up';
+    if (text === afShown) return;
+    afShown = text;
+    afFlypastSub.textContent = text;
+    afFlypast.disabled = f.active;
+  }
+
   // Drive to a destination (js/navigation.js): turn-by-turn for you, or the self-driving or Crazy Taxi autopilot driving
   // the car over the traffic's own road graph
   // Beyond the detailed city, over the island's main roads: their graph joined to the city's, built in a worker once the
@@ -874,7 +926,7 @@ async function initApp() {
   }
 
   // For poking at from the console (and the browser checks): the simulation's main systems
-  globalThis.slop = { scene, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
+  globalThis.slop = { scene, airForce, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
 
   await precompileShaders();
   markInit('compile');
@@ -900,6 +952,7 @@ async function initApp() {
     routeNavigator.update(dt, elapsed); // (the autopilot's inputs, for this frame's car update)
     navigationUI.update(dt);
     controllerManager.update(dt, elapsed);
+    if (airForce) airForce.update(dt, elapsed); // (the wingman follows where the jet went this frame)
     cameraSystem.update(dt, elapsed);
     streetDetails.signalClock.value = elapsed;
     trafficSystem.update(
@@ -945,6 +998,9 @@ async function initApp() {
       // from the front seat: the cockpit around you, out through the canopy (drawn opaque from outside)
       jet.model.setCockpitView(cockpit);
       if (controllerManager.activeMode === 'jet') jetHud.update(dt, jet, cameraSystem.camera, cockpit);
+    }
+    if (airForce) {
+      updateAirForceMenu();
     }
 
     // Render frame via TSL RenderPipeline (SSR + Bloom)

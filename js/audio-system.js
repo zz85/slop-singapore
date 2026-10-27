@@ -277,6 +277,8 @@ class CityAudioSystem {
         if (pool.size >= limit) continue;
         const emitter = new SpatialEmitter(this.context, this.mix, this.reflections, this.acoustics,
           siren ? 9 : source.kind === 'jet' ? 18 : source.kind === 'helicopter' ? 12 : 4, siren ? 0.9 : 0, siren);
+        // (a jet is heard for kilometres: it keeps fading past the others' 500 m)
+        if (source.kind === 'jet') emitter.panner.maxDistance = 4000;
         slot = { emitter, voice: createMotorVoice(this.context, this.resources, siren ? 'siren' : source.kind, emitter.input),
           distance: 0, x: source.x, y: source.y, z: source.z, fresh: true };
         pool.set(source.id, slot);

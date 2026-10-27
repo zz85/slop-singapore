@@ -77,6 +77,7 @@
   <link rel="modulepreload" href="./js/navigation-ui.js" />
   <link rel="modulepreload" href="./js/airbases.js" />
   <link rel="modulepreload" href="./js/jet-hud.js" />
+  <link rel="modulepreload" href="./js/air-force.js" />
   <link rel="modulepreload" href="./js/main.js" />
   <script type="module" src="./js/main.js"></script>
   <!-- Inter (UI) & Overpass (street-name signs: modelled on Highway Gothic, the US road sign typeface) -->
@@ -180,6 +181,9 @@
       <button id="btn-open-map" class="tool-btn" type="button" title="Full Singapore street map [M]">
         <svg class="icon" aria-hidden="true"><use href="#i-map"/></svg><span class="tool-label">Map</span><kbd>M</kbd>
       </button>
+      <button id="btn-airforce" class="tool-btn" type="button" popovertarget="airforce-popover" title="Air Force: a wingman, a flypast, the runways on the map">
+        <svg class="icon" aria-hidden="true"><use href="#i-jet"/></svg><span class="tool-label">Air Force</span>
+      </button>
       <span class="toolbar-divider" aria-hidden="true"></span>
       <button id="btn-sound" class="tool-btn icon-only" type="button" title="Mute sound [N]" aria-label="Mute sound" aria-pressed="true">
         <svg class="icon" aria-hidden="true"><use href="#i-sound"/></svg>
@@ -198,6 +202,14 @@
     <button id="nav-stop" class="pop-item" type="button" hidden><span class="pop-name">End the trip</span></button>
     <button id="nav-overlay" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">Show what it sees <kbd>O</kbd></span><span class="pop-sub">The autopilot's tracks, predictions and plan</span></button>
     <div id="nav-places"><!-- the city's places (city-config.js TELEPORT_LOCATIONS), listed by navigation-ui.js --></div>
+  </div>
+
+  <!-- The RSAF's other F-15SGs and the jet's runways (js/air-force.js, js/airbases.js) -->
+  <div id="airforce-popover" class="popover" popover data-side="below" data-anchor="hud-toolbar" data-align="btn-airforce" aria-label="Air Force">
+    <div class="pop-title">Republic of Singapore Air Force</div>
+    <button id="af-wingman" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">F-15 wingman</span><span class="pop-sub">Flies in echelon off your jet's right wing</span></button>
+    <button id="af-flypast" class="pop-item" type="button"><span class="pop-name">Order a flypast</span><span id="af-flypast-sub" class="pop-sub">Four F-15SGs run in low towards you, then a bomb burst</span></button>
+    <button id="af-runways" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">Runways on the map</span><span class="pop-sub">Paya Lebar, Tengah, Changi and Seletar</span></button>
   </div>
 
   <!-- Turn-by-turn guidance & the Crazy Taxi meter -->

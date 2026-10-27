@@ -85,6 +85,9 @@ const MAP = {
   highway: '#b27a35',
   bridge: '#c08a3e',
   route: '#ffc21a',
+  runway: '#5d6573',
+  runwayMark: 'rgba(235, 240, 245, 0.75)',
+  aircraft: '#7dffa8',
   search: '#5fd0ff',
   halo: 'rgba(8, 11, 15, 0.9)'
 };
@@ -418,6 +421,9 @@ function setIslandLayers({ land = [], roads = null } = {}) {
   ISLAND.version++;
 }
 
+// The jet's runways (js/airbases.js runways), drawn when shown: { x, z, heading, length, width, name } each
+const RUNWAY_LAYER = { list: [], show: false, version: 0 };
+
 // Buildings of the island tiles streamed in so far (js/city-tiles.js onTileOutlines), by height as FOOTPRINTS
 const TILE_FOOTPRINTS = { tones: [new TiledLayer(), new TiledLayer(), new TiledLayer()], keys: new Set(), version: 0 };
 function addTileFootprints(key, ox, oz, { pts, offsets, tops }) {
@@ -656,6 +662,45 @@ class NYCMapSystem {
   setIsland(island) {
     setIslandLayers(island);
     if (this.elSearchInput) this.elSearchInput.placeholder = `Search ${ROAD_NAME_COUNT} streets & landmarks…`;
+  }
+
+  /** The jet's runways, and whether the maps show them */
+  setRunways(list, show = RUNWAY_LAYER.show) {
+    RUNWAY_LAYER.list = list || [];
+    RUNWAY_LAYER.show = !!show;
+    RUNWAY_LAYER.version++;
+    if (this.isFullMapOpen) this.renderFullMap();
+  }
+
+  get runwaysShown() { return RUNWAY_LAYER.show; }
+
+  // The other F-15SGs in the air (js/air-force.js contacts: { visible, x, z, heading }), as blips on the radar & map
+  setAircraft(contacts) {
+    this.aircraft = contacts || [];
+  }
+
+  // the aircraft blips (a screen transform from the view's centre)
+  drawAircraft(ctx, v, size) {
+    if (!this.aircraft) return;
+    ctx.fillStyle = MAP.aircraft;
+    ctx.strokeStyle = MAP.halo;
+    ctx.lineWidth = 1.5;
+    for (const a of this.aircraft) {
+      if (!a.visible) continue;
+      const [x, y] = v.pt(a.x, a.z);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(v.headingAngle(a.heading));
+      ctx.beginPath();
+      ctx.moveTo(0, -size);
+      ctx.lineTo(size * 0.8, size * 0.6);
+      ctx.lineTo(0, size * 0.25);
+      ctx.lineTo(-size * 0.8, size * 0.6);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
   addTile(key, ox, oz, outlines) {
@@ -1005,6 +1050,32 @@ class NYCMapSystem {
       }
     }
 
+    // 2c. The jet's runways (shown from the Air Force menu): the strip to scale, its centreline once zoomed in
+    if (RUNWAY_LAYER.show) {
+      for (const r of RUNWAY_LAYER.list) {
+        const fx = Math.sin(r.heading), fz = Math.cos(r.heading);
+        const half = r.length / 2, w = Math.max(r.width / 2, px(2.5));
+        ctx.beginPath();
+        ctx.moveTo(r.x - fx * half - fz * w, r.z - fz * half + fx * w);
+        ctx.lineTo(r.x + fx * half - fz * w, r.z + fz * half + fx * w);
+        ctx.lineTo(r.x + fx * half + fz * w, r.z + fz * half - fx * w);
+        ctx.lineTo(r.x - fx * half + fz * w, r.z - fz * half - fx * w);
+        ctx.closePath();
+        ctx.fillStyle = MAP.runway;
+        ctx.fill();
+        if (s > 0.06) {
+          ctx.strokeStyle = MAP.runwayMark;
+          ctx.lineWidth = px(1);
+          ctx.setLineDash([px(6), px(5)]);
+          ctx.beginPath();
+          ctx.moveTo(r.x - fx * (half - 60), r.z - fz * (half - 60));
+          ctx.lineTo(r.x + fx * (half - 60), r.z + fz * (half - 60));
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+    }
+
     // 3. Parkland, blocks (curb islands) and park blocks
     ctx.fillStyle = MAP.park;
     L.parkLand.each(v, (p) => ctx.fill(p));
@@ -1222,7 +1293,7 @@ class NYCMapSystem {
     // Ground layers & street names come from a cached render twice the radar's size, redrawn when the player nears its
     // edge or the zoom drifts (or the buildings arrive)
     const fp = footprintLayers(this.allBlocks);
-    const version = `${fp ? fp.version : 0}|${ISLAND.version}|${TILE_FOOTPRINTS.version}`;
+    const version = `${fp ? fp.version : 0}|${ISLAND.version}|${TILE_FOOTPRINTS.version}|${RUNWAY_LAYER.version}`;
     let c = this.miniCache;
     // (where the cache's centre is on the radar now, in pixels: it covers the radar while that is under its half size)
     const off = c ? new MapView(px, pz, scale, w, h, dpr).pt(c.cx, c.cz) : null;
@@ -1296,6 +1367,9 @@ class NYCMapSystem {
       }
     }
 
+    // The other F-15SGs in the air
+    this.drawAircraft(ctx, v, 5);
+
     // Camera FOV Cone & Player Arrow at center (0, 0)
     const camDir = this.cameraSystem.currentLookAt.clone().sub(this.cameraSystem.currentPos);
     const camAngle = Math.atan2(camDir.x, camDir.z);
@@ -1343,7 +1417,7 @@ class NYCMapSystem {
 
     // Ground layers, names & landmark pins: re-rendered only when the view, the search or the buildings change
     const fp = footprintLayers(this.allBlocks);
-    const key = `${v.cx}|${v.cz}|${v.s}|${this.fullCanvas.width}|${this.fullCanvas.height}|${this.searchHighlight}|${fp ? fp.version : 0}|${ISLAND.version}|${TILE_FOOTPRINTS.version}`;
+    const key = `${v.cx}|${v.cz}|${v.s}|${this.fullCanvas.width}|${this.fullCanvas.height}|${this.searchHighlight}|${fp ? fp.version : 0}|${ISLAND.version}|${TILE_FOOTPRINTS.version}|${RUNWAY_LAYER.version}`;
     if (!this.fullStatic) this.fullStatic = document.createElement('canvas');
     if (key !== this.fullStaticKey) {
       this.fullStaticKey = key;
@@ -1367,6 +1441,9 @@ class NYCMapSystem {
       else drawRoute(ctx, v, ent.position.x, ent.position.z, this.waypoint.x, this.waypoint.z, 4);
       drawWaypoint(ctx, wx, wy, 7);
     }
+
+    // The other F-15SGs in the air
+    this.drawAircraft(ctx, v, 7);
 
     // Live Player Blip & Heading Arrow, with a slow pulse to find it at a glance
     const [px, py] = v.pt(ent.position.x, ent.position.z);
@@ -1418,9 +1495,32 @@ class NYCMapSystem {
       pins.push({ lm, lx, ly, showLabel });
     }
 
-    // 4. Borough, waterway & neighbourhood watermark titles (wherever they fit), letter-spaced like a printed atlas
+    // 3b. The airbases' names, over their runways (one name for Changi's four)
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    if (RUNWAY_LAYER.show) {
+      const bases = new Map();
+      for (const r of RUNWAY_LAYER.list) {
+        const b = bases.get(r.name) || { x: 0, z: 0, n: 0 };
+        b.x += r.x; b.z += r.z; b.n++;
+        bases.set(r.name, b);
+      }
+      ctx.font = `700 11px ${FONT}`;
+      for (const [name, b] of bases) {
+        const [dx, dy] = v.pt(b.x / b.n, b.z / b.n, q);
+        if (Math.abs(dx) > w * 0.47 || Math.abs(dy) > h * 0.47) continue;
+        const half = this.textWidth(ctx, name) * 0.5 + 4;
+        const box = [dx - half, dy - 9, dx + half, dy + 9];
+        if (overlaps(placed, box)) continue;
+        placed.push(box);
+        ctx.fillStyle = MAP.halo;
+        ctx.fillText(name, dx + 1, dy + 1);
+        ctx.fillStyle = 'rgba(220, 228, 238, 0.9)';
+        ctx.fillText(name, dx, dy);
+      }
+    }
+
+    // 4. Borough, waterway & neighbourhood watermark titles (wherever they fit), letter-spaced like a printed atlas
     const tracking = 'letterSpacing' in ctx;
     for (const [label, x, z, kind] of AREA_LABELS) {
       if (kind === 0 && s > 0.07) continue;

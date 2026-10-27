@@ -697,44 +697,68 @@ function buildFlame() {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-function createJetModel() {
+// The geometries & materials every F-15SG shares (the player's, its wingman, a flypast's four), built once
+let SHARED = null;
+function shared() {
+  if (SHARED) return SHARED;
+  const disc = new THREE.CircleGeometry(0.4, 14);
+  disc.rotateY(Math.PI);
+  SHARED = {
+    paint: paintMaterial(),
+    airframe: buildAirframe(),
+    forward: buildForwardFuselage(),
+    canopy: buildCanopy(),
+    canopyMat: canopyMaterial(),
+    decals: buildDecals(),
+    decalMat: new THREE.MeshStandardNodeMaterial({ map: decalTexture(), alphaTest: 0.5, roughness: 0.55, metalness: 0.15, side: THREE.DoubleSide }),
+    stabilators: buildStabilators(),
+    gear: buildGear(),
+    flame: buildFlame(),
+    disc,
+    lights: [0xff2b2b, 0x22ff66, 0xffffff].map((color) => new THREE.MeshBasicNodeMaterial({ color })),
+    light: new THREE.SphereGeometry(1, 8, 6)
+  };
+  return SHARED;
+}
+
+/** An F-15SG; `cockpit`: with the front cockpit for the player's view from the seat (the others' never shows) */
+function createJetModel({ cockpit: withCockpit = true } = {}) {
+  const S = shared();
   const root = new THREE.Group();
   root.name = 'F15SG';
-  const paint = paintMaterial();
+  const paint = S.paint;
 
-  const airframe = new THREE.Mesh(buildAirframe(), paint);
+  const airframe = new THREE.Mesh(S.airframe, paint);
   airframe.name = 'F15SG_airframe';
   root.add(airframe);
-  const forward = new THREE.Mesh(buildForwardFuselage(), paint);
+  const forward = new THREE.Mesh(S.forward, paint);
   forward.name = 'F15SG_forward';
   root.add(forward);
 
-  const canopy = new THREE.Mesh(buildCanopy(), canopyMaterial());
+  const canopy = new THREE.Mesh(S.canopy, S.canopyMat);
   canopy.name = 'F15SG_canopy';
   root.add(canopy);
 
-  const cockpit = buildCockpit(paint);
-  root.add(cockpit.group);
+  const cockpit = withCockpit ? buildCockpit(paint) : null;
+  if (cockpit) root.add(cockpit.group);
 
-  const decals = new THREE.Mesh(buildDecals(), new THREE.MeshStandardNodeMaterial({
-    map: decalTexture(), alphaTest: 0.5, roughness: 0.55, metalness: 0.15, side: THREE.DoubleSide
-  }));
+  const decals = new THREE.Mesh(S.decals, S.decalMat);
   decals.name = 'F15SG_markings';
   root.add(decals);
 
   const stabilators = new THREE.Group();
   stabilators.position.set(0, 0.02, -7.8);
-  stabilators.add(new THREE.Mesh(buildStabilators(), paint));
+  stabilators.add(new THREE.Mesh(S.stabilators, paint));
   root.add(stabilators);
 
   const gear = new THREE.Group();
   gear.position.set(0, -0.55, 0);
-  gear.add(new THREE.Mesh(buildGear(), paint));
+  gear.add(new THREE.Mesh(S.gear, paint));
   root.add(gear);
 
-  // afterburner plumes: one geometry, two meshes; and the nozzles' glow
+  // afterburner plumes: one geometry, two meshes; and the nozzles' glow (their own materials: their own throttle)
   const abLevel = uniform(0);
-  const flameGeo = buildFlame();
+  const flameGeo = S.flame;
   const flameMat = flameMaterial(abLevel);
   const flames = new THREE.Group();
   for (const x of [0.71, -0.71]) {
@@ -749,30 +773,29 @@ function createJetModel() {
   const glowMat = new THREE.MeshBasicNodeMaterial({ color: 0xff7a2a });
   glowMat.colorNode = vec3(1.0, 0.45, 0.12).mul(abLevel.mul(2.2).add(0.12));
   const nozzleGlow = new THREE.Group();
-  const disc = new THREE.CircleGeometry(0.4, 14);
-  disc.rotateY(Math.PI);
   for (const x of [0.71, -0.71]) {
-    const d = new THREE.Mesh(disc, glowMat);
+    const d = new THREE.Mesh(S.disc, glowMat);
     d.position.set(x, 0, -9.18);
     nozzleGlow.add(d);
   }
   root.add(nozzleGlow);
 
   // navigation lights: red on the left (port) wingtip, green on the right, white strobe on the tail
-  const light = (color, x, y, z, r = 0.07) => {
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), new THREE.MeshBasicNodeMaterial({ color }));
+  const light = (k, x, y, z, r = 0.07) => {
+    const mesh = new THREE.Mesh(S.light, S.lights[k]);
+    mesh.scale.setScalar(r);
     mesh.position.set(x, y, z);
     root.add(mesh);
     return mesh;
   };
-  light(0xff2b2b, 6.5, WING.y - 0.07, -4.1);
-  light(0x22ff66, -6.5, WING.y - 0.07, -4.1);
-  const strobe = light(0xffffff, 1.5, 3.62, -7.7, 0.08);
+  light(0, 6.5, WING.y - 0.07, -4.1);
+  light(1, -6.5, WING.y - 0.07, -4.1);
+  const strobe = light(2, 1.5, 3.62, -7.7, 0.08);
 
   return {
     root,
     canopy,
-    cockpit: cockpit.group,
+    cockpit: cockpit ? cockpit.group : null,
     stabilators,
     gear,
     flames,
@@ -794,6 +817,7 @@ function createJetModel() {
     },
     /** From the front seat: the cockpit in; the canopy's outside (opaque glass) and the uncut nose out */
     setCockpitView(on) {
+      if (!cockpit) return;
       cockpit.group.visible = on;
       canopy.visible = forward.visible = !on;
     }
