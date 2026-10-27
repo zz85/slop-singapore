@@ -5,10 +5,11 @@
 //
 // Output: tiles/<city>/index.json { version, tile (m), frame, core: [x0, z0, x1, z1] (the detailed area the tiles leave
 //   out), land: [[outer, ...holes] flat x, z (m)], landuse?: { file, x0, z0, res, w, h, channels } (tools/city/landuse.mjs's
-//   image of what the ground is, tiles/<city>/landuse.png), tiles: [{ i, j, file, buildings, roads, top }] } and per tile
+//   image of what the ground is, tiles/<city>/landuse.png), tiles: [{ i, j, file, buildings, roads, trees, top }] } and per tile
 //   tiles/<city>/<i>_<j>.json {
 //     buildings: { types, data } as GEO.buildings (tools/city/build.mjs; outer rings only), relative to the tile's corner,
 //     roads: [class, width (dm), points..., dx dz (dm) from the point before (the first from the tile's corner)] runs
+//     trees?: NParks' (tools/city/fetch-island.mjs trees.csv) [dx, dz (dm) from the tree before, height (m)] flat
 //   }
 // and tiles/<city>/roads.json, the island's main roads for the maps (js/nyc-map.js), the island's traffic and teleports
 // (js/island-roads.js), beyond the detail box (through its margin, up to where the city's own road graph takes over):
@@ -118,7 +119,7 @@ export async function buildTiles(cityOrId, { data, out, geo } = {}) {
   const tileOf = (x, z) => {
     const i = Math.floor(x / T), j = Math.floor(z / T);
     const k = `${i},${j}`;
-    if (!tiles.has(k)) tiles.set(k, { i, j, buildings: [], roads: [] });
+    if (!tiles.has(k)) tiles.set(k, { i, j, buildings: [], roads: [], trees: [] });
     return tiles.get(k);
   };
   const items = [];
@@ -194,6 +195,31 @@ export async function buildTiles(cityOrId, { data, out, geo } = {}) {
   }
   log(`${items.length - byParts} buildings in tiles (${byParts} outlines drawn by their parts), ${roadRuns} road runs`);
 
+  // --- Trees: NParks' inventory across the island (tools/city/fetch-island.mjs trees.csv), beyond the detailed area ---
+  // (on land; the tile's builder keeps them off its buildings and carriageways, js/city-tiles-build.js)
+  const treesFile = path.join(dir, 'trees.csv');
+  let treeCount = 0;
+  if (fs.existsSync(treesFile)) {
+    const lines = fs.readFileSync(treesFile, 'utf8').split('\n');
+    for (let k = 1; k < lines.length; k++) {
+      const f = lines[k].split(',');
+      if (f.length < 3) continue;
+      const [x, z] = toWorld(parseFloat(f[0]), parseFloat(f[1]));
+      if (!Number.isFinite(x) || inCore(x, z) || !landAt(x, z)) continue;
+      tileOf(x, z).trees.push([x, z, parseFloat(f[2]) || 0]);
+      treeCount++;
+    }
+    log(`${treeCount} of NParks' ${lines.length - 2} trees beyond the detailed area`);
+  }
+  // every tile with land in it (woods with no buildings or roads have trees too)
+  for (let i = Math.floor(land.x0 / T); i * T < land.x0 + land.w * land.res; i++) {
+    for (let j = Math.floor(land.z0 / T); j * T < land.z0 + land.h * land.res; j++) {
+      let any = false;
+      for (let z = j * T + 25; z < (j + 1) * T && !any; z += 50) for (let x = i * T + 25; x < (i + 1) * T && !any; x += 50) any = landAt(x, z) && !inCore(x, z);
+      if (any) tileOf(i * T + 1, j * T + 1);
+    }
+  }
+
   // --- The maps' road layer: every main road beyond the detailed area (tunnels too), simplified to 4 m ---------------
   const mapNames = [];
   const nameIndex = new Map();
@@ -250,7 +276,12 @@ export async function buildTiles(cityOrId, { data, out, geo } = {}) {
   const index = [];
   let bytes = 0;
   for (const tile of [...tiles.values()].sort((a, b) => a.j - b.j || a.i - b.i)) {
-    if (!tile.buildings.length && !tile.roads.length) continue;
+    if (!tile.buildings.length && !tile.roads.length && !tile.trees.length) {
+      // (a tile of land with nothing on it: kept for the trees its land use grows)
+      let any = false;
+      for (let z = tile.j * T + 25; z < (tile.j + 1) * T && !any; z += 50) for (let x = tile.i * T + 25; x < (tile.i + 1) * T && !any; x += 50) any = landAt(x, z) && !inCore(x, z);
+      if (!any) continue;
+    }
     const ox = tile.i * T, oz = tile.j * T;
     const types = [...new Set(tile.buildings.map((b) => b.type))];
     const data = [];
@@ -276,11 +307,22 @@ export async function buildTiles(cityOrId, { data, out, geo } = {}) {
       }
       return out;
     });
+    // trees: [dx, dz (dm, from the one before, the first from the tile's corner), height (m)], row by row
+    const trees = [];
+    {
+      let px = 0, pz = 0;
+      tile.trees.sort((a, b) => Math.floor(a[1] / 50) - Math.floor(b[1] / 50) || a[0] - b[0]);
+      for (const [x, z, h] of tile.trees) {
+        const qx = Math.round((x - ox) * 10), qz = Math.round((z - oz) * 10);
+        trees.push(qx - px, qz - pz, Math.round(h));
+        px = qx; pz = qz;
+      }
+    }
     const file = `${tile.i}_${tile.j}.json`;
-    const body = JSON.stringify({ buildings: { types, data }, roads });
+    const body = JSON.stringify(trees.length ? { buildings: { types, data }, roads, trees } : { buildings: { types, data }, roads });
     fs.writeFileSync(path.join(outDir, file), body);
     bytes += body.length;
-    index.push({ i: tile.i, j: tile.j, file, buildings: tile.buildings.length, roads: roads.length, top: Math.round(Math.max(0, ...tile.buildings.map((b) => b.top))) });
+    index.push({ i: tile.i, j: tile.j, file, buildings: tile.buildings.length, roads: roads.length, trees: tile.trees.length, top: Math.round(Math.max(0, ...tile.buildings.map((b) => b.top))) });
   }
   const cb = bbox(coreRing);
   const indexJson = {

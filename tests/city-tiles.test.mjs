@@ -6,7 +6,7 @@ import test from 'node:test';
 import { buildTiles } from '../tools/city/tiles.mjs';
 import { islandQueries } from '../tools/city/fetch-island.mjs';
 import { decodePNG } from '../tools/city/png.mjs';
-import { decodeBuildings, buildTileArrays, triangulate, transferables, islandGround, TREE_SPACING } from '../js/city-tiles-build.js';
+import { decodeBuildings, decodeTrees, buildTileArrays, triangulate, transferables, islandGround, TREE_SPACING, REAL_ROOM } from '../js/city-tiles-build.js';
 
 const LAT0 = 1.3, LON0 = 103.8;
 const way = (id, coords, tags) => ({ type: 'way', id, nodes: coords.map((_, i) => (i === coords.length - 1 ? id * 100 : id * 100 + i)), geometry: coords.map(([lon, lat]) => ({ lon, lat })), tags });
@@ -296,5 +296,75 @@ test('the tile worker: reads the land use once, hands it back, and plants the ti
   } finally {
     globalThis.fetch = realFetch;
     delete globalThis.self;
+  }
+});
+
+test('NParks\' trees: each at its place and height, off buildings and carriageways, the filled-in ones kept clear', () => {
+  const { ox, oz, size, landuse, tile } = treeTile();
+  // in the park (x 210-390): a row of street trees at z 200, one in the building (100, 300), one on the road (300, 450),
+  // one at the kerb 9 m off its line (the carriageway's 7 m half-width and a little), one with no height
+  const real = [[250, 200, 12], [280, 200, 15], [310, 200, 9], [100, 300, 10], [300, 450, 8], [300, 459, 11], [340, 200, 0]];
+  const flat = [];
+  let px = 0, pz = 0;
+  for (const [x, z, h] of real) { flat.push(x * 10 - px, z * 10 - pz, h); px = x * 10; pz = z * 10; }
+  assert.deepEqual(decodeTrees(flat).map((t) => [t.x, t.z, t.h]), real);
+  const withReal = { ...tile, trees: flat };
+  const built = buildTileArrays(withReal, { ox, oz, size, landuse });
+  assert.equal(built.trees.real, 5, 'less the one in the building and the one on the road');
+  const all = treesOf(built.trees);
+  const nparks = all.slice(0, built.trees.real);
+  assert.deepEqual(nparks.map((t) => [t.x, t.z]), [[250, 200], [280, 200], [310, 200], [300, 459], [340, 200]]);
+  for (const [k, t] of nparks.entries()) {
+    const want = [12, 15, 9, 11, 8][k];
+    assert.ok(Math.abs(t.h - want) <= want * 0.1 + 1e-6, `height ${t.h} for ${want}`);
+    assert.ok(t.w >= 3.5 && t.w <= 15);
+  }
+  // none of the filled-in ones within the park's REAL_ROOM of them; in the woods only their crown's room
+  for (const t of all.slice(built.trees.real)) {
+    for (const r of nparks) {
+      const d = Math.hypot(t.x - r.x, t.z - r.z);
+      if (t.x > 200 && t.x < 400) assert.ok(d > REAL_ROOM[1] - 4, `a park tree ${d.toFixed(1)} m from an NParks one`);
+    }
+  }
+  // without the land use: NParks' alone
+  const alone = buildTileArrays(withReal, null);
+  assert.equal(alone.trees.count, 5);
+  assert.equal(alone.trees.real, 5);
+});
+
+test('island tiles: NParks\' trees beyond the detailed area, by tile, and a tile for land with nothing else on it', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'city trees '));
+  try {
+    const data = path.join(dir, 'island');
+    fs.mkdirSync(data);
+    const D = 4000;
+    const coast = way(1, [[-D, -D], [-D, D], [D, D], [D, -D], [-D, -D]].map(([x, z]) => ll(x, z)), { natural: 'coastline' });
+    fs.writeFileSync(path.join(data, 'coast.json'), JSON.stringify({ elements: [coast] }));
+    fs.writeFileSync(path.join(data, 'water.json'), JSON.stringify({ elements: [] }));
+    fs.writeFileSync(path.join(data, 'cell_a.json'), JSON.stringify({ elements: [square(11, 2000, 0, 15, { building: 'apartments' })] }));
+    const trees = [[2100, 50, 12], [2110.37, 61.2, 9], [-2600, -2600, 0], [10, 10, 15], [5000, 0, 9]]; // (in town; at sea)
+    fs.writeFileSync(path.join(data, 'trees.csv'), 'lng,lat,height,family\n' + trees.map(([x, z, h]) => `${ll(x, z).join(',')},${h},"Fabaceae"`).join('\n') + '\n');
+    const city = {
+      id: 'testisle', detail: [LAT0 - 0.003, LON0 - 0.003, LAT0 + 0.003, LON0 + 0.003], margin: 0.001,
+      island: { box: [LAT0 - 0.045, LON0 - 0.045, LAT0 + 0.045, LON0 + 0.045], tile: 1500 }
+    };
+    const out = path.join(dir, 'tiles');
+    const index = await buildTiles(city, { data, out, geo: { frame: { lat0: LAT0, lon0: LON0, bearingDeg: 0 } } });
+    const got = [];
+    for (const t of index.tiles) {
+      const tile = JSON.parse(fs.readFileSync(path.join(out, t.file), 'utf8'));
+      const list = decodeTrees(tile.trees || []);
+      assert.equal(list.length, t.trees, 'counted in the index');
+      for (const tr of list) got.push([+(tr.x + t.i * 1500).toFixed(1), +(tr.z + t.j * 1500).toFixed(1), tr.h]);
+    }
+    got.sort((a, b) => a[0] - b[0]);
+    const near = (a, b) => Math.abs(a - b) < 0.11;
+    assert.equal(got.length, 3, 'not in town or at sea');
+    for (const [x, z, h] of [[-2600, -2600, 0], [2100, 50, 12], [2110.4, 61.2, 9]]) assert.ok(got.some((g) => near(g[0], x) && near(g[1], z) && g[2] === h), `${x}, ${z}`);
+    // the island is 8 km of land in 1.5 km tiles: every one with land outside town has a tile, buildings or not
+    assert.ok(index.tiles.length >= 30, `${index.tiles.length} tiles`);
+    assert.ok(index.tiles.some((t) => t.buildings === 0 && t.roads === 0 && t.trees === 0), 'bare land too');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
