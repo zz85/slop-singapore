@@ -36,6 +36,7 @@
   <link rel="modulepreload" href="./js/open-city-buildings.js" />
   <link rel="modulepreload" href="./js/singapore-landmarks.js" />
   <link rel="modulepreload" href="./js/png-decode.js" />
+  <link rel="modulepreload" href="./js/graphics-settings.js" />
   <link rel="modulepreload" href="./js/city-tiles-build.js" />
   <link rel="modulepreload" href="./js/city-tiles.js" />
   <link rel="modulepreload" href="./js/island-roads.js" />
@@ -110,6 +111,7 @@
       <symbol id="i-map" viewBox="0 0 24 24"><path d="M9 4.5 3.5 6.6v13l5.5-2.1 6 2.1 5.5-2.1v-13L15 6.6 9 4.5zM9 4.5v13M15 6.6v13"/></symbol>
       <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></symbol>
       <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M3.5 3.5l17 17M10.6 5.6c.5-.1.9-.1 1.4-.1 6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-2.4 3.2M6.6 6.6A15.6 15.6 0 0 0 2.5 12s3.5 6.5 9.5 6.5c1.6 0 3.1-.4 4.4-1.1M9.9 9.9a2.8 2.8 0 0 0 4.2 4.2"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
       <symbol id="i-sound" viewBox="0 0 24 24"><path d="m11 4-5 4H3v8h3l5 4V4ZM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14"/></symbol>
       <symbol id="i-sound-off" viewBox="0 0 24 24"><path d="m11 4-5 4H3v8h3l5 4V4ZM16 9l6 6M22 9l-6 6"/></symbol>
       <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m7 9.5 5 5 5-5"/></symbol>
@@ -181,12 +183,26 @@
         <svg class="icon" aria-hidden="true"><use href="#i-map"/></svg><span class="tool-label">Map</span><kbd>M</kbd>
       </button>
       <span class="toolbar-divider" aria-hidden="true"></span>
+      <button id="btn-graphics" class="tool-btn icon-only" type="button" popovertarget="graphics-popover" title="Graphics settings" aria-label="Graphics settings">
+        <svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg>
+      </button>
       <button id="btn-sound" class="tool-btn icon-only" type="button" title="Mute sound [N]" aria-label="Mute sound" aria-pressed="true">
         <svg class="icon" aria-hidden="true"><use href="#i-sound"/></svg>
       </button>
       <button id="btn-toggle-hud" class="tool-btn icon-only" type="button" title="Clean view: hide the HUD [H]" aria-label="Hide HUD" aria-pressed="false">
         <svg class="icon icon-hide" aria-hidden="true"><use href="#i-eye"/></svg><svg class="icon icon-show" aria-hidden="true"><use href="#i-eye-off"/></svg>
       </button>
+    </div>
+  </div>
+
+  <!-- Graphics settings (js/graphics-settings.js) -->
+  <div id="graphics-popover" class="popover" popover data-side="below" data-anchor="hud-toolbar" aria-label="Graphics settings">
+    <div id="tree-detail-title" class="pop-title">Tree detail</div>
+    <div id="tree-detail" role="radiogroup" aria-labelledby="tree-detail-title">
+      <button class="pop-item" data-trees="off" type="button" role="radio" aria-checked="false"><span class="pop-name">Off</span><span class="pop-sub">No trees outside the city centre</span></button>
+      <button class="pop-item" data-trees="low" type="button" role="radio" aria-checked="false"><span class="pop-name">Low</span><span class="pop-sub">Out to 1.3 km, simple shapes</span></button>
+      <button class="pop-item" data-trees="medium" type="button" role="radio" aria-checked="true"><span class="pop-name">Medium</span><span class="pop-sub">Out to 2.3 km</span></button>
+      <button class="pop-item" data-trees="high" type="button" role="radio" aria-checked="false"><span class="pop-name">High</span><span class="pop-sub">Out to 3.4 km, more of them up close</span></button>
     </div>
   </div>
 

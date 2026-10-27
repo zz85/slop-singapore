@@ -105,21 +105,25 @@ function landuseTexture(lu) {
 // The island's trees (js/city-tiles-build.js scatterTrees: one instance matrix each, a unit tree scaled to its height
 // and crown, in 500 m squares, chunkTrees): a rounded crown on a trunk, one instanced mesh per square, drawn only within
 // TREE_RANGE of the camera (beyond, the ground's canopy shading carries the woods). Each square by its distance (to its
-// nearest point): ~90 triangles a tree within TREE_NEAR, ~26 within TREE_MID, then a crown of 8 with every other tree
-// left out by TREE_RANGE (the first n of a square's trees, which are in a random order). Worst case, low over the
-// Central Catchment's woods: ~1.3M triangles in range, about a third of them in view.
+// nearest point), by the tree-detail setting (TREE_DETAIL): ~90 triangles a tree within `near`, ~26 within `mid`, then
+// a crown of 8, fewer of them drawn from `thin` on, down to `keep` of them by `range` (the first n of a square's trees,
+// which are in a random order), none beyond. Worst case at medium, low over Pulau Ubin's woods: ~2M triangles in range
+// all round, about a third of them in view.
 // ---------------------------------------------------------------------------------------------------------------------
-const TREE_RANGE = 2300; // m
-const TREE_NEAR = 300; // m
-const TREE_MID = 1000; // m
-const TREE_THIN = 1300; // m: from here to TREE_RANGE, fewer drawn
-const TREE_KEEP = 0.45; // of a square's trees drawn at TREE_RANGE
+const TREE_DETAIL = {
+  off: { range: 0, near: 0, mid: 0, thin: 0, keep: 0 },
+  low: { range: 1300, near: 120, mid: 500, thin: 600, keep: 0.35 },
+  medium: { range: 2300, near: 300, mid: 1000, thin: 1300, keep: 0.45 },
+  high: { range: 3400, near: 500, mid: 1600, thin: 2200, keep: 0.6 }
+};
+const TREE_RANGE = TREE_DETAIL.medium.range; // m
 
-/** How a square of trees `d` m away (over the ground, with the camera's height) is drawn: { lod 0-2, share 0-1 } */
-function treeLod(d, range = TREE_RANGE) {
-  if (d >= range) return { lod: -1, share: 0 };
-  const lod = d < TREE_NEAR ? 0 : d < TREE_MID ? 1 : 2;
-  const share = d <= TREE_THIN ? 1 : 1 - (1 - TREE_KEEP) * Math.min(1, (d - TREE_THIN) / Math.max(1, range - TREE_THIN));
+/** How a square of trees `d` m away (over the ground, with the camera's height) is drawn at a detail `p`: { lod 0-2, share 0-1 } */
+function treeLod(d, p = TREE_DETAIL.medium) {
+  if (typeof p === 'number') p = { ...TREE_DETAIL.medium, range: p };
+  if (!(d < p.range)) return { lod: -1, share: 0 };
+  const lod = d < p.near ? 0 : d < p.mid ? 1 : 2;
+  const share = d <= p.thin ? 1 : 1 - (1 - p.keep) * Math.min(1, (d - p.thin) / Math.max(1, p.range - p.thin));
   return { lod, share };
 }
 
@@ -254,7 +258,8 @@ class CityTiles {
     scene.add(this.group);
     this.materials = { walls: wallMaterial(), roofs: roofMaterial(), roads: roadMaterial(), trees: treeMaterial() };
     this.treeGeometries = [treeGeometry(1), treeGeometry(0), treeGeometry(-1)];
-    this.treeRange = TREE_RANGE; // m (0: no trees)
+    this.treeDetail = 'medium';
+    this.treeLodParams = TREE_DETAIL.medium;
     this.groundAt = null; // (i, j) => buildTileArrays's ground, for the main thread's builds
     this.loaded = new Map(); // key -> { group } | { pending: true }
     this.queue = []; // built tiles waiting to be added, one a frame
@@ -339,6 +344,21 @@ class CityTiles {
     }
     out.sort((a, b) => a[0] - b[0]);
     return { R, tiles: out.map(([, t]) => t) };
+  }
+
+  /** The trees' detail: 'off', 'low', 'medium' or 'high' (TREE_DETAIL); applied from the next frame */
+  setTreeDetail(name) {
+    if (!TREE_DETAIL[name]) return false;
+    this.treeDetail = name;
+    this.treeLodParams = TREE_DETAIL[name];
+    return true;
+  }
+  // (how far trees are drawn, m: a detail's own range, or any other with medium's levels)
+  get treeRange() {
+    return this.treeLodParams.range;
+  }
+  set treeRange(m) {
+    this.treeLodParams = { ...TREE_DETAIL.medium, range: Math.max(0, m) };
   }
 
   // The land-use image's pixels: into the ground's texture
@@ -448,7 +468,7 @@ class CityTiles {
       if (entry.trees) {
         for (const sq of entry.trees) {
           const far = drop ? Infinity : Math.hypot(clamp(x, sq.x0, sq.x0 + 500) - x, clamp(z, sq.z0, sq.z0 + 500) - z, y);
-          const { lod, share } = treeLod(far, this.treeRange);
+          const { lod, share } = treeLod(far, this.treeLodParams);
           const drawn = lod < 0 ? 0 : Math.max(1, Math.round(sq.total * share));
           const geometry = lod < 0 ? sq.mesh.geometry : this.treeGeometries[lod];
           const tris = drawn * (geometry.attributes.position.count / 3);
@@ -478,4 +498,4 @@ class CityTiles {
   }
 }
 
-export { CityTiles, tileMeshes, tileColliders, treeLod, TREE_RANGE };
+export { CityTiles, tileMeshes, tileColliders, treeLod, TREE_RANGE, TREE_DETAIL };

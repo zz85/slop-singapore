@@ -398,8 +398,8 @@ test('a tile\'s trees come in 500 m squares, each its own run of the matrices in
 test('the trees\' detail and thinning by distance', async () => {
   const src = fs.readFileSync(new URL('../js/city-tiles.js', import.meta.url), 'utf8');
   // treeLod has no three.js in it: pull it out with its constants
-  const body = src.slice(src.indexOf('const TREE_RANGE ='), src.indexOf('// A unit tree 1 m tall'));
-  const { treeLod } = new Function(`${body}; return { treeLod };`)();
+  const body = src.slice(src.indexOf('const TREE_DETAIL ='), src.indexOf('// A unit tree 1 m tall'));
+  const { treeLod, TREE_DETAIL } = new Function(`${body}; return { treeLod, TREE_DETAIL };`)();
   assert.deepEqual(treeLod(100), { lod: 0, share: 1 });
   assert.deepEqual(treeLod(600), { lod: 1, share: 1 });
   assert.deepEqual(treeLod(1200), { lod: 2, share: 1 });
@@ -408,4 +408,16 @@ test('the trees\' detail and thinning by distance', async () => {
   assert.ok(at.share < 0.6 && at.share > 0.45);
   assert.deepEqual(treeLod(2400), { lod: -1, share: 0 });
   assert.deepEqual(treeLod(500, 400), { lod: -1, share: 0 }, 'a shorter range');
+  // the settings: off draws none, each level further and finer than the one before
+  assert.deepEqual(treeLod(1, TREE_DETAIL.off), { lod: -1, share: 0 });
+  assert.deepEqual(treeLod(200, TREE_DETAIL.low), { lod: 1, share: 1 });
+  assert.deepEqual(treeLod(200, TREE_DETAIL.medium), { lod: 0, share: 1 });
+  assert.equal(treeLod(1400, TREE_DETAIL.low).lod, -1);
+  assert.deepEqual(treeLod(1400, TREE_DETAIL.high), { lod: 1, share: 1 });
+  assert.equal(treeLod(3000, TREE_DETAIL.high).lod, 2);
+  const levels = ['low', 'medium', 'high'].map((k) => TREE_DETAIL[k]);
+  for (let k = 1; k < levels.length; k++) {
+    for (const f of ['range', 'near', 'mid', 'thin', 'keep']) assert.ok(levels[k][f] > levels[k - 1][f], f);
+  }
+  for (const p of levels) assert.ok(p.near < p.mid && p.mid < p.thin && p.thin < p.range && p.range <= 3500, '(within the tiles kept round the camera)');
 });
