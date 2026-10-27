@@ -1,12 +1,13 @@
 // tools/city/landuse.mjs — what the island's ground is, from OpenStreetMap's land use (tools/city/fetch-island.mjs's
 // landuse_* downloads), as an image the island's land is shaded by (js/city-tiles.js): one pixel per `res` metres of the
-// world frame, its red the share of it under trees, green under grass (parks, playing fields, golf courses, farms,
-// cemeteries, an airfield's grass) and blue paved or built over at ground level (industry, ports, depots, car parks,
-// aprons). What is left (homes, schools, roadside verges...) the land's own mix of grass and paving.
+// world frame (RGBA), its red the share of it under trees, green under grass (parks, playing fields, golf courses,
+// farms, cemeteries, an airfield's grass), blue paved or built over at ground level (industry, ports, depots, car parks,
+// aprons) and alpha sand (beaches). What is left (homes, schools, roadside verges...) the land's own mix of grass and
+// paving.
 import { Raster, bbox, ringArea } from './geom.mjs';
 import { areaPolygons } from './osm.mjs';
 
-export const LANDUSE = ['wood', 'grass', 'paved'];
+export const LANDUSE = ['wood', 'grass', 'paved', 'sand'];
 
 const WOOD = { landuse: ['forest'], natural: ['wood', 'scrub', 'wetland', 'heath'], leisure: ['nature_reserve'] };
 const GRASS = {
@@ -18,16 +19,18 @@ const GRASS = {
 };
 const PAVED = {
   landuse: ['industrial', 'port', 'railway', 'construction', 'brownfield', 'depot', 'landfill', 'quarry', 'farmyard'],
-  natural: ['bare_rock', 'sand', 'beach'],
+  natural: ['bare_rock'],
   leisure: ['stadium', 'track'],
   amenity: ['parking'],
   aeroway: ['apron']
 };
+const SAND = { natural: ['beach', 'sand'] };
 const is = (t, table) => Object.entries(table).some(([k, vs]) => vs.includes(t[k]));
 
-/** The class of an area's tags: 0 wood, 1 grass, 2 paved, or -1 (none of them: left to the land's own mix) */
+/** The class of an area's tags: 0 wood, 1 grass, 2 paved, 3 sand, or -1 (none of them: left to the land's own mix) */
 export function landuseClass(t = {}) {
   // the most specific tag first: a park's woods are woods, a car park in a park paved
+  if (is(t, SAND)) return 3;
   if (is(t, { natural: WOOD.natural, landuse: WOOD.landuse })) return 0;
   if (is(t, { amenity: PAVED.amenity, aeroway: PAVED.aeroway, leisure: PAVED.leisure, natural: PAVED.natural })) return 2;
   if (is(t, GRASS)) return 1;
@@ -39,14 +42,14 @@ export function landuseClass(t = {}) {
 /**
  * The land-use image over [x0, z0, x1, z1]: areas painted largest first, so the smaller inside them win (a pitch in a
  * park, a car park in an industrial estate, woods in a nature reserve), each counted at `res / sub` and shared out
- * per pixel. -> { x0, z0, res, w, h, rgb (Uint8Array w * h * 3, rows from z0 down) , counts }
+ * per pixel. -> { x0, z0, res, w, h, rgba (Uint8Array w * h * 4, rows from z0 down), counts }
  */
 export function landuseImage(elements, toWorld, [x0, z0, x1, z1], { res = 20, sub = 2 } = {}) {
   const fine = new Raster(x0, z0, x1, z1, res / sub);
   fine.d.fill(255);
   const seen = new Set();
   const areas = [];
-  const counts = [0, 0, 0];
+  const counts = [0, 0, 0, 0];
   for (const e of elements) {
     const key = `${e.type}${e.id}`;
     if (seen.has(key)) continue;
@@ -84,21 +87,21 @@ export function landuseImage(elements, toWorld, [x0, z0, x1, z1], { res = 20, su
   }
   // each pixel: the share of its sub × sub cells of each class
   const w = Math.ceil(fine.w / sub), h = Math.ceil(fine.h / sub);
-  const rgb = new Uint8Array(w * h * 3);
+  const rgba = new Uint8Array(w * h * 4);
   const n = sub * sub;
   for (let j = 0; j < h; j++) {
     for (let i = 0; i < w; i++) {
-      const tally = [0, 0, 0];
+      const tally = [0, 0, 0, 0];
       for (let b = 0; b < sub; b++) {
         for (let a = 0; a < sub; a++) {
           const fi = i * sub + a, fj = j * sub + b;
           if (fi >= fine.w || fj >= fine.h) continue;
           const v = fine.d[fj * fine.w + fi];
-          if (v < 3) tally[v]++;
+          if (v < 4) tally[v]++;
         }
       }
-      for (let c = 0; c < 3; c++) rgb[(j * w + i) * 3 + c] = Math.round((tally[c] / n) * 255);
+      for (let c = 0; c < 4; c++) rgba[(j * w + i) * 4 + c] = Math.round((tally[c] / n) * 255);
     }
   }
-  return { x0: fine.x0, z0: fine.z0, res, w, h, rgb, counts };
+  return { x0: fine.x0, z0: fine.z0, res, w, h, rgba, counts };
 }

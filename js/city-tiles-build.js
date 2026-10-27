@@ -8,6 +8,9 @@
 // tile's corner. Their arrays are transferable.
 // createLandMask(land) -> { at(x, z) } the island's land (index.json land: [[outer, ...holes]]) for the player to keep
 // to, by scanlines.
+// With `ground` (buildTileArrays(tile, { ox, oz, size, landuse, onLand, inCore })), `trees` too: the island's woods,
+// parks and gardens planted from its land use (tools/city/landuse.mjs's image), clear of the tile's buildings and roads,
+// as instance matrices (scatterTrees).
 
 // Building colours by type: Singapore's HDB estates in their painted pastels, factories in grey and blue steel
 const PASTELS = [0xf2efe6, 0xefe6d2, 0xdfe9ef, 0xe5efdf, 0xf3e2d4, 0xe9e1ee, 0xf4f1ea, 0xd9e4e8, 0xf0dccb];
@@ -197,7 +200,141 @@ function createLandMask(land, step = 4) {
   };
 }
 
-function buildTileArrays(tile) {
+// ---------------------------------------------------------------------------------------------------------------------
+// Trees
+// ---------------------------------------------------------------------------------------------------------------------
+// Per class of ground (tools/city/landuse.mjs): how likely a site on the grid is to hold a tree, and its size (m)
+const TREE_SPACING = 10; // m between sites (woods' crowns of 9-13 m close over at this)
+const TREE_KINDS = [
+  { p: 0.85, h: [13, 24], w: [9, 13] }, // woods: tall, closed canopy
+  { p: 0.12, h: [8, 15], w: [7, 11.5] }, // parks, playing fields, golf courses, cemeteries: scattered
+  { p: 0.0, h: [0, 0], w: [0, 0] }, // paved
+  { p: 0.0, h: [0, 0], w: [0, 0] }, // sand
+  { p: 0.05, h: [7, 13], w: [6, 10] } // the rest (estates, verges, schools): a few
+];
+const CLEAR = 2.5; // m kept clear of a building or a road's edge (to a tree's trunk)
+
+// What's in the way of planting in a tile `size` m square: its buildings' footprints and its roads, on a 3 m grid
+function obstacleGrid(buildings, runs, size, cell = 3) {
+  const n = Math.ceil(size / cell);
+  const g = new Uint8Array(n * n);
+  const mark = (i, j) => { if (i >= 0 && j >= 0 && i < n && j < n) g[j * n + i] = 1; };
+  const pad = Math.ceil(CLEAR / cell);
+  for (const b of buildings) {
+    const pts = b.pts, m = pts.length / 2;
+    let z0 = Infinity, z1 = -Infinity;
+    for (let k = 1; k < pts.length; k += 2) { z0 = Math.min(z0, pts[k]); z1 = Math.max(z1, pts[k]); }
+    const j0 = Math.floor(z0 / cell) - pad, j1 = Math.floor(z1 / cell) + pad;
+    const xs = [];
+    for (let j = j0; j <= j1; j++) {
+      const z = Math.min(z1 - 1e-3, Math.max(z0 + 1e-3, (j + 0.5) * cell)); // (the rows past its ends: its ends' outline)
+      xs.length = 0;
+      for (let k = 0, q = m - 1; k < m; q = k++) {
+        const az = pts[q * 2 + 1], bz = pts[k * 2 + 1];
+        if ((az > z) !== (bz > z)) xs.push(pts[q * 2] + ((z - az) * (pts[k * 2] - pts[q * 2])) / (bz - az));
+      }
+      xs.sort((a, c) => a - c);
+      for (let k = 0; k + 1 < xs.length; k += 2) {
+        for (let i = Math.floor(xs[k] / cell) - pad; i <= Math.floor(xs[k + 1] / cell) + pad; i++) mark(i, j);
+      }
+    }
+  }
+  for (const r of runs) {
+    const w = r.w + CLEAR;
+    for (let k = 0; k + 3 < r.P.length; k += 2) {
+      const ax = r.P[k], az = r.P[k + 1], bx = r.P[k + 2], bz = r.P[k + 3];
+      const len = Math.hypot(bx - ax, bz - az);
+      const steps = Math.max(1, Math.ceil(len / cell));
+      for (let t = 0; t <= steps; t++) {
+        const x = ax + ((bx - ax) * t) / steps, z = az + ((bz - az) * t) / steps;
+        // every cell coming within w of the point (on the point's own cell: of anywhere in it)
+        const ci = Math.floor(x / cell), cj = Math.floor(z / cell), rr = Math.ceil(w / cell) + 1;
+        for (let dj = -rr; dj <= rr; dj++) {
+          const ej = Math.max(0, Math.abs(dj) - 1);
+          for (let di = -rr; di <= rr; di++) {
+            const ei = Math.max(0, Math.abs(di) - 1);
+            if ((ei * ei + ej * ej) * cell * cell <= w * w) mark(ci + di, cj + dj);
+          }
+        }
+      }
+    }
+  }
+  return { at: (x, z) => { const i = Math.floor(x / cell), j = Math.floor(z / cell); return i >= 0 && j >= 0 && i < n && j < n && g[j * n + i] === 1; } };
+}
+
+// The shares of wood, grass, paving and sand at a world point (nearest pixel of tools/city/landuse.mjs's image)
+function landuseAt(lu, x, z) {
+  const i = Math.floor((x - lu.x0) / lu.res), j = Math.floor((z - lu.z0) / lu.res);
+  if (i < 0 || j < 0 || i >= lu.w || j >= lu.h) return null;
+  const k = (j * lu.w + i) * 4, p = lu.pixels;
+  return [p[k] / 255, p[k + 1] / 255, p[k + 2] / 255, p[k + 3] / 255];
+}
+
+/**
+ * The trees of a tile at (ox, oz), `size` m square: a site every TREE_SPACING m (jittered), planted with the chance of
+ * its ground's kind (its shares of each), not where `blocked`, off the land or in the detailed city -> { matrices
+ * (Float32Array, 16 a tree, relative to the tile's corner), count, sphere }. Seeded by the world position, so a tile
+ * grows the same trees every time it's built.
+ */
+function scatterTrees({ ox, oz, size, landuse, onLand = () => true, inCore = () => false, blocked = () => false }) {
+  const out = [];
+  const s = TREE_SPACING;
+  const n = Math.floor(size / s);
+  let top = 0;
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const gx = ox + i * s, gz = oz + j * s;
+      const x = gx + hash(gx, gz) * s, z = gz + hash(gz + 0.37, gx - 0.71) * s;
+      const share = landuseAt(landuse, x, z);
+      if (!share) continue;
+      const rest = Math.max(0, 1 - share[0] - share[1] - share[2] - share[3]);
+      const roll = hash(x * 1.13 + 5.1, z * 0.91 - 2.3);
+      // which kind of ground this site is (by its shares), and whether it holds a tree
+      let kind = -1, acc = 0;
+      const pick = hash(z * 1.7 - 9.1, x * 0.6 + 3.3);
+      for (const [c, w] of [[0, share[0]], [1, share[1]], [2, share[2]], [3, share[3]], [4, rest]]) {
+        acc += w;
+        if (pick < acc) { kind = c; break; }
+      }
+      if (kind < 0) kind = 4;
+      const K = TREE_KINDS[kind];
+      if (roll >= K.p) continue;
+      const lx = x - ox, lz = z - oz;
+      if (blocked(lx, lz) || inCore(x, z) || !onLand(x, z)) continue;
+      const r1 = hash(x * 0.37, z * 0.53), r2 = hash(z * 0.29 + 1, x * 0.41 - 1), r3 = hash(x + z, x - z);
+      const h = K.h[0] + (K.h[1] - K.h[0]) * r1;
+      const w = K.w[0] + (K.w[1] - K.w[0]) * (r2 * 0.7 + r1 * 0.3);
+      const a = r3 * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a);
+      // column-major: x axis (c, 0, -sn) * w, y up * h, z axis (sn, 0, c) * w, at (lx, 0, lz)
+      out.push(c * w, 0, -sn * w, 0, 0, h, 0, 0, sn * w, 0, c * w, 0, lx, 0, lz, 1);
+      top = Math.max(top, h);
+    }
+  }
+  const half = size / 2;
+  return { matrices: new Float32Array(out), count: out.length / 16, sphere: [half, top / 2, half, Math.hypot(half, half, top / 2) + 8] };
+}
+
+/**
+ * What scatterTrees needs to know about the island, for tile (i, j): its land use ({ x0, z0, res, w, h } of index.json's
+ * landuse, with the image's RGBA `pixels`), its land (index.json land) and the detailed city it leaves out (coreRing,
+ * flat x, z). -> (i, j) => buildTileArrays's `ground`
+ */
+function islandGround({ landuse, land, coreRing, tile }) {
+  const mask = createLandMask(land);
+  const ring = [];
+  for (let k = 0; k + 1 < (coreRing || []).length; k += 2) ring.push([coreRing[k], coreRing[k + 1]]);
+  const inCore = (x, z) => {
+    let inside = false;
+    for (let a = 0, b = ring.length - 1; a < ring.length; b = a++) {
+      const [xa, za] = ring[a], [xb, zb] = ring[b];
+      if ((za > z) !== (zb > z) && x < ((xb - xa) * (z - za)) / (zb - za) + xa) inside = !inside;
+    }
+    return inside;
+  };
+  return (i, j) => ({ ox: i * tile, oz: j * tile, size: tile, landuse, onLand: mask.at, inCore });
+}
+
+function buildTileArrays(tile, ground = null) {
   const walls = { pos: [], nrm: [], uv: [], col: [] };
   const roofs = { pos: [], col: [] };
   const buildings = decodeBuildings(tile.buildings);
@@ -248,6 +385,7 @@ function buildTileArrays(tile) {
   }
   // main roads: a ribbon per run, its segments overlapping at the joints
   const roads = [];
+  const runs = [];
   for (const run of tile.roads) {
     const [, wdm, level, n] = run;
     const w = wdm / 20;
@@ -258,6 +396,7 @@ function buildTileArrays(tile) {
       px += run[4 + k * 2]; pz += run[5 + k * 2];
       P.push(px / 10, pz / 10);
     }
+    runs.push({ w, P });
     for (let k = 0; k + 1 < n; k++) {
       const ax = P[k * 2], az = P[k * 2 + 1], bx = P[k * 2 + 2], bz = P[k * 2 + 3];
       const len = Math.hypot(bx - ax, bz - az);
@@ -281,7 +420,13 @@ function buildTileArrays(tile) {
     const position = new Float32Array(pos);
     return { position, sphere: sphereOf(position), ...extra(position.length / 3) };
   };
+  let trees = null;
+  if (ground && ground.landuse) {
+    const blocked = obstacleGrid(buildings, runs, ground.size).at;
+    trees = scatterTrees({ ...ground, blocked });
+  }
   return {
+    trees,
     walls: pack(walls.pos, () => ({ normal: new Float32Array(walls.nrm), uv: new Float32Array(walls.uv), color: new Float32Array(walls.col) })),
     roofs: pack(roofs.pos, (count) => ({ normal: up(count), color: new Float32Array(roofs.col) })),
     roads: pack(roads, (count) => ({ normal: up(count) })),
@@ -300,7 +445,8 @@ function transferables(built) {
   }
   if (built.outlines) for (const k of ['pts', 'offsets', 'tops']) list.push(built.outlines[k].buffer);
   if (built.colliders) list.push(built.colliders.buffer);
+  if (built.trees) list.push(built.trees.matrices.buffer);
   return list;
 }
 
-export { buildTileArrays, decodeBuildings, triangulate, transferables, createLandMask };
+export { buildTileArrays, decodeBuildings, triangulate, transferables, createLandMask, scatterTrees, landuseAt, islandGround, TREE_SPACING };
