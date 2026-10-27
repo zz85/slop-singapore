@@ -598,7 +598,7 @@ function panelTexture() {
     }
     g.fillStyle = green;
     g.font = '700 24px monospace';
-    g.fillText('FUEL 18.2', s / 2, s * 0.86);
+    g.fillText('ENG  RPM', s / 2, s * 0.86); // (the fuel is on the HUD, live)
   });
   // centre: the tactical situation, Singapore's coast and the jet at the centre
   screen(397, 178, 230, (s) => {

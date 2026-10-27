@@ -678,6 +678,8 @@ async function initApp() {
   const afFlypast = document.getElementById('af-flypast');
   const afFlypastSub = document.getElementById('af-flypast-sub');
   const afRunways = document.getElementById('af-runways');
+  const afFuel = document.getElementById('af-fuel');
+  const afAssist = document.getElementById('af-assist');
   const afFlypastText = afFlypastSub?.textContent || '';
   const remember = (key, on) => { try { localStorage.setItem(key, on ? '1' : '0'); } catch { /* storage unavailable */ } };
   const recalled = (key) => { try { return localStorage.getItem(key) === '1'; } catch { return false; } };
@@ -690,6 +692,16 @@ async function initApp() {
     mapSystem.setRunways(airbases?.runways || [], on);
     afRunways?.setAttribute('aria-checked', String(on));
     remember('map-runways', on);
+  }
+  // the flight options: unlimited fuel and Bank assist (both off, as the real jet, unless chosen; remembered)
+  function setJetOption(button, key, option, on) {
+    controllerManager.setJetOptions({ [option]: on });
+    button?.setAttribute('aria-checked', String(on));
+    remember(key, on);
+  }
+  for (const [button, key, option] of [[afFuel, 'jet-unlimited-fuel', 'unlimitedFuel'], [afAssist, 'jet-bank-assist', 'assist']]) {
+    button?.addEventListener('click', () => setJetOption(button, key, option, button.getAttribute('aria-checked') !== 'true'));
+    setJetOption(button, key, option, recalled(key));
   }
   if (airForce) {
     mapSystem.setAircraft(airForce.contacts);

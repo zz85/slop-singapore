@@ -212,7 +212,7 @@ class CityAudioSources {
         const verticalSpeed = player && helicopter ? helicopterVerticalSpeed(entity) : 0;
         const jet = kind === 'jet';
         // (the jet's load is its throttle: above 0.8 the afterburner's stage)
-        const load = player ? jet ? entity.flight.throttle : helicopter ? helicopterLoad(entity, keys, verticalSpeed) : driveLoad(keys, entity.speed, kind === 'cyclist') : 0;
+        const load = player ? jet ? (entity.flight.flameout ? 0 : entity.flight.throttle) : helicopter ? helicopterLoad(entity, keys, verticalSpeed) : driveLoad(keys, entity.speed, kind === 'cyclist') : 0;
         const gain = player ? 1 : helicopter ? 0.22 : 0.5;
         const range = jet ? 1500 : helicopter ? (player ? 500 : 200) : 160;
         this.motor(entity, kind, x, y + (helicopter ? 2.66 : 0.7), z, player ? entity.speed : 0, load, entity.heading,
