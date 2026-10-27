@@ -28,7 +28,7 @@ import { NYCMapSystem } from './nyc-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { CityAudioSystem } from './audio-system.js';
 import { Weather } from './weather.js';
-import { initialTreeDetail, bindTreeDetail } from './graphics-settings.js';
+import { initialTreeDetail, bindTreeDetail, createAutoTreeDetail } from './graphics-settings.js';
 import { Navigator } from './navigation.js';
 import { setupNavigationUI } from './navigation-ui.js';
 import { PerceptionOverlay } from './perception-overlay.js';
@@ -504,13 +504,31 @@ async function initApp() {
   }
 
   // Graphics: the island's tree detail (js/graphics-settings.js), saved; the menu hidden where there are no island tiles
+  // (Auto by default: a level from the frame rate, js/graphics-settings.js createAutoTreeDetail)
   const graphicsButton = document.getElementById('btn-graphics');
+  let autoTrees = null;
   if (cityTiles?.index) {
     let storage = null;
     try { storage = localStorage; } catch { /* storage unavailable */ }
+    const autoSub = document.getElementById('tree-auto-sub');
+    const names = { off: 'Off', low: 'Low', medium: 'Medium', high: 'High' };
+    autoTrees = createAutoTreeDetail({
+      start: 'medium',
+      load: () => cityTiles.stats.treeTriangles,
+      apply: (level, why) => {
+        cityTiles.setTreeDetail(level);
+        if (autoSub) autoSub.textContent = `From the frame rate · now ${names[level]}`;
+        if (why === 'slow' || why === 'fast') console.info(`[trees] auto: ${level} (${why === 'slow' ? 'below' : 'at'} ${Math.round(autoTrees.state().goal)} fps)`);
+      }
+    });
     bindTreeDetail({
       buttons: [...document.querySelectorAll('#tree-detail [data-trees]')],
-      apply: (level) => cityTiles.setTreeDetail(level),
+      apply: (choice) => {
+        if (choice === 'auto') return autoTrees.enable();
+        autoTrees.disable();
+        cityTiles.setTreeDetail(choice);
+        if (autoSub) autoSub.textContent = 'From the frame rate';
+      },
       storage,
       level: initialTreeDetail({ search: location.search, storage })
     });
@@ -891,7 +909,7 @@ async function initApp() {
   }
 
   // For poking at from the console (and the browser checks): the simulation's main systems
-  globalThis.slop = { scene, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
+  globalThis.slop = { scene, autoTrees, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
 
   await precompileShaders();
   markInit('compile');
@@ -1005,6 +1023,7 @@ async function initApp() {
     // their actual frame rate (updates DOM every 250ms).
     frameCount++;
     fpsTimer += Math.max(0, rawDt);
+    if (autoTrees) autoTrees.update(rawDt);
     if (fpsTimer >= 0.25) {
       const currentFps = Math.round(frameCount / fpsTimer);
       frameCount = 0;
