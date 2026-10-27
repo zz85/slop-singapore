@@ -3,6 +3,7 @@ import { createTreeField, TREE_SPECIES } from './trees.js';
 import { blockAt, CITY } from './city-config.js';
 import { createEnforcement } from './open-city-enforcement.js';
 import { GEO } from './geodata.js';
+import { treeColliders } from './street-colliders.js';
 
 // js/open-city-details.js
 // The street details of a city built from OpenStreetMap, built by main.js instead of street-details.js's New York
@@ -11,7 +12,8 @@ import { GEO } from './geodata.js';
 // (palms included; a shape without a model in js/trees.js isn't planted), and its road pricing gantries & traffic
 // cameras (open-city-enforcement.js). Returns what main.js and the audio take from street-details.js: { group,
 // footprints, signalClock, audioSignals, update(camera, player) }, and attach(network, audio) & notice(head, body,
-// flash, chime) for the enforcement.
+// flash, chime) for the enforcement; colliders (the trees' trunks, the gantries' & cameras' poles) and, after
+// attach, signalColliders() (the traffic lights' poles) for the player.
 
 const SIDEWALK_Y = 0.22;
 const LAWN_Y = 0.235;
@@ -44,12 +46,17 @@ function buildOpenCityDetails(scene) {
   }
   if (sites.length) group.add(createTreeField(scene, sites).group);
   const enforcement = createEnforcement(group, { keepLeft: CITY.driveSide === 'left' });
+  // what the player bumps into (js/street-colliders.js): the trees' trunks, the gantries' & cameras' poles, and once
+  // the traffic network is attached, its signal poles
+  const colliders = [...treeColliders(sites), ...(enforcement ? enforcement.colliders : [])];
   scene.add(group);
   console.info(`[cityDetails] ${sites.length} trees${trees ? ` (${trees.credit})` : ''}`);
   const signalClock = { value: 0 }; // main.js keeps it at the traffic's time
   return {
     group,
     footprints: [],
+    colliders,
+    signalColliders: () => (enforcement ? enforcement.signalColliders() : []),
     signalClock,
     audioSignals: [],
     update: enforcement ? (camera, player) => enforcement.update(signalClock.value, player) : null,

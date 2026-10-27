@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 import { createRequire } from 'node:module';
 import { createIslandRoads, signalPhase } from '../js/island-roads.js';
+import * as STREET_COLLIDERS from '../js/street-colliders.js';
 
 const require = createRequire(import.meta.url);
 const { loadModule } = require('./helpers/module.cjs');
@@ -279,7 +280,7 @@ const SIGNAL_THREE = {
   Color: class { constructor() {} }
 };
 const { createIslandSignals } = loadModule(fs.readFileSync(new URL('../js/island-signals.js', import.meta.url), 'utf8'), {
-  imports: { 'three/webgpu': SIGNAL_THREE }, globals: { Math, Float32Array, Map, Infinity }
+  imports: { 'three/webgpu': SIGNAL_THREE, './street-colliders.js': STREET_COLLIDERS }, globals: { Math, Float32Array, Map, Infinity, Number }
 });
 
 test('the island\'s red light cameras: crossing a stop line on red is fined, on green or across it not', () => {
@@ -364,4 +365,19 @@ test('where a road ends at a junction, cars go straight on mostly and turn now a
   assert.ok(went.On > went.Off && went.Off > 0, `straight on mostly, some turning (${JSON.stringify(went)})`);
   assert.equal(blinkedOff, went.Off, 'indicating right before turning off south');
   assert.ok(maxStep < 0.75, `round the corner, no jumps (${maxStep.toFixed(2)} m in a frame)`);
+});
+
+test('the island\'s signal poles are solid for the player: one collider per approach, where its pole stands', () => {
+  const roads = crossroads();
+  const lights = createIslandSignals({ add() {} }, { keepLeft: true });
+  assert.equal(lights.colliders().length, 0, 'none before the roads');
+  lights.setRoads(roads);
+  const cols = lights.colliders();
+  const approaches = roads.signals.flatMap((s) => s.approaches);
+  assert.equal(cols.length, approaches.length);
+  for (const [i, a] of approaches.entries()) {
+    const c = cols[i];
+    assert.ok(c.minX < a.x && a.x < c.maxX && c.minZ < a.z && a.z < c.maxZ, 'around the pole');
+    assert.ok(c.maxX - c.minX < 0.4 && c.maxY > 3.5, 'thin and tall');
+  }
 });

@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { signalPhase } from './city-config.js';
 import { GEO } from './geodata.js';
+import { poleCollider } from './street-colliders.js';
 
 // js/open-city-enforcement.js
 // A city's road pricing gantries and traffic cameras (GEO.enforcement, from OpenStreetMap: tools/city/build.mjs), for
@@ -71,6 +72,7 @@ function buildEnforcement(group, { keepLeft }) {
   const street = streetIndex();
   const kerb = keepLeft ? -1 : 1; // the side traffic keeps to, as a multiple of the right normal
   const pieces = { steel: [], dark: [], sign: [], housing: [], led: RATES.map(() => []) };
+  const colliders = []; // the columns & poles, for the player
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
@@ -91,7 +93,10 @@ function buildEnforcement(group, { keepLeft }) {
     const { ux, uz } = s;
     const rx = -uz, rz = ux; // across the street
     const half = s.w / 2 + 0.9;
-    for (const side of [-1, 1]) box(pieces.steel, 0.4, 6.4, 0.4, x + rx * half * side, 3.2, z + rz * half * side, ux, uz);
+    for (const side of [-1, 1]) {
+      box(pieces.steel, 0.4, 6.4, 0.4, x + rx * half * side, 3.2, z + rz * half * side, ux, uz);
+      colliders.push(poleCollider(x + rx * half * side, z + rz * half * side, 0.25, 6.4));
+    }
     box(pieces.steel, half * 2 + 0.4, 0.55, 0.55, x, 6.1, z, ux, uz);
     const rate = Math.floor(Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % RATES.length);
     for (const face of [-1, 1]) {
@@ -110,6 +115,7 @@ function buildEnforcement(group, { keepLeft }) {
     const off = (s.w / 2 + 1.2) * kerb;
     const px = x - s.uz * off, pz = z + s.ux * off;
     box(pieces.steel, 0.16, 3.4, 0.16, px, 1.7, pz, s.ux, s.uz);
+    colliders.push(poleCollider(px, pz, 0.14, 3.9));
     box(pieces.housing, 0.55, 0.62, 0.85, px, 3.6, pz, s.ux, s.uz);
     box(pieces.dark, 0.36, 0.3, 0.05, px - s.ux * 0.44, 3.62, pz - s.uz * 0.44, s.ux, s.uz); // facing the traffic coming
     speedCams.push({ x: px, z: pz, limit: E.speed[i + 2], last: -1e9 });
@@ -124,6 +130,7 @@ function buildEnforcement(group, { keepLeft }) {
     const off = (s.w / 2 + 1.5) * kerb;
     const px = x - az * off + ax * 4, pz = z + ax * off + az * 4;
     box(pieces.steel, 0.16, 5.2, 0.16, px, 2.6, pz, ax, az);
+    colliders.push(poleCollider(px, pz, 0.14, 5.5));
     box(pieces.housing, 0.5, 0.5, 0.75, px, 5.3, pz, ax, az);
     box(pieces.dark, 0.3, 0.26, 0.05, px - ax * 0.39, 5.3, pz - az * 0.39, ax, az);
     redCams.push({ x, z, ax, az, node: null, group: 0, last: -1e9 });
@@ -167,7 +174,7 @@ function buildEnforcement(group, { keepLeft }) {
     add(pieces.led[k], new THREE.MeshStandardNodeMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 1.6, roughness: 0.3 }));
   });
 
-  return { gantries, speedCams, redCams };
+  return { gantries, speedCams, redCams, colliders };
 }
 
 // Signal heads at the network's signalised junctions (in an open city: those its red light cameras watch), on the kerb
@@ -189,6 +196,7 @@ function buildSignalHeads(group, network) {
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
+  const colliders = heads.map((h) => poleCollider(h.x, h.z, 0.13, 4.3));
   for (const h of heads) {
     q.setFromAxisAngle(up, Math.atan2(h.dx, h.dz));
     const pole = new THREE.CylinderGeometry(0.08, 0.1, 3.3, 6);
@@ -215,7 +223,7 @@ function buildSignalHeads(group, network) {
     group.add(mesh);
     return mat;
   }));
-  return (time) => {
+  const updateLamps = (time) => {
     for (let g = 0; g < 2; g++) {
       const phase = signalPhase(time, g === 0);
       lamps[g][0].emissiveIntensity = phase === 'red' ? 3 : 0.02;
@@ -223,6 +231,8 @@ function buildSignalHeads(group, network) {
       lamps[g][2].emissiveIntensity = phase === 'green' ? 3 : 0.02;
     }
   };
+  updateLamps.colliders = colliders;
+  return updateLamps;
 }
 
 // The fine notices & flash: a panel at the top of the screen and a white flash over everything
@@ -277,7 +287,7 @@ function speedingFine(over) {
 function createEnforcement(group, network) {
   const built = buildEnforcement(group, network);
   if (!built) return null;
-  const { gantries, speedCams, redCams } = built;
+  const { gantries, speedCams, redCams, colliders } = built;
   let lightSignals = null;
   let notify = null;
   let audio = null;
@@ -291,6 +301,9 @@ function createEnforcement(group, network) {
   return {
     // a fine notice (& its flash and chime) from elsewhere: the island's red light cameras (js/island-signals.js)
     notice: say,
+    // the gantries' columns and the cameras' poles; the signal heads' poles once attached (js/street-colliders.js)
+    colliders,
+    signalColliders: () => lightSignals?.colliders || [],
     // the traffic network (its signalised junctions & approach groups) and the audio, once they exist
     attach(net, audioSystem) {
       audio = audioSystem;

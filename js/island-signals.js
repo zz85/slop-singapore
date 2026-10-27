@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import { poleCollider } from './street-colliders.js';
 
 // js/island-signals.js
 // The island's traffic lights (js/island-roads.js signals) beyond the detailed city: a pole at the kerb by each way
@@ -135,6 +136,13 @@ function createIslandSignals(scene, { keepLeft = true } = {}) {
     group,
     ranRed,
     get count() { return heads.length; },
+    // every approach's pole, for the player (js/street-colliders.js), once the roads are in
+    colliders() {
+      if (!roads) return [];
+      const out = [];
+      for (const signal of roads.signals) for (const a of signal.approaches) if (Number.isFinite(a.x)) out.push(poleCollider(a.x, a.z, 0.13, POLE_H));
+      return out;
+    },
     update,
     setRoads(r) {
       roads = r;

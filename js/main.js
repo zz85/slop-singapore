@@ -266,6 +266,12 @@ async function initApp() {
   if (weather && new URLSearchParams(location.search).has('storm')) toggleStorm(true);
   // (a city built from OpenStreetMap: its gantries & cameras learn the junctions' signals and get the in-car chimes)
   if (streetDetails.attach) streetDetails.attach(trafficSystem.network, audioSystem);
+  // The street's solid things for the player to bump into (js/street-colliders.js): trees, gantries, cameras and the
+  // signals' poles; the island's signal poles once its roads are in. (Kept out of the traffic network's footprints:
+  // the lanes and sidewalks are laid out around them already.)
+  controllerManager.setTileColliders('street', streetDetails.colliders || []);
+  controllerManager.setTileColliders('signals', streetDetails.signalColliders?.() || []);
+  islandRoadsLoading.then((roads) => { if (roads && islandSignals) controllerManager.setTileColliders('island-signals', islandSignals.colliders()); });
   updateSoundButton();
   // pagehide also covers navigation away on mobile; preserve the context across back-forward cache restores.
   window.addEventListener('pagehide', (event) => {
