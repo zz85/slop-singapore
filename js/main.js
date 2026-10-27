@@ -32,6 +32,9 @@ import { Navigator } from './navigation.js';
 import { setupNavigationUI } from './navigation-ui.js';
 import { PerceptionOverlay } from './perception-overlay.js';
 import { createIslandGraph } from './island-network.js';
+import { createAirbases } from './airbases.js';
+import { JetHUD } from './jet-hud.js';
+import { GEO } from './geodata.js';
 
 // js/main.js
 // Main entry point for the city simulation (Singapore by default, ?city=nyc for New York) in Three.js WebGPURenderer &
@@ -174,8 +177,11 @@ async function initApp() {
   buildRoadPaint(scene, trafficSystem.network);
   markInit('roadPaint');
 
-  // 4. Initialize Third-Person Controllers (Person, Car, Cyclist, Helicopter) & Multi-Camera System
+  // 4. Initialize Third-Person Controllers (Person, Car, Cyclist, Helicopter, Jet) & Multi-Camera System
   const controllerManager = new ThirdPersonControllerManager(scene, allColliders);
+  // Singapore's runways (js/airbases.js): the F-15SG starts on Paya Lebar's, where the RSAF's F-15SGs are based
+  const airbases = CITY.open ? createAirbases(scene, CITY.id) : null;
+  if (airbases) controllerManager.setJetHome(airbases.home);
   // With the island's tiles, the player may go anywhere on its land: the detailed city's own (2 m) inside the area it
   // was built for, the island's (tools/city/tiles.mjs, 8 m) beyond; and bumps into the tiles' buildings as they load
   if (cityTiles?.landMask) {
@@ -221,6 +227,8 @@ async function initApp() {
     }
     controllerManager.setMode('car');
   }
+  // a fresh start: the jet waits on its runway
+  if (!restored && airbases) controllerManager.parkJet();
 
   function savePlayerState() {
     try {
@@ -291,6 +299,11 @@ async function initApp() {
     scene.getObjectByName('StreetClusteredLights'),
     ...Object.values(controllerManager.entities).map((entity) => entity.mesh),
     controllerManager.entities.cyclist.helmet,
+    // the jet's vapour trails and its explosion (in the scene, not under the jet)
+    controllerManager.entities.jet.trails.mesh,
+    controllerManager.entities.jet.explosion.fireball,
+    controllerManager.entities.jet.explosion.smoke,
+    airbases?.group,
     // Singapore's: the Flyer's wheel & capsules, Spectra's beams; the island tiles streamed in around the camera; rain
     cityLandmarks?.group,
     cityTiles?.group,
@@ -379,9 +392,11 @@ async function initApp() {
   const elAltitude = document.getElementById('hud-altitude');
   const elLocation = document.getElementById('hud-location');
   const elControlsHint = document.getElementById('hud-controls-hint');
+  // The jet's head-up display (js/jet-hud.js): in the cockpit the full HUD, behind the jet its numbers
+  const jetHud = new JetHUD(document.body, { bearingDeg: GEO.frame?.bearingDeg || 0 });
   const gamepadControls = new GamepadControls(controllerManager, cameraSystem, {
     onCycleMode: (step) => {
-      const modes = ['person', 'car', 'cyclist', 'helicopter'];
+      const modes = ['person', 'car', 'cyclist', 'helicopter', 'jet'];
       selectMode(modes[(modes.indexOf(controllerManager.activeMode) + step + modes.length) % modes.length]);
     },
     onCycleCamera: cycleCamera,
@@ -394,10 +409,12 @@ async function initApp() {
     person: [[['W', 'S'], 'Walk / Run'], [['A', 'D'], 'Turn'], [['Space'], 'Jump'], [['Drag'], 'Orbit']],
     car: [[['W', 'S'], 'Drive / Reverse'], [['A', 'D'], 'Steer'], [['B'], 'Horn'], [['G'], 'Navigate'], [['Drag'], 'Orbit']],
     cyclist: [[['W', 'S'], 'Pedal / Brake'], [['A', 'D'], 'Lean & Turn'], [['Drag'], 'Orbit']],
-    helicopter: [[['W', 'S'], 'Pitch'], [['A', 'D'], 'Yaw'], [['Space', 'E'], 'Ascend'], [['Q', 'C'], 'Descend']]
+    helicopter: [[['W', 'S'], 'Pitch'], [['A', 'D'], 'Yaw'], [['Space', 'E'], 'Ascend'], [['Q', 'C'], 'Descend']],
+    jet: [[['W', 'S'], 'Nose down / up'], [['A', 'D'], 'Roll'], [['Space', 'E'], 'Throttle'], [['Q', 'C'], 'Idle / Brake'], [['T'], 'Cockpit']]
   };
-  // Top speeds in mph (controllers.js caps them at 8.2, 36, 19 & 52 m/s): full scale of the speed meter
-  const topSpeedMph = { person: 18, car: 81, cyclist: 43, helicopter: 116 };
+  // Top speeds in mph (controllers.js caps them at 8.2, 36, 19 & 52 m/s; the jet Mach 1.1, jet-flight.js): full scale
+  // of the speed meter
+  const topSpeedMph = { person: 18, car: 81, cyclist: 43, helicopter: 116, jet: 850 };
   // Speed & altitude in the city's units: mph & ft, or km/h & m
   const metric = CITY.units === 'metric';
   for (const el of document.querySelectorAll('.gauge-unit')) el.textContent = metric ? 'km/h' : 'mph';
@@ -443,6 +460,7 @@ async function initApp() {
     const ent = controllerManager.getActiveEntity();
     if (elMode) elMode.textContent = ent.label;
     renderControlHints(mode);
+    jetHud.setVisible(mode === 'jet');
 
     // If currently on a static scenic camera, switch to 3rd-Person Chase so user sees their selected character/vehicle
     const currentCam = cameraSystem.getActivePreset();
@@ -593,7 +611,7 @@ async function initApp() {
     // beyond the detailed city, a ground arrival is on the nearest of the island's main roads, in its lane, with its
     // traffic (the expressways only for the car)
     const mode = controllerManager.activeMode;
-    if (islandRoads && mode !== 'helicopter' && !islandRoads.inCore(x, z)) {
+    if (islandRoads && mode !== 'helicopter' && mode !== 'jet' && !islandRoads.inCore(x, z)) {
       const road = islandRoads.snap(x, z, heading, 800, CITY.driveSide === 'left', { expressways: mode === 'car' });
       if (road) ({ x, z, heading } = road);
     }
@@ -689,6 +707,9 @@ async function initApp() {
         break;
       case 'Digit4':
         selectMode('helicopter');
+        break;
+      case 'KeyJ':
+        if (!e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) selectMode('jet');
         break;
       case 'Digit5':
         selectCamera('chase', true);
@@ -902,6 +923,14 @@ async function initApp() {
 
     // what the autopilot sees, over this frame (when shown)
     perceptionOverlay.update(routeNavigator, controllerManager.getActiveEntity(), cameraSystem.camera, THREE.Vector3);
+    {
+      const preset = cameraSystem.activePresetId;
+      const jet = controllerManager.entities.jet;
+      const cockpit = controllerManager.activeMode === 'jet' && (preset === 'pov' || preset === 'taxi');
+      // from the front seat, the view out through the canopy (its glass is drawn opaque, as seen from outside)
+      jet.model.canopy.visible = !cockpit;
+      if (controllerManager.activeMode === 'jet') jetHud.update(dt, jet, cameraSystem.camera, cockpit);
+    }
 
     // Render frame via TSL RenderPipeline (SSR + Bloom)
     if (!warmedUp) {

@@ -261,7 +261,7 @@ function createIslandTraffic(scene, { vehicles, keepLeft = true, count = 40 } = 
     }
 
     // 2. Following: the nearest car ahead in the same lane of the same road, or the player in it
-    const pl = entity && mode !== 'helicopter' ? entity : null;
+    const pl = entity && mode !== 'helicopter' && mode !== 'jet' ? entity : null;
     const plSpeed = pl ? (pl.speed || 0) : 0;
     for (const c of cars) {
       if (!c.active) continue;

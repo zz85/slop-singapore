@@ -148,7 +148,8 @@ class GamepadControls {
     let vertical = 0;
     if (mode === 'car' || mode === 'cyclist') {
       drive = Math.max(0, drive, buttonValue(pad, 7)) - Math.max(0, -drive, buttonValue(pad, 6));
-    } else if (mode === 'helicopter') {
+    } else if (mode === 'helicopter' || mode === 'jet') {
+      // (the jet: the triggers work the throttle; the stick flies it)
       vertical = buttonValue(pad, 7) - buttonValue(pad, 6);
     }
     this.controller.setGamepadInput('forward', Math.max(0, drive));

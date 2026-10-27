@@ -197,6 +197,20 @@ class CameraSystem {
 
     const totalYaw = entity.heading + this.orbitYawOffset;
 
+    // The jet flies any attitude: its follow cameras ride in its frame (updateJetView)
+    if (entity.type === 'jet' && this.getActivePreset().category === 'follow') {
+      this.updateJetView(entity, dt);
+      return;
+    }
+    if (this._jetView) {
+      // back from the jet: upright again, at the preset's lens
+      this._jetView = false;
+      this.camera.up.set(0, 1, 0);
+      this.camera.fov = this.getActivePreset().fov;
+      this.camera.updateProjectionMatrix();
+      this.initialized = false;
+    }
+
     switch (this.activePresetId) {
       case 'chase': {
         const dist = entity.chaseDistance * this.zoomMultiplier * (1 + Math.min(0.25, this.smoothedSpeed * 0.01));
@@ -434,6 +448,69 @@ class CameraSystem {
     this.camera.lookAt(this.currentLookAt);
     // the cockpit's lean (rolled about the view axis)
     if (this.activePresetId === 'taxi' && this.taxi.roll && this.camera.rotateZ) this.camera.rotateZ(this.taxi.roll);
+  }
+
+  // The jet's cameras, in its frame (body: forward +z, up +y, left +x; js/jet-flight.js):
+  // - chase: behind and above it, the frame following its attitude a little late, so a roll or a pull swings the view
+  //   and the horizon tilts most of the way with it; the lens widens with speed
+  // - action: the wingman's view, off its left wing, a little behind
+  // - pov / taxi: the front seat, under the canopy, looking where it points (the HUD, js/jet-hud.js, over it)
+  updateJetView(entity, dt) {
+    const s = entity.flight;
+    const cam = this.camera;
+    const q = this._jq ??= new THREE.Quaternion();
+    const qs = this._jqs ??= new THREE.Quaternion();
+    const look = this._jlook ??= new THREE.Quaternion();
+    const axis = this._jaxis ??= new THREE.Vector3();
+    const v = this._jv ??= new THREE.Vector3();
+    const up = this._jup ??= new THREE.Vector3();
+    q.set(s.q[0], s.q[1], s.q[2], s.q[3]);
+    const fresh = !this._jetView || this.followEntity !== entity || !this.initialized || !(dt > 0);
+    this._jetView = true;
+    this.followEntity = entity;
+    this.initialized = true;
+    if (fresh) qs.copy(q);
+    else qs.slerp(q, 1 - Math.exp(-dt * 3.2));
+    const p = entity.position;
+    const preset = this.activePresetId;
+    // the user's orbit (drag, right stick): about the jet's up, then its wings
+    look.setFromAxisAngle(axis.set(0, 1, 0), this.orbitYawOffset);
+    look.multiply((this._jpitch ??= new THREE.Quaternion()).setFromAxisAngle(axis.set(1, 0, 0), this.orbitPitchOffset - 0.09));
+
+    let fov = this.getActivePreset().fov;
+    if (preset === 'pov' || preset === 'taxi') {
+      // the front seat, eyes level with the canopy rail's top
+      this.currentPos.set(0, 1.12, 4.25).applyQuaternion(q).add(p);
+      cam.position.copy(this.currentPos);
+      // the camera looks down its -z: turned round to the jet's +z, then the user's look about
+      cam.quaternion.copy(q).multiply(look).multiply(this._jflip ??= new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI));
+      this.currentLookAt.set(0, 1.12, 60).applyQuaternion(q).add(p);
+      fov = 74;
+    } else {
+      const frame = this._jframe ??= new THREE.Quaternion();
+      frame.copy(qs).multiply(look);
+      if (preset === 'action') {
+        v.set(15, 1.2, -12);
+      } else {
+        const dist = entity.chaseDistance * this.zoomMultiplier + Math.min(10, this.smoothedSpeed * 0.02);
+        v.set(0, entity.chaseHeight * this.zoomMultiplier, -dist);
+      }
+      this.currentPos.copy(v.applyQuaternion(frame)).add(p);
+      // (looking past the jet, from wherever the orbit has put the camera)
+      this.currentLookAt.set(0, 1.6, preset === 'action' ? 6 : 20).applyQuaternion(frame).add(p);
+      // never under the ground (on the runway: the camera rides up instead)
+      this.currentPos.y = Math.max(1.2, this.currentPos.y);
+      // the horizon leans most of the way with the jet's bank
+      up.set(0, 1, 0).applyQuaternion(qs).lerp(axis.set(0, 1, 0), 0.25).normalize();
+      cam.up.copy(up);
+      cam.position.copy(this.currentPos);
+      cam.lookAt(this.currentLookAt);
+      fov += Math.min(16, Math.max(0, (Math.abs(entity.speed) - 60) * 0.05));
+    }
+    if (Math.abs(cam.fov - fov) > 0.05) {
+      cam.fov += (fov - cam.fov) * (fresh ? 1 : 1 - Math.exp(-dt * 3));
+      cam.updateProjectionMatrix();
+    }
   }
 }
 
