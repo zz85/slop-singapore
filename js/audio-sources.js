@@ -83,7 +83,9 @@ class NearestSources {
 // Read at audio's control rate (10 Hz), after simulation updates. Snapshots remain valid until the next collect().
 // IDs are the simulation objects, independent of pooled record order, so voices survive ranking changes/recycling.
 class CityAudioSources {
-  constructor({ controllerManager, trafficSystem, highwayTraffic, streetDetails }) {
+  constructor({ controllerManager, trafficSystem, highwayTraffic, streetDetails, islandTraffic = null }) {
+    // the island's traffic beyond the detailed city (js/island-traffic.js), heard like the highways'
+    this.islandCars = islandTraffic ? islandTraffic.cars : [];
     this.controllers = controllerManager;
     this.players = Object.values(controllerManager.entities);
     this.cars = trafficSystem.cars;
@@ -202,6 +204,17 @@ class CityAudioSources {
       this.snapshot.traffic += (1 - d2 / (MOTOR_RANGE * MOTOR_RANGE)) * (0.2 + 0.8 * unit(car.v / 12));
       this.motor(car, car.kind === 'suv' ? 'suv' : 'sedan', car.x, car.y + 0.7, car.z,
         car.v, roadLoad(car.v, car.acc, 1.6), car.yaw, false, false, seedAt(2000 + i), car.v < 0.5);
+    }
+    for (let i = 0; i < this.islandCars.length; i++) {
+      const car = this.islandCars[i];
+      if (!car.active) continue;
+      const d2 = this.distanceSq(car.x, 0.7, car.z);
+      if (!Number.isFinite(d2) || d2 > MOTOR_RANGE * MOTOR_RANGE) continue;
+      this.snapshot.traffic += (1 - d2 / (MOTOR_RANGE * MOTOR_RANGE)) * (0.2 + 0.8 * unit(car.v / 12));
+      // stuck (not at a light or bumped): may honk
+      const blocked = car.v < 0.5 && !car.light && !(car.stunned > 0);
+      this.motor(car, car.kind === 'suv' ? 'suv' : 'sedan', car.x, 0.7, car.z,
+        car.v, roadLoad(car.v, car.acc, 1.5), Math.atan2(car.dx, car.dz), false, false, seedAt(3000 + i), blocked);
     }
     this.snapshot.traffic = unit(this.snapshot.traffic / 16);
 

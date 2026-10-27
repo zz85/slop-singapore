@@ -13,6 +13,7 @@ import { CityTiles } from './city-tiles.js';
 import { loadIslandRoads } from './island-roads.js';
 import { createIslandTraffic } from './island-traffic.js';
 import { createIslandSignals } from './island-signals.js';
+import { RED_LIGHT_FINE } from './open-city-enforcement.js';
 import { createLandMask } from './city-tiles-build.js';
 import { buildStreetDetails } from './street-details.js';
 import { buildOpenCityDetails } from './open-city-details.js';
@@ -237,7 +238,7 @@ async function initApp() {
   const soundButton = document.getElementById('btn-sound');
   // A tropical city (Singapore) has its koels, cicadas and thunderstorms
   const tropical = CITY.open && CITY.id === 'singapore';
-  const audioSystem = new CityAudioSystem({ controllerManager, trafficSystem, highwayTraffic, streetDetails }, {
+  const audioSystem = new CityAudioSystem({ controllerManager, trafficSystem, highwayTraffic, streetDetails, islandTraffic }, {
     onStateChange: updateSoundButton,
     tropics: tropical
   });
@@ -888,7 +889,11 @@ async function initApp() {
     if (weather) weather.update(dt, cameraSystem.camera);
     if (cityTiles) cityTiles.update(cameraSystem.camera);
     if (islandTraffic) islandTraffic.update(dt, cameraSystem.camera, controllerManager.getActiveEntity(), controllerManager.activeMode, elapsed);
-    if (islandSignals) islandSignals.update(cameraSystem.camera, elapsed);
+    if (islandSignals) {
+      islandSignals.update(cameraSystem.camera, elapsed);
+      // the island's red light cameras: the fine notice the detailed city's give
+      if (streetDetails.notice && islandSignals.ranRed(controllerManager.getActiveEntity(), elapsed)) streetDetails.notice(...RED_LIGHT_FINE);
+    }
     audioSystem.setAmbience(lightingSystem.activePresetId, weather ? weather.storm : 0);
     audioSystem.update(dt, elapsed, cameraSystem.camera, lightingSystem.activePresetId === 'midnight');
     if (warmedUp) updateSceneCulling(cameraSystem.camera.position); // the warm-up frame draws every chunk

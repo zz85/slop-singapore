@@ -8,7 +8,11 @@ import { vehicleContact } from './vehicle-physics.js';
 // left), follows the car or player ahead with the IDM, carries on to a connected road at the end of each (straight on
 // most likely) and is recycled once far from the camera or into the detailed city, reappearing on a road 180-650 m
 // away, preferably out of view. It stops at the island's traffic lights (js/island-roads.js signals: red, and amber
-// where it can still stop in comfort). The player bumps into them like any other car; they stop, then pull away.
+// where it can still stop in comfort) and turns at its junctions now and then: onto another road where its own ends
+// (most of the data's junctions), and off it part way along (island-roads.js junctions: the side roads at a T, the
+// crossing roads at a light), slowing for the turn with its indicator on and rounding the corner
+// from its lane into the new road's (the kerbside lane turning left where traffic keeps left, the inside lane
+// turning right). The player bumps into them like any other car; they stop, then pull away.
 // Two LODs: the full model within ISL_NEAR m, a ~250-triangle proxy out to ISL_FAR.
 
 const ISL_DRIVER = { a: 1.5, b: 2.6, T: 1.4, s0: 3 };
@@ -18,6 +22,10 @@ const ISL_FAR = 900;
 const ISL_RECYCLE = 760; // m from the camera
 const SPAWN_MIN = 180, SPAWN_MAX = 650;
 const KINDS = ['taxi', 'sedan', 'suv'];
+const TURN_SHARE = 0.32; // of the cars reaching a junction, how many turn off there
+const TURN_SPEED = 6.5; // m/s round the corner
+const TURN_REACH = 7; // m before & after the junction the corner is rounded over
+const DECIDE_AT = 60; // m before a junction, a car decides whether to turn there
 const SEDANS = [0x1c2026, 0xcfd6de, 0x1d3b6c, 0x52575e, 0x6e1f24, 0x8a8f96, 0xe9ecef];
 const SUVS = [0x16191e, 0xf0f3f7, 0x3a434d, 0x28382e, 0xbec6cf, 0x5b2a2a];
 
@@ -38,6 +46,7 @@ function createIslandTraffic(scene, { vehicles, keepLeft = true, count = 40 } = 
     const col = new THREE.Color(palette[Math.floor(rand() * palette.length)]);
     cars.push({
       kind, active: false, road: null, dir: 1, s: 0, lane: 0, off: 0, v: 0, acc: 0, stunned: 0, desire: 0.9 + rand() * 0.2,
+      plan: null, curve: null, blink: 0, blinkPhase: rand() * 0.8,
       x: 0, z: 0, dx: 0, dz: 1, col: [Math.fround(col.r), Math.fround(col.g), Math.fround(col.b)]
     });
   }
@@ -100,7 +109,7 @@ function createIslandTraffic(scene, { vehicles, keepLeft = true, count = 40 } = 
       const off = roads.laneOffset(road, lane, keepLeft);
       // not on top of another car in that lane
       if (cars.some((o) => o.active && o.road === road && o.dir === dir && Math.abs(o.off - off) < 1 && Math.abs(o.s - s) < 30)) continue;
-      Object.assign(c, { active: true, road, dir, s, lane, off, v: road.speed * c.desire * 0.8, acc: 0, stunned: 0 });
+      Object.assign(c, { active: true, road, dir, s, lane, off, v: road.speed * c.desire * 0.8, acc: 0, stunned: 0, plan: null, curve: null, blink: 0 });
       place(c);
       stats.spawned++;
       return true;
@@ -110,20 +119,131 @@ function createIslandTraffic(scene, { vehicles, keepLeft = true, count = 40 } = 
 
   // At the end of its road: onto a connected one (straight on most likely), else back to the pool
   function carryOn(c) {
-    const options = roads.next(c.road, c.dir);
-    if (!options.length) return false;
-    let total = 0;
-    for (const o of options) total += (o.w = 0.2 + Math.max(0, o.turn) ** 3 * 3);
-    let r = rand() * total, pick = options[0];
-    for (const o of options) { r -= o.w; if (r <= 0) { pick = o; break; } }
+    let pick = c.plan && c.plan.road === c.road && c.plan.dir === c.dir ? c.plan.next : null;
+    if (!pick) {
+      const options = roads.next(c.road, c.dir);
+      if (!options.length) return false;
+      let total = 0;
+      for (const o of options) total += (o.w = 0.2 + Math.max(0, o.turn) ** 3 * 3);
+      let r = rand() * total;
+      pick = options[0];
+      for (const o of options) { r -= o.w; if (r <= 0) { pick = o; break; } }
+    }
     const overflow = c.s - c.road.len;
     c.road = pick.road;
     c.dir = pick.dir;
-    c.s = Math.max(0, overflow);
+    c.s = (pick.s || 0) + Math.max(0, overflow);
+    c.plan = null;
     const lanes = c.road.oneway ? c.road.lanes : Math.max(1, Math.floor(c.road.lanes / 2));
     c.lane = Math.min(c.lane, lanes - 1);
     c.off = roads.laneOffset(c.road, c.lane, keepLeft);
     return true;
+  }
+
+  // The lane to turn into: the kerbside one turning towards the kerb, the inside one turning across the traffic
+  function laneAfterTurn(road, side) {
+    const lanes = road.oneway ? road.lanes : Math.max(1, Math.floor(road.lanes / 2));
+    // offsets grow to the left of travel: a one-way road's kerbside lane is its leftmost where traffic keeps left; a
+    // two-way road's lanes count out from its centre line
+    const kerb = road.oneway ? (keepLeft ? lanes - 1 : 0) : lanes - 1;
+    const inside = road.oneway ? (keepLeft ? 0 : lanes - 1) : 0;
+    const towardsKerb = keepLeft ? side < 0 : side > 0;
+    return towardsKerb ? kerb : inside;
+  }
+
+  // Which side a move from `road` (driven `dir`, at its arc length `at`) onto `exit` turns to: 1 right, -1 left, 0
+  // straight on (x east, z south: heading north (0, -1) to east (1, 0) is right); and how straight (the cosine)
+  const sideOf = (road, dir, at, exit) => {
+    roads.pose(road, dir, at, 0, pose);
+    const ix = pose.dx, iz = pose.dz;
+    const o = roads.pose(exit.road, exit.dir, Math.min(exit.road.len, exit.s + 2), 0, {});
+    const dot = ix * o.dx + iz * o.dz;
+    return { dot, side: dot > 0.9 ? 0 : ix * o.dz - iz * o.dx > 0 ? 1 : -1 };
+  };
+
+  // Deciding at the next junction or road end ahead where to go from there: c.plan = { road, dir, at, exit (a turn
+  // to round, or null), next (at a road's end: the road to carry on onto), side }
+  function plan(c) {
+    if (c.curve) return;
+    if (c.plan && c.plan.road === c.road && c.plan.dir === c.dir && c.plan.at >= c.s) return;
+    c.plan = null;
+    c.blink = 0;
+    const ahead = roads.junctionAhead(c.road, c.dir, c.s, DECIDE_AT);
+    const toEnd = c.road.len - c.s;
+    const choice = { road: c.road, dir: c.dir, at: 0, exit: null, next: null, side: 0 };
+    if (ahead && ahead.d < toEnd) {
+      // a junction part way along: straight on mostly, else one of its turns
+      choice.at = ahead.at;
+      c.plan = choice;
+      if (rand() >= TURN_SHARE) return;
+      const turns = [];
+      for (const e of ahead.junction.exits) {
+        if (e.road === c.road) continue;
+        const { dot, side } = sideOf(c.road, c.dir, ahead.at, e);
+        if (dot >= -0.3 && side !== 0) turns.push({ e, side });
+      }
+      if (!turns.length) return;
+      const t = turns[Math.floor(rand() * turns.length)];
+      choice.exit = t.e;
+      choice.side = t.side;
+    } else if (toEnd <= DECIDE_AT) {
+      // the road's end: onto the roads carrying on, straight on mostly where one does
+      choice.at = c.road.len;
+      c.plan = choice;
+      const options = roads.next(c.road, c.dir).map((o) => ({ o, ...sideOf(c.road, c.dir, c.road.len, o) }));
+      if (!options.length) return;
+      const straight = options.filter((o) => o.side === 0), turns = options.filter((o) => o.side !== 0);
+      const pool = turns.length && (!straight.length || rand() < TURN_SHARE) ? turns : straight;
+      const pick = pool[Math.floor(rand() * pool.length)];
+      choice.next = pick.o;
+      if (pick.side !== 0) { choice.exit = pick.o; choice.side = pick.side; }
+    } else return;
+    c.blink = choice.side; // (-1 left, 1 right: traffic.js's convention)
+  }
+
+  // Into the turn: a quadratic curve from where the car is to TURN_REACH m down the new road in its new lane
+  function startTurn(c) {
+    const { exit, side } = c.plan;
+    const lane = laneAfterTurn(exit.road, side);
+    const off = roads.laneOffset(exit.road, lane, keepLeft);
+    const s2 = Math.min(exit.road.len, exit.s + TURN_REACH);
+    const p0x = c.x, p0z = c.z, d0x = c.dx, d0z = c.dz;
+    roads.pose(exit.road, exit.dir, s2, off, pose);
+    const p2x = pose.x, p2z = pose.z, d2x = pose.dx, d2z = pose.dz;
+    // the control point where the two lane lines meet (else halfway)
+    const den = d0x * d2z - d0z * d2x;
+    let p1x = (p0x + p2x) / 2, p1z = (p0z + p2z) / 2;
+    if (Math.abs(den) > 0.05) {
+      const t = ((p2x - p0x) * d2z - (p2z - p0z) * d2x) / den;
+      if (t > 0 && t < 40) { p1x = p0x + d0x * t; p1z = p0z + d0z * t; }
+    }
+    let len = 0, px = p0x, pz = p0z;
+    for (let k = 1; k <= 12; k++) {
+      const u = k / 12, a = (1 - u) * (1 - u), b = 2 * u * (1 - u), cc = u * u;
+      const x = a * p0x + b * p1x + cc * p2x, z = a * p0z + b * p1z + cc * p2z;
+      len += Math.hypot(x - px, z - pz);
+      px = x; pz = z;
+    }
+    c.curve = { p0x, p0z, p1x, p1z, p2x, p2z, len: Math.max(1, len), cs: 0 };
+    c.road = exit.road;
+    c.dir = exit.dir;
+    c.s = s2;
+    c.lane = lane;
+    c.off = off;
+    c.plan = null;
+  }
+
+  function placeOnCurve(c) {
+    const k = c.curve;
+    const u = Math.min(1, k.cs / k.len);
+    const a = (1 - u) * (1 - u), b = 2 * u * (1 - u), cc = u * u;
+    c.x = a * k.p0x + b * k.p1x + cc * k.p2x;
+    c.z = a * k.p0z + b * k.p1z + cc * k.p2z;
+    let tx = 2 * (1 - u) * (k.p1x - k.p0x) + 2 * u * (k.p2x - k.p1x);
+    let tz = 2 * (1 - u) * (k.p1z - k.p0z) + 2 * u * (k.p2z - k.p1z);
+    const L = Math.hypot(tx, tz) || 1;
+    c.dx = tx / L;
+    c.dz = tz / L;
   }
 
   function update(dt, camera, entity, mode, time = 0) {
@@ -166,7 +286,8 @@ function createIslandTraffic(scene, { vehicles, keepLeft = true, count = 40 } = 
         }
       }
       // the traffic light ahead: its stop line a standing car's leader on red, and on amber unless too close to stop
-      const light = roads.signalAhead(c.road, c.dir, c.s);
+      plan(c);
+      const light = c.curve ? null : roads.signalAhead(c.road, c.dir, c.s);
       c.light = null;
       if (light) {
         const phase = roads.phase(light.signal, light.group, time);
@@ -181,6 +302,12 @@ function createIslandTraffic(scene, { vehicles, keepLeft = true, count = 40 } = 
       const v0 = c.road.speed * c.desire;
       const sStar = D.s0 + Math.max(0, c.v * D.T + (c.v * dv) / brakeTerm);
       c.acc = Math.max(-9, D.a * (1 - (c.v / v0) ** 4 - (gap < Infinity ? (sStar / Math.max(gap, 0.1)) ** 2 : 0)));
+      // slowing for the turn ahead, and round it
+      if (c.plan?.exit) {
+        const d = c.plan.at - TURN_REACH - c.s;
+        if (c.v > TURN_SPEED) c.acc = Math.min(c.acc, Math.max(-5, (TURN_SPEED ** 2 - c.v ** 2) / (2 * Math.max(d, 0.5))));
+      }
+      if (c.curve && c.v > TURN_SPEED) c.acc = Math.min(c.acc, -2.5);
       if (c.stunned > 0) { c.stunned -= dt; c.acc = Math.min(c.acc, -6); }
     }
 
@@ -188,9 +315,22 @@ function createIslandTraffic(scene, { vehicles, keepLeft = true, count = 40 } = 
     for (const c of cars) {
       if (!c.active) continue;
       c.v = Math.max(0, c.v + c.acc * dt);
-      c.s += c.v * dt;
-      if (c.s >= c.road.len && !carryOn(c)) { c.active = false; stats.recycled++; continue; }
-      place(c);
+      if (c.curve) {
+        c.curve.cs += c.v * dt;
+        if (c.curve.cs < c.curve.len) placeOnCurve(c);
+        else {
+          c.s += c.curve.cs - c.curve.len;
+          c.curve = null;
+          c.blink = 0;
+          if (c.s >= c.road.len && !carryOn(c)) { c.active = false; stats.recycled++; continue; }
+          place(c);
+        }
+      } else {
+        c.s += c.v * dt;
+        if (c.plan?.exit && c.s >= c.plan.at - TURN_REACH) startTurn(c);
+        else if (c.s >= c.road.len && !carryOn(c)) { c.active = false; stats.recycled++; continue; }
+        else place(c);
+      }
       const d = Math.hypot(c.x - cam.x, c.z - cam.z);
       if (d > ISL_RECYCLE || roads.inCore(c.x, c.z)) { c.active = false; stats.recycled++; }
     }
@@ -232,7 +372,11 @@ function createIslandTraffic(scene, { vehicles, keepLeft = true, count = 40 } = 
       m4.toArray(mesh.instanceMatrix.array, slot * 16);
       const attrs = mesh.geometry.attributes;
       attrs.paintColor.array.set(c.col, slot * 3);
-      attrs.carState.array[slot * 4] = c.acc < -1.2 ? 1 : 0;
+      const st = attrs.carState.array;
+      const blinkOn = c.blink !== 0 && (time + c.blinkPhase) % 0.8 <= 0.4;
+      st[slot * 4] = c.acc < -1.2 || c.v < 0.3 ? 1 : 0;
+      st[slot * 4 + 1] = blinkOn && c.blink < 0 ? 1 : 0;
+      st[slot * 4 + 2] = blinkOn && c.blink > 0 ? 1 : 0;
     }
     stats.active = active;
     for (const kind of KINDS) {

@@ -10,7 +10,8 @@ import { GEO } from './geodata.js';
 // where it stands on a sidewalk, median, verge or park lawn, grown to its height, its crown shape from its family
 // (palms included; a shape without a model in js/trees.js isn't planted), and its road pricing gantries & traffic
 // cameras (open-city-enforcement.js). Returns what main.js and the audio take from street-details.js: { group,
-// footprints, signalClock, audioSignals, update(camera, player) }, and attach(network, audio) for the enforcement.
+// footprints, signalClock, audioSignals, update(camera, player) }, and attach(network, audio) & notice(head, body,
+// flash, chime) for the enforcement.
 
 const SIDEWALK_Y = 0.22;
 const LAWN_Y = 0.235;
@@ -52,7 +53,8 @@ function buildOpenCityDetails(scene) {
     signalClock,
     audioSignals: [],
     update: enforcement ? (camera, player) => enforcement.update(signalClock.value, player) : null,
-    attach: enforcement ? (network, audio) => enforcement.attach(network, audio) : null
+    attach: enforcement ? (network, audio) => enforcement.attach(network, audio) : null,
+    notice: enforcement ? enforcement.notice : null
   };
 }
 

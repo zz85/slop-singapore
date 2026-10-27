@@ -262,6 +262,10 @@ function createNotices() {
   };
 }
 
+// Running a red light in Singapore: a $400 composition fine and 12 demerit points (the detailed city's red light
+// cameras and the island's lights, js/island-signals.js)
+const RED_LIGHT_FINE = ['RED LIGHT CAMERA', 'You ran a red light · $400 fine & 12 demerit points', true, 'camera'];
+
 // Singapore's penalties for speeding (composition fine & demerit points by how far over the limit)
 function speedingFine(over) {
   if (over <= 20) return ['$150', 4];
@@ -285,6 +289,8 @@ function createEnforcement(group, network) {
   console.info(`[enforcement] ${gantries.length} ERP gantries, ${speedCams.length} speed cameras, ${redCams.length} red light cameras`);
 
   return {
+    // a fine notice (& its flash and chime) from elsewhere: the island's red light cameras (js/island-signals.js)
+    notice: say,
     // the traffic network (its signalised junctions & approach groups) and the audio, once they exist
     attach(net, audioSystem) {
       audio = audioSystem;
@@ -337,10 +343,10 @@ function createEnforcement(group, network) {
         if (hx * c.ax + hz * c.az < 0.6 * Math.sign(v)) continue; // not coming in down its approach
         if (signalPhase(time, c.group === 0) !== 'red') continue;
         c.last = time;
-        say('RED LIGHT CAMERA', 'You ran a red light · $400 fine & 12 demerit points', true, 'camera');
+        say(...RED_LIGHT_FINE);
       }
     }
   };
 }
 
-export { createEnforcement };
+export { createEnforcement, RED_LIGHT_FINE };

@@ -4,7 +4,8 @@ import * as THREE from 'three/webgpu';
 // The island's traffic lights (js/island-roads.js signals) beyond the detailed city: a pole at the kerb by each way
 // into a signalised junction or crossing, its head facing the traffic coming, showing the phase that traffic has (the
 // lit lamp: red at the top, amber, green at the bottom). Only the ones within SIGNAL_DRAW m of the camera are drawn,
-// re-picked as the camera moves; their lamps follow the cycle every frame.
+// re-picked as the camera moves; their lamps follow the cycle every frame. ranRed(player, time) tells when the player's
+// car has just crossed a stop line on red (Singapore's junctions have red light cameras; here every light does).
 
 const SIGNAL_DRAW = 420; // m
 const MAX_HEADS = 360;
@@ -53,6 +54,14 @@ function createIslandSignals(scene, { keepLeft = true } = {}) {
         a.x = p.x;
         a.z = p.z;
         a.yaw = Math.atan2(-p.dx, -p.dz); // facing back down the road
+        // the stop line: across the carriageway at the road's line, its travel direction, its half width
+        a.lx = p.x - p.dz * (edge + KERB) * side;
+        a.lz = p.z + p.dx * (edge + KERB) * side;
+        a.dx = p.dx;
+        a.dz = p.dz;
+        a.half = edge + 0.5;
+        // across it: a one-way carriageway either side of its line, a two-way road only its side of the centre line
+        a.near = a.road.oneway ? -edge : 0;
       }
     }
   }
@@ -62,7 +71,7 @@ function createIslandSignals(scene, { keepLeft = true } = {}) {
     for (const signal of roads.signals) {
       if (Math.abs(signal.x - cam.x) > SIGNAL_DRAW || Math.abs(signal.z - cam.z) > SIGNAL_DRAW) continue;
       if (Math.hypot(signal.x - cam.x, signal.z - cam.z) > SIGNAL_DRAW) continue;
-      for (const a of signal.approaches) heads.push({ signal, group: a.group, x: a.x, z: a.z, yaw: a.yaw, d: Math.hypot(a.x - cam.x, a.z - cam.z) });
+      for (const a of signal.approaches) heads.push({ signal, approach: a, group: a.group, x: a.x, z: a.z, yaw: a.yaw, d: Math.hypot(a.x - cam.x, a.z - cam.z) });
     }
     heads.sort((a, b) => a.d - b.d);
     heads.length = Math.min(heads.length, MAX_HEADS);
@@ -96,8 +105,35 @@ function createIslandSignals(scene, { keepLeft = true } = {}) {
     if (lamp.instanceColor) lamp.instanceColor.needsUpdate = true;
   }
 
+  // Has the player's car just crossed a stop line on red, coming in down its approach? (once per light per 15 s)
+  const lastAlong = new Map();
+  function ranRed(player, time) {
+    if (!roads || !player || player.type !== 'car') return false;
+    const v = player.speed || 0;
+    const px = player.position.x, pz = player.position.z;
+    const hx = Math.sin(player.heading || 0), hz = Math.cos(player.heading || 0);
+    let ran = false;
+    for (const h of heads) {
+      const a = h.approach;
+      const rx = px - a.lx, rz = pz - a.lz;
+      if (Math.abs(rx) > 40 || Math.abs(rz) > 40) { lastAlong.delete(a); continue; }
+      const along = rx * a.dx + rz * a.dz;
+      // left of the road's line, within its carriageway (offsets grow to the left of travel: (dz, -dx))
+      const left = (rx * a.dz - rz * a.dx) * (keepLeft ? 1 : -1);
+      const before = lastAlong.get(a);
+      lastAlong.set(a, along);
+      if (before === undefined || !(before < 0 && along >= 0)) continue;
+      if (left < a.near - 0.5 || left > a.half || v < 3 || hx * a.dx + hz * a.dz < 0.6) continue;
+      if (roads.phase(h.signal, h.group, time) !== 'red' || time - (a.fined ?? -Infinity) < 15) continue;
+      a.fined = time;
+      ran = true;
+    }
+    return ran;
+  }
+
   return {
     group,
+    ranRed,
     get count() { return heads.length; },
     update,
     setRoads(r) {

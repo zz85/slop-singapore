@@ -14,6 +14,10 @@
 //   the roads through it (road.signals: [{ signal, s (arc length along the points), group (0 travelling along its axis,
 //   1 across) }], by s); phase(signal, group, time): 'green' | 'amber' | 'red'
 // - approaches: a signal's ways in, [{ road, dir, group, x, z, heading (facing the traffic coming) }]
+// - junctions: on each road, where traffic may turn off it part way along (road.junctions, by s along its points): a
+//   side road ending on it (a T, which the data does not split it at) and the roads crossing it at a traffic light,
+//   [{ s, x, z, exits: [{ road, dir, s (where it joins, counted the way it's driven) }] }]; junctionAhead(road, dir, s,
+//   range) the next one ahead
 // The world frame is the city's: x east, z south (north = -z); a heading h faces (sin h, cos h).
 
 const CELL = 100; // m: the segment index's cells
@@ -156,7 +160,20 @@ function createIslandRoads(data, { coreRing = null } = {}) {
     return { x: p.x + dz * off, z: p.z - dx * off, heading: Math.atan2(dx, dz), road: p.road, dir };
   }
 
-  // Roads carrying on from the end of `road` driven `dir`, their own direction of travel away from it
+  // Where each road's ends meet another road part way along it (a T): road.endJoins[end] = [{ road, s }]
+  for (const A of roads) {
+    const n = A.pts.length / 2;
+    for (const end of [0, 1]) {
+      const x = end ? A.pts[n * 2 - 2] : A.pts[0], z = end ? A.pts[n * 2 - 1] : A.pts[1];
+      for (const p of near(x, z, 3)) {
+        if (p.road === A || p.s <= 3 || p.s >= p.road.len - 3) continue;
+        ((A.endJoins || (A.endJoins = [[], []]))[end]).push({ road: p.road, s: p.s, x: p.x, z: p.z });
+      }
+    }
+  }
+
+  // Roads carrying on from the end of `road` driven `dir`, their own direction of travel away from it, and where they
+  // start: [{ road, dir, turn (cosine of the angle turned: 1 straight on), s (counted the way it's driven) }]
   function next(road, dir) {
     const P = road.pts, n = P.length / 2;
     const [ex, ez] = dir > 0 ? [P[n * 2 - 2], P[n * 2 - 1]] : [P[0], P[1]];
@@ -174,7 +191,18 @@ function createIslandRoads(data, { coreRing = null } = {}) {
       const oL = Math.hypot(bx - e.x, bz - e.z) || 1;
       const turn = (ix * (bx - e.x) + iz * (bz - e.z)) / oL;
       if (turn < -0.2) continue; // no U-turns onto the other carriageway
-      out.push({ road: e.road, dir: d, turn });
+      out.push({ road: e.road, dir: d, turn, s: 0 });
+    }
+    // ...and the roads it ends on part way along, either way they may be driven from there
+    for (const j of road.endJoins?.[dir > 0 ? 1 : 0] || []) {
+      for (const d of [1, -1]) {
+        if (j.road.oneway && j.road.oneway !== d) continue;
+        const at = d > 0 ? j.s : j.road.len - j.s;
+        const o = pose(j.road, d, Math.min(j.road.len, at + 1), 0, {});
+        const turn = ix * o.dx + iz * o.dz;
+        if (turn < -0.2) continue;
+        out.push({ road: j.road, dir: d, turn, s: at });
+      }
     }
     return out;
   }
@@ -252,6 +280,83 @@ function createIslandRoads(data, { coreRing = null } = {}) {
   }
   for (const road of roads) if (road.signals) road.signals.sort((a, b) => a.s - b.s);
 
+  // Junctions part way along the roads, to turn off at: the T's (a side road's end on a road), each way the side road
+  // may be driven away from it; and the crossings at the traffic lights (where two roads through one cross)
+  const addExit = (road, s, x, z, exit) => {
+    const list = road.junctions || (road.junctions = []);
+    let J = list.find((j) => Math.abs(j.s - s) < 6);
+    if (!J) list.push((J = { s, x, z, exits: [] }));
+    if (!J.exits.some((e) => e.road === exit.road && e.dir === exit.dir)) J.exits.push(exit);
+  };
+  for (const A of roads) {
+    if (!A.endJoins) continue;
+    for (const end of [0, 1]) {
+      const away = end === 0 ? 1 : -1; // leaving the junction from this end runs along its points or against them
+      if (A.oneway && A.oneway !== away) continue;
+      for (const j of A.endJoins[end]) addExit(j.road, j.s, j.x, j.z, { road: A, dir: away, s: 0 });
+    }
+  }
+  // the point where two roads' lines cross within r of (x, z): [sA, sB] along their points, or null
+  const crossing = (A, B, x, z, r) => {
+    const segs = (R) => {
+      const out = [];
+      const P = R.pts;
+      for (let i = 0; i + 1 < P.length / 2; i++) {
+        const mx = (P[i * 2] + P[i * 2 + 2]) / 2, mz = (P[i * 2 + 1] + P[i * 2 + 3]) / 2;
+        const half = Math.hypot(P[i * 2 + 2] - P[i * 2], P[i * 2 + 3] - P[i * 2 + 1]) / 2;
+        if (Math.hypot(mx - x, mz - z) <= r + half) out.push(i);
+      }
+      return out;
+    };
+    const PA = A.pts, PB = B.pts;
+    for (const i of segs(A)) {
+      const ax = PA[i * 2], az = PA[i * 2 + 1], ux = PA[i * 2 + 2] - ax, uz = PA[i * 2 + 3] - az;
+      for (const k of segs(B)) {
+        const bx = PB[k * 2], bz = PB[k * 2 + 1], vx = PB[k * 2 + 2] - bx, vz = PB[k * 2 + 3] - bz;
+        const den = ux * vz - uz * vx;
+        if (Math.abs(den) < 1e-6) continue;
+        const t = ((bx - ax) * vz - (bz - az) * vx) / den;
+        const u = ((bx - ax) * uz - (bz - az) * ux) / den;
+        if (t < -0.02 || t > 1.02 || u < -0.02 || u > 1.02) continue;
+        return [A.cum[i] + (A.cum[i + 1] - A.cum[i]) * Math.max(0, Math.min(1, t)), B.cum[k] + (B.cum[k + 1] - B.cum[k]) * Math.max(0, Math.min(1, u))];
+      }
+    }
+    return null;
+  };
+  for (const signal of signals) {
+    if (signal.crossing) continue;
+    const through = [...new Set(signal.approaches.map((a) => a.road))];
+    for (const A of through) {
+      for (const B of through) {
+        if (A === B) continue;
+        const at = crossing(A, B, signal.x, signal.z, 30);
+        if (!at) continue;
+        const [sA, sB] = at;
+        for (const d of [1, -1]) {
+          if (B.oneway && B.oneway !== d) continue;
+          const sDriven = d > 0 ? sB : B.len - sB;
+          if (sDriven > B.len - 5) continue; // (no road left that way)
+          addExit(A, sA, signal.x, signal.z, { road: B, dir: d, s: sDriven });
+        }
+      }
+    }
+  }
+  for (const road of roads) if (road.junctions) road.junctions.sort((a, b) => a.s - b.s);
+
+  // The next junction ahead of s on `road` driven `dir` (both counted the way it's driven), within `range` m:
+  // { junction, d (m to it), at (its s the way it's driven) } or null
+  function junctionAhead(road, dir, s, range = 50) {
+    if (!road.junctions) return null;
+    let best = null;
+    for (const J of road.junctions) {
+      const at = dir > 0 ? J.s : road.len - J.s;
+      const d = at - s;
+      if (d <= 0 || d > range) continue;
+      if (!best || d < best.d) best = { junction: J, d, at };
+    }
+    return best;
+  }
+
   // The next traffic light ahead of arc length s on `road` driven `dir` (s counted the way it's driven), within `range`
   // m: { signal, group, d (m to its stop line) } or null; lights whose stop line is already behind are passed
   function signalAhead(road, dir, s, range = 90) {
@@ -266,7 +371,7 @@ function createIslandRoads(data, { coreRing = null } = {}) {
     return best;
   }
 
-  return { roads, data, nearest, near, snap, next, pose, laneOffset, inCore, signals, signalAhead, phase: signalPhase, LANE, STOP_BACK };
+  return { roads, data, nearest, near, snap, next, pose, laneOffset, inCore, signals, signalAhead, junctionAhead, phase: signalPhase, LANE, STOP_BACK };
 }
 
 // roads.json, fetched once and shared

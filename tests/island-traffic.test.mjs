@@ -208,3 +208,159 @@ test('island traffic stops at a red light and goes on green', () => {
   for (let i = 0; i < 30 * 15; i++, t += 1 / 30) traffic.update(1 / 30, cam, null, 'helicopter', t);
   assert.ok(c.road !== roads.roads[0] || c.s > 520, `through the junction (${c.road.name} at ${c.s.toFixed(0)})`);
 });
+
+test('junctions part way along a road: the T where a side road ends on it, the crossing at a light', () => {
+  const data = encode([
+    { cls: 'primary', name: 'Main Road', pts: [[1000, 0], [1500, 0], [2000, 0]], lanes: 4 },
+    { cls: 'secondary', name: 'Side Road', pts: [[1300, 0], [1300, 400]], lanes: 2 },
+    { cls: 'secondary', name: 'Cross Street', pts: [[1700, -400], [1700, 400]], lanes: 2 }
+  ]);
+  data.signals = [1700, 0, 0];
+  const roads = createIslandRoads(data, { coreRing: CORE });
+  const [main, side, cross] = roads.roads;
+  assert.deepEqual(main.junctions.map((j) => [Math.round(j.s), j.exits.map((e) => `${e.road.name} ${e.dir}`).sort()]),
+    [[300, ['Side Road 1']], [700, ['Cross Street -1', 'Cross Street 1']]]);
+  assert.deepEqual(side.junctions, undefined, 'none along the side road');
+  // where the side road ends on Main Road part way, it carries on along it either way
+  const fromSide = roads.next(side, -1).map((o) => [o.road.name, o.dir, Math.round(o.s)]).sort();
+  assert.deepEqual(fromSide, [['Main Road', -1, 700], ['Main Road', 1, 300]], '300 m along it, 700 m in driving west');
+  const ahead = roads.junctionAhead(main, 1, 600, 150);
+  assert.equal(Math.round(ahead.d), 100);
+  assert.equal(roads.junctionAhead(main, -1, 0, 400).junction.s, 700, 'driving west, the crossing first');
+  void cross;
+});
+
+test('island traffic turns off at a junction: slows, indicates, rounds the corner into the new road\'s lane', () => {
+  const roads = crossroads();
+  const traffic = createIslandTraffic({ add() {} }, { keepLeft: true, count: 1 });
+  traffic.setRoads(roads);
+  const cam = camera(1500, 300);
+  traffic.update(1 / 30, cam, null, 'helicopter', 0);
+  const c = traffic.cars[0];
+  const signal = roads.signals[0];
+  const [avenue, cross] = roads.roads;
+  // green for the avenue from here on: driving east at it from 120 m out, planning to turn right (south, across the
+  // oncoming lanes: the inside lane) at the crossing
+  let t = 0;
+  while (signalPhase(signal, 0, t) !== 'green' || signalPhase(signal, 0, t + 12) !== 'green') t += 0.1;
+  Object.assign(c, { road: avenue, dir: 1, s: 380, lane: 1, off: roads.laneOffset(avenue, 1), v: 14, desire: 1, plan: null, curve: null });
+  const J = avenue.junctions[0];
+  const south = J.exits.find((e) => e.road === cross && e.dir === 1);
+  assert.ok(south, 'the crossing leads south');
+  c.plan = { road: avenue, dir: 1, at: J.s, exit: south, side: 1 };
+  c.blink = 1;
+  let prev = null, maxStep = 0, minSpeedInTurn = Infinity, blinked = false;
+  for (let i = 0; i < 30 * 14; i++, t += 1 / 30) {
+    traffic.update(1 / 30, cam, null, 'helicopter', t);
+    if (prev) maxStep = Math.max(maxStep, Math.hypot(c.x - prev[0], c.z - prev[1]));
+    prev = [c.x, c.z];
+    if (c.curve) minSpeedInTurn = Math.min(minSpeedInTurn, c.v);
+    blinked ||= c.blink === 1;
+  }
+  assert.equal(c.road, cross);
+  assert.equal(c.dir, 1);
+  assert.ok(blinked, 'indicating right');
+  assert.ok(c.blink === 0 && !c.curve, 'the turn done');
+  assert.ok(minSpeedInTurn <= 7, `slowed for the corner (${minSpeedInTurn.toFixed(1)} m/s)`);
+  assert.ok(maxStep < 0.75, `no jumps (${maxStep.toFixed(2)} m in a frame)`);
+  // heading south keeping left: east of the centre line (x > 1500), in the inside lane (next to the line)
+  assert.ok(c.x > 1500 && c.x < 1500 + 3.3, `in the inside lane (${(c.x - 1500).toFixed(2)} m from the line)`);
+  assert.ok(Math.abs(c.dx) < 0.02 && c.dz > 0.99, 'facing south');
+});
+
+// js/island-signals.js with three.js stubbed: the lights and their red light camera
+const geo = class { translate() { return this; } scale() { return this; } };
+const SIGNAL_THREE = {
+  ...THREE,
+  InstancedMesh: class { constructor(g, m, n) { this.count = n; this.instanceMatrix = { array: new Float32Array(n * 16) }; } setMatrixAt() {} setColorAt() {} },
+  CylinderGeometry: geo, BoxGeometry: geo, SphereGeometry: geo,
+  MeshStandardNodeMaterial: class {}, MeshBasicNodeMaterial: class {},
+  Color: class { constructor() {} }
+};
+const { createIslandSignals } = loadModule(fs.readFileSync(new URL('../js/island-signals.js', import.meta.url), 'utf8'), {
+  imports: { 'three/webgpu': SIGNAL_THREE }, globals: { Math, Float32Array, Map, Infinity }
+});
+
+test('the island\'s red light cameras: crossing a stop line on red is fined, on green or across it not', () => {
+  const roads = crossroads();
+  const lights = createIslandSignals({ add() {} }, { keepLeft: true });
+  lights.setRoads(roads);
+  const cam = camera(1480, 0);
+  lights.update(cam, 0);
+  const signal = roads.signals[0];
+  let red = 0, green = 0;
+  while (signalPhase(signal, 0, red) !== 'red') red += 0.25;
+  while (signalPhase(signal, 0, green) !== 'green') green += 0.25;
+  // driving east on the avenue's left carriageway (north of its line, -z), through the stop line 11 m before the crossing
+  const drive = (time, z = -3, heading = Math.PI / 2, speed = 12) => {
+    const player = { type: 'car', position: { x: 1480, z }, heading, speed };
+    let fined = false;
+    for (let x = 1480; x <= 1495; x += 0.5) { player.position.x = x; fined ||= lights.ranRed(player, time); }
+    return fined;
+  };
+  assert.equal(drive(green), false, 'on green');
+  assert.equal(drive(red), true, 'on red');
+  assert.equal(drive(red + 1), false, 'once per light for a while');
+  assert.equal(drive(red + 60 * 3, -3, Math.PI / 2, 1), false, 'not crawling over it at walking pace');
+  assert.equal(drive(red + 60 * 4, 3), false, 'not on the other carriageway (going the other way)');
+  assert.equal(drive(red + 60 * 5, -3, -Math.PI / 2), false, 'not reversing over it');
+  assert.equal(drive(red + 60 * 6), true, 'again later');
+  assert.equal(lights.ranRed({ type: 'cyclist', position: { x: 1490, z: -3 }, heading: Math.PI / 2, speed: 8 }, red), false);
+});
+
+test('island cars are heard: the nearest active ones become engine voices, the far and parked-away ones not', () => {
+  const { CityAudioSources } = loadModule(fs.readFileSync(new URL('../js/audio-sources.js', import.meta.url), 'utf8'), {
+    imports: { './city-config.js': { signalPhase: () => 'green', walkSignal: () => false } },
+    globals: { Math, Number, Float64Array, Array }
+  });
+  const heli = { type: 'helicopter', position: { x: 0, y: 300, z: 0 }, mesh: { visible: true }, speed: 0, heading: 0, verticalSpeed: 0 };
+  const car = (x, z, v, active = true, extra = {}) => ({ active, x, z, dx: 1, dz: 0, v, acc: 0, kind: 'sedan', ...extra });
+  const islandCars = [car(2010, 0, 12), car(2050, 0, 0, true, { light: 'red' }), car(2100, 0, 0), car(2600, 0, 14), car(2005, 0, 9, false)];
+  const sources = new CityAudioSources({
+    controllerManager: { entities: { helicopter: heli }, getActiveEntity: () => heli, keys: {}, getGroundHeight: () => 0 },
+    trafficSystem: { cars: [], buses: [], peds: [] }, highwayTraffic: { cars: [] }, streetDetails: { audioSignals: [] },
+    islandTraffic: { cars: islandCars }
+  });
+  const snap = sources.collect({ x: 2000, y: 1.5, z: 0 }, 0);
+  const heard = [...snap.motors].filter((m) => islandCars.includes(m.id));
+  assert.deepEqual(heard.map((m) => islandCars.indexOf(m.id)), [0, 1, 2], 'the three nearby active cars, nearest first');
+  assert.equal(heard[0].kind, 'sedan');
+  assert.ok(Math.abs(heard[0].heading - Math.PI / 2) < 1e-9, 'facing its way (east)');
+  assert.deepEqual(heard.map((m) => m.blocked), [false, false, true], 'waiting at a red light is not stuck; standing for nothing is');
+  assert.ok(snap.traffic > 0, 'counted in the traffic rumble');
+});
+
+test('where a road ends at a junction, cars go straight on mostly and turn now and then, rounding the corner', () => {
+  // three roads meeting end to end at (2000, 0): one in from the west, one on east, one off south
+  const data = encode([
+    { cls: 'secondary', name: 'In', pts: [[1600, 0], [2000, 0]], oneway: 1, lanes: 2 },
+    { cls: 'secondary', name: 'On', pts: [[2000, 0], [2400, 0]], oneway: 1, lanes: 2 },
+    { cls: 'secondary', name: 'Off', pts: [[2000, 0], [2000, 400]], oneway: 1, lanes: 2 }
+  ]);
+  const roads = createIslandRoads(data, { coreRing: CORE });
+  const [inRoad, on, off] = roads.roads;
+  const went = { On: 0, Off: 0 };
+  let maxStep = 0, blinkedOff = 0;
+  const traffic = createIslandTraffic({ add() {} }, { keepLeft: true, count: 1 });
+  traffic.setRoads(roads);
+  const cam = camera(2000, 0);
+  traffic.update(1 / 30, cam, null, 'helicopter', 0);
+  const c = traffic.cars[0];
+  for (let k = 0; k < 60; k++) {
+    Object.assign(c, { road: inRoad, dir: 1, s: 300, lane: 1, off: roads.laneOffset(inRoad, 1), v: 12, desire: 1, plan: null, curve: null, blink: 0, active: true });
+    traffic.update(1 / 30, cam, null, 'helicopter', 0);
+    let prev = [c.x, c.z], blinked = 0;
+    for (let i = 0; i < 30 * 30 && (c.road === inRoad || c.curve); i++) {
+      traffic.update(1 / 30, cam, null, 'helicopter', 0);
+      maxStep = Math.max(maxStep, Math.hypot(c.x - prev[0], c.z - prev[1]));
+      prev = [c.x, c.z];
+      if (c.blink) blinked = c.blink;
+    }
+    if (c.road === on) went.On++;
+    if (c.road === off) { went.Off++; if (blinked === 1) blinkedOff++; }
+  }
+  assert.equal(went.On + went.Off, 60);
+  assert.ok(went.On > went.Off && went.Off > 0, `straight on mostly, some turning (${JSON.stringify(went)})`);
+  assert.equal(blinkedOff, went.Off, 'indicating right before turning off south');
+  assert.ok(maxStep < 0.75, `round the corner, no jumps (${maxStep.toFixed(2)} m in a frame)`);
+});
