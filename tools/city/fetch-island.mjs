@@ -27,6 +27,22 @@ export function islandQueries(city) {
   // signalised junctions & crossings (traffic lights)
   out.signals = `[out:json][timeout:300];node["highway"="traffic_signals"]${bb};out;`;
   out.water = `[out:json][timeout:300];(way["natural"="water"]${bb};relation["natural"="water"]${bb};way["landuse"="reservoir"]${bb};relation["landuse"="reservoir"]${bb};);out geom;`;
+  // what the ground is: parks, woods, grass, farms, industry (js/city-tiles.js shades the island's land by it), in
+  // cells twice the size (areas, fewer of them)
+  const lu = city.island.landuseCell || step * 2;
+  const tags = [
+    'landuse~"^(forest|grass|meadow|recreation_ground|cemetery|farmland|farmyard|orchard|plant_nursery|village_green|greenfield|allotments|industrial|commercial|retail|port|railway|construction|brownfield|military|depot|landfill|quarry)$"',
+    'leisure~"^(park|garden|golf_course|pitch|nature_reserve|common|playground|recreation_ground|stadium|track|dog_park)$"',
+    'natural~"^(wood|scrub|grassland|heath|wetland|beach|sand|bare_rock)$"',
+    'aeroway~"^(aerodrome|apron|runway|taxiway)$"',
+    'amenity~"^(parking|grave_yard)$"'
+  ];
+  for (let lat = S; lat < N - 1e-9; lat += lu) {
+    for (let lon = W; lon < E - 1e-9; lon += lu) {
+      const bb = `(${f(lat)},${f(lon)},${f(Math.min(N, lat + lu))},${f(Math.min(E, lon + lu))})`;
+      out[`landuse_${f(lat).toFixed(2)}_${f(lon).toFixed(2)}`] = `[out:json][timeout:600][maxsize:1073741824];(${tags.map((t) => `way[${t}]${bb};relation[${t}]${bb};`).join('')});out geom;`;
+    }
+  }
   return out;
 }
 

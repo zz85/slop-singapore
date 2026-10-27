@@ -23,6 +23,7 @@ const hash = (a, b) => {
 // sRGB hex -> linear rgb (what THREE.Color.setHex gives with colour management on)
 const toLinear = (c) => (c < 0.04045 ? c * 0.0773993808 : Math.pow(c * 0.9478672986 + 0.0521327014, 2.4));
 const rgb = (hex) => [toLinear(((hex >> 16) & 255) / 255), toLinear(((hex >> 8) & 255) / 255), toLinear((hex & 255) / 255)];
+const ROOF = rgb(0x9c988f);
 
 // Buildings [rings=1, top dm, bottom dm, type, n, dx dz (dm)...]: [{ top, bottom, type, pts: Float32Array x, z }]
 function decodeBuildings(B) {
@@ -234,15 +235,15 @@ function buildTileArrays(tile) {
         along = u1;
       }
     }
-    // roof, a little darker, facing up
-    const shade = 0.72 + r * 0.18;
+    // roof, facing up: weathered concrete and tar, as the city's (js/open-city-buildings.js), a little of the walls' tint
+    const shade = 0.82 + r * 0.26;
     const tris = triangulate(pts);
     for (let t = 0; t < tris.length; t += 3) {
       const p0 = [pts[tris[t] * 2], pts[tris[t] * 2 + 1]];
       const p1 = [pts[tris[t + 1] * 2], pts[tris[t + 1] * 2 + 1]];
       const p2 = [pts[tris[t + 2] * 2], pts[tris[t + 2] * 2 + 1]];
       upTri(roofs.pos, p0, p1, p2, b.top);
-      for (let v = 0; v < 3; v++) roofs.col.push(cr * shade, cg * shade, cb * shade);
+      for (let v = 0; v < 3; v++) roofs.col.push((ROOF[0] * 0.8 + cr * 0.2) * shade, (ROOF[1] * 0.8 + cg * 0.2) * shade, (ROOF[2] * 0.8 + cb * 0.2) * shade);
     }
   }
   // main roads: a ribbon per run, its segments overlapping at the joints

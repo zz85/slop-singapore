@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { Fn, uv, float, vec3, mix, step, fract, floor, sin, smoothstep, attribute, positionWorld, positionView } from 'three/tsl';
+import { Fn, uv, float, vec2, vec3, color, mix, step, fract, floor, sin, dot, smoothstep, attribute, texture, positionWorld, positionView, specularColor, specularColorBlended, specularF90 } from 'three/tsl';
 import { cityUniforms } from './tsl-materials.js';
 import { buildTileArrays, createLandMask } from './city-tiles-build.js';
 
@@ -40,13 +40,62 @@ function roofMaterial() {
 function roadMaterial() {
   return new THREE.MeshStandardNodeMaterial({ color: 0x3b3d41, roughness: 0.92, metalness: 0.02 });
 }
-// The island's ground: green with grey patches (estates, car parks, industry), mottled at a few hundred metres
-function landMaterial() {
+// Value noise in 0..1 over a unit lattice
+const hash2 = Fn(([p]) => fract(sin(dot(p, vec2(127.1, 311.7))).mul(43758.5453)));
+const vnoise = Fn(([p]) => {
+  const i = floor(p);
+  const f = fract(p);
+  const u = f.mul(f).mul(f.mul(-2.0).add(3.0));
+  const a = hash2(i), b = hash2(i.add(vec2(1, 0))), c = hash2(i.add(vec2(0, 1))), d = hash2(i.add(vec2(1, 1)));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+});
+
+// The island's ground, by what it is (tools/city/landuse.mjs's image `lu` over it: the share of each pixel under trees,
+// grass and paving): woods as dark mottled canopy, parks and playing fields as the city's lawns, industry and car parks
+// as concrete, and the rest (estates, verges, schools...) a mix of grass and paving in patches of a couple of hundred
+// metres. In the city's colours (its lawns, asphalt and pavements), so the island carries on from it. Without the image,
+// all of it the mix.
+function landMaterial(lu = null, tex = null) {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 1, metalness: 0 });
   const p = positionWorld.xz;
-  const n = sin(p.x.mul(0.0071).add(sin(p.y.mul(0.0053)).mul(2.1))).mul(sin(p.y.mul(0.0067).add(sin(p.x.mul(0.0047)).mul(1.7))));
-  m.colorNode = mix(vec3(0.33, 0.42, 0.26), vec3(0.5, 0.5, 0.47), smoothstep(-0.2, 0.5, n));
+  const big = vnoise(p.mul(1 / 190));
+  const mid = vnoise(p.mul(1 / 47).add(13.1));
+  const fine = vnoise(p.mul(1 / 11).add(71.7));
+  // (sampled a few metres off where it is, in noise, so the 20 m pixels' edges wander like a park's)
+  const share = lu && tex
+    ? texture(tex, vec2(
+      p.x.add(mid.sub(0.5).mul(18)).sub(lu.x0).div(lu.w * lu.res),
+      p.y.add(fine.sub(0.5).mul(18)).sub(lu.z0).div(lu.h * lu.res)
+    )).rgb
+    : vec3(0);
+  const urban = mix(mix(color(0x30422a), color(0x46583a), fine), mix(color(0x4c4d48), color(0x5e5d57), fine), smoothstep(0.52, 0.8, big.mul(0.7).add(mid.mul(0.3))).mul(0.85));
+  const grass = mix(color(0x2a5424), color(0x47772f), mid.mul(0.55).add(fine.mul(0.45)));
+  const wood = mix(color(0x142e15), color(0x2a4a1f), smoothstep(0.3, 0.8, fine.mul(0.65).add(mid.mul(0.35))));
+  const paved = mix(color(0x55554f), color(0x75736b), mid.mul(0.5).add(fine.mul(0.5)));
+  const rest = float(1).sub(share.r).sub(share.g).sub(share.b).max(0);
+  m.colorNode = urban.mul(rest).add(wood.mul(share.r)).add(grass.mul(share.g)).add(paved.mul(share.b));
+  m.roughnessNode = float(1).sub(share.b.mul(0.12));
+  // grass and leaves don't mirror the sky at a grazing angle (as the city's lawns, js/tsl-materials.js)
+  m.setupSpecular = function () {
+    specularColor.assign(vec3(0.025));
+    specularColorBlended.assign(vec3(0.025));
+    specularF90.assign(0.3);
+  };
   return m;
+}
+
+// tools/city/landuse.mjs's image as a texture of raw values (not colours): its rows from z0 down, filtered linearly so
+// the shares blend from pixel to pixel
+async function loadLanduse(url) {
+  const tex = await new THREE.TextureLoader().loadAsync(url);
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.flipY = false;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.anisotropy = 8;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 // A tile's collision boxes ([cx, cz, hx, hz, ux, uz, minY, maxY] relative to its corner at ox, oz) as the player's
@@ -160,7 +209,16 @@ class CityTiles {
       return false;
     }
     const seawall = new THREE.MeshStandardNodeMaterial({ color: 0x5c5a55, roughness: 0.82, metalness: 0.1 });
-    this.land = buildLand(this.index.land, landMaterial(), seawall);
+    let landuse = null;
+    if (this.index.landuse) {
+      try {
+        landuse = await loadLanduse(new URL(`${this.url}${this.index.landuse.file}`, location.href).href);
+      } catch (e) {
+        console.warn(`[tiles] no land use (${e.message || e}): the island's ground all one mix`);
+      }
+    }
+    this.landuse = landuse;
+    this.land = buildLand(this.index.land, landMaterial(landuse && this.index.landuse, landuse), seawall);
     this.group.add(this.land);
     this.byKey = new Map(this.index.tiles.map((t) => [`${t.i},${t.j}`, t]));
     this.landMask = createLandMask(this.index.land);
