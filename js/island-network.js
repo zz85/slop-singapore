@@ -1,4 +1,4 @@
-import { makeCurve, curvePoint } from './road-network.js';
+import { makeCurve, curvePoint } from './lane-curves.js';
 
 // js/island-network.js
 // The island's main roads (js/island-roads.js) as a road graph shaped like the detailed city's (js/road-network.js), so
@@ -139,7 +139,10 @@ function createIslandNetwork(roads, { keepLeft = true, city = null, coreRing = n
           costFactor: Math.sqrt(25 / Math.max(5, road.speed)),
           from: prev ? prev.to : { signal: false }, to: { signal: Boolean(stop) }
         };
-        if (stop) e.phaseAt = (time) => roads.phase(stop.signal, stop.group, time);
+        if (stop) {
+          e.stop = stop;
+          e.phaseAt = (time) => roads.phase(stop.signal, stop.group, time);
+        }
         if (b.join && k + 1 < keep.length - 1) b.join.in.push(e);
         if (a.join && k > 0) a.join.out.push(e);
         edges.push(e);
@@ -253,13 +256,19 @@ function createIslandNetwork(roads, { keepLeft = true, city = null, coreRing = n
     e.len = e.raw - a - b;
   }
 
-  // Lane-to-lane curves, built on first use
+  return assemble(edges, extraMoves, roads, city, keepLeft);
+}
+
+// The network around its island edges and the city's moves onto them: the lane-to-lane curves (built on first use),
+// the room on the roads, and the city's graph joined in when there is one
+function assemble(edges, extraMoves, roads, city, keepLeft) {
   const curves = new Map();
   const cityIds = new WeakMap(); // (the city's edges have their own ids; these keep clear of the island's)
+  let next = 0;
   const idOf = (e) => {
     if (e.island) return e.uid;
     let id = cityIds.get(e);
-    if (id === undefined) cityIds.set(e, (id = `c${uid++}`));
+    if (id === undefined) cityIds.set(e, (id = `c${next++}`));
     return id;
   };
   function connector(e, i, f, j) {
@@ -298,6 +307,283 @@ function createIslandNetwork(roads, { keepLeft = true, city = null, coreRing = n
     walkable: city.walkable,
     city
   };
+}
+
+// -------------------------------------------------------------------------------------------------------------------
+// Building in a worker (js/island-network-worker.js): the city's graph goes in as its topology, the island's edges and
+// the moves between the two come back as flat typed arrays (transferred, not copied), and are put back together into
+// objects on the main thread around the island roads it already has (js/island-roads.js, built from the same data, so
+// its roads and traffic lights line up index for index)
+// -------------------------------------------------------------------------------------------------------------------
+
+const TURN_CODE = { S: 0, L: 1, R: 2 };
+const TURN_OF = ['S', 'L', 'R'];
+
+/** The city graph's shape for a worker: { n, geo (Float64Array sx sz dx dz len per edge), laneStart, lanes, moveStart, moveTo } */
+function cityTopology(city) {
+  const n = city.edges.length;
+  const index = new Map(city.edges.map((e, i) => [e, i]));
+  const geo = new Float64Array(n * 5);
+  const laneStart = new Int32Array(n + 1);
+  const moveStart = new Int32Array(n + 1);
+  let nl = 0, nm = 0;
+  city.edges.forEach((e, i) => {
+    geo.set([e.sx, e.sz, e.dx, e.dz, e.len], i * 5);
+    laneStart[i] = nl;
+    nl += e.lanes.length;
+    moveStart[i] = nm;
+    nm += e.moves.length;
+  });
+  laneStart[n] = nl;
+  moveStart[n] = nm;
+  const lanes = new Float32Array(nl);
+  const moveTo = new Int32Array(nm);
+  city.edges.forEach((e, i) => {
+    lanes.set(e.lanes, laneStart[i]);
+    e.moves.forEach((m, k) => (moveTo[moveStart[i] + k] = index.get(m.to) ?? -1));
+  });
+  return { n, geo, laneStart, lanes, moveStart, moveTo };
+}
+
+/** Stand-ins for the city's edges from their topology (enough to join the island's to them and find what is cut off) */
+function cityFromTopology(t) {
+  const edges = [];
+  for (let i = 0; i < t.n; i++) {
+    const [sx, sz, dx, dz, len] = t.geo.subarray(i * 5, i * 5 + 5);
+    edges.push({ sx, sz, dx, dz, rx: -dz, rz: dx, len, lanes: Array.from(t.lanes.subarray(t.laneStart[i], t.laneStart[i + 1])), moves: [], cityIndex: i });
+  }
+  for (let i = 0; i < t.n; i++) {
+    for (let k = t.moveStart[i]; k < t.moveStart[i + 1]; k++) if (t.moveTo[k] >= 0) edges[i].moves.push({ to: edges[t.moveTo[k]] });
+  }
+  return { edges };
+}
+
+/**
+ * A built network (createIslandNetwork, its city stand-ins carrying cityIndex) as transferable arrays: per island edge
+ * its road (index in roads.roads) and way, geometry, flags and stop line, lanes, and moves (to an island edge i as i, to
+ * a city edge c as -1 - c, with turn, flags, cross and the lane each lane goes on to); and the city's moves onto it
+ */
+function packIslandNetwork(net, roads) {
+  const edges = net.islandEdges || net.edges;
+  const index = new Map(edges.map((e, i) => [e, i]));
+  const roadIndex = new Map(roads.roads.map((r, i) => [r, i]));
+  const signalIndex = new Map(roads.signals.map((g, i) => [g, i]));
+  const target = (e) => (e.island ? index.get(e) : -1 - e.cityIndex);
+  const n = edges.length;
+  const geo = new Float64Array(n * 12);
+  const meta = new Int32Array(n * 5); // road, dir, stranded, stop signal (-1 none), stop group
+  const laneStart = new Int32Array(n + 1);
+  const moveStart = new Int32Array(n + 1);
+  let nl = 0, nm = 0, no = 0;
+  for (let i = 0; i < n; i++) {
+    const e = edges[i];
+    laneStart[i] = nl;
+    nl += e.lanes.length;
+    moveStart[i] = nm;
+    nm += e.moves.length;
+    for (const m of e.moves) no += m.out.length;
+  }
+  laneStart[n] = nl;
+  moveStart[n] = nm;
+  const extra = [...net.extraMoves].flatMap(([c, list]) => list.map((m) => [c, m]));
+  for (const [, m] of extra) no += m.out.length;
+  const lanes = new Float32Array(nl);
+  const mTo = new Int32Array(nm + extra.length);
+  const mFlags = new Int32Array(nm + extra.length); // turn code | uturn << 2 | handover << 3 | bridge << 4
+  const mCross = new Float32Array(nm + extra.length);
+  const mOut = new Int32Array(no);
+  const extraFrom = new Int32Array(extra.length);
+  let o = 0;
+  const putMove = (k, m) => {
+    mTo[k] = target(m.to);
+    mFlags[k] = TURN_CODE[m.turn] | (m.uturn ? 4 : 0) | (m.handover ? 8 : 0) | (m.bridge ? 16 : 0);
+    mCross[k] = m.cross;
+    mOut.set(m.out, o);
+    o += m.out.length;
+  };
+  for (let i = 0; i < n; i++) {
+    const e = edges[i];
+    geo.set([e.x0, e.z0, e.x1, e.z1, e.raw, e.dx, e.dz, e.sx, e.sz, e.len, e.trimStart, e.trimEnd], i * 12);
+    meta.set([roadIndex.get(e.road), e.dir, e.stranded ? 1 : 0, e.stop ? signalIndex.get(e.stop.signal) : -1, e.stop ? e.stop.group : 0], i * 5);
+    lanes.set(e.lanes, laneStart[i]);
+    e.moves.forEach((m, k) => putMove(moveStart[i] + k, m));
+  }
+  extra.forEach(([c, m], k) => {
+    extraFrom[k] = c.cityIndex;
+    putMove(nm + k, m);
+  });
+  return { n, geo, meta, laneStart, lanes, moveStart, mTo, mFlags, mCross, mOut, extraFrom };
+}
+
+/** The arrays of a packed network as a transfer list */
+const packedTransferables = (p) => [p.geo, p.meta, p.laneStart, p.lanes, p.moveStart, p.mTo, p.mFlags, p.mCross, p.mOut, p.extraFrom].map((a) => a.buffer);
+
+/** A packed network back as objects, joined to `city` (its edges in the order its topology was taken) */
+function unpackIslandNetwork(p, roads, options = {}) {
+  const steps = unpackSteps(p, roads, options);
+  let r = steps.next();
+  while (!r.done) r = steps.next();
+  return r.value;
+}
+
+/**
+ * The same, a slice at a time (~100 ms of work in all for the whole island): resolves once done, running `budget` ms
+ * per slice (more on a slow page) and yielding to the page between slices
+ */
+function unpackIslandNetworkInSlices(p, roads, options = {}, { budget = 6, yieldTo = null, sliceEvery = 512 } = {}) {
+  const steps = unpackSteps(p, roads, { ...options, sliceEvery });
+  // (a task between frames: requestIdleCallback was starved for over a minute on a page busy every frame)
+  const pause = yieldTo || ((fn) => setTimeout(fn, 0));
+  const stats = { slices: 0, first: 0, started: performance.now() };
+  unpackIslandNetworkInSlices.last = stats;
+  return new Promise((resolve, reject) => {
+    let last = performance.now();
+    const run = () => {
+      try {
+        // (more per slice the longer the page took to come back: on a page managing a frame a second, a few ms a frame
+        // would take minutes; 8% of the wait adds little to frames that slow)
+        const now = performance.now();
+        const wait = now - last;
+        const until = now + (wait > 100 ? Math.max(budget, Math.min(200, wait * 0.08)) : budget);
+        stats.slices++;
+        if (!stats.first) stats.first = now;
+        let r;
+        do r = steps.next(); while (!r.done && performance.now() < until);
+        last = performance.now();
+        if (r.done) resolve(r.value);
+        else pause(run);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    pause(run);
+  });
+}
+
+// unpackIslandNetwork's work, pausing (yield) every `sliceEvery` edges
+function* unpackSteps(p, roads, { keepLeft = true, city = null, sliceEvery = Infinity } = {}) {
+  const edges = new Array(p.n);
+  for (let i = 0; i < p.n; i++) {
+    if (i % sliceEvery === sliceEvery - 1) yield;
+    const g = p.geo.subarray(i * 12, i * 12 + 12);
+    const road = roads.roads[p.meta[i * 5]];
+    const sig = p.meta[i * 5 + 3];
+    const e = {
+      uid: i, island: true, road, dir: p.meta[i * 5 + 1], x0: g[0], z0: g[1], x1: g[2], z1: g[3], raw: g[4],
+      dx: g[5], dz: g[6], rx: -g[6], rz: g[5], sx: g[7], sz: g[8], len: g[9], trimStart: g[10], trimEnd: g[11],
+      lanes: Array.from(p.lanes.subarray(p.laneStart[i], p.laneStart[i + 1])), moves: [], axisIndex: 0,
+      speedLimit: road.speed, navName: road.name || '', costFactor: Math.sqrt(25 / Math.max(5, road.speed)),
+      to: { signal: sig >= 0 }, stranded: p.meta[i * 5 + 2] === 1
+    };
+    if (sig >= 0) {
+      const stop = { signal: roads.signals[sig], group: p.meta[i * 5 + 4] };
+      e.stop = stop;
+      e.phaseAt = (time) => roads.phase(stop.signal, stop.group, time);
+    }
+    edges[i] = e;
+  }
+  const cityEdges = city ? city.edges : [];
+  const to = (t) => (t >= 0 ? edges[t] : cityEdges[-1 - t]);
+  let o = 0;
+  const move = (k, fromLanes) => {
+    const f = p.mFlags[k];
+    const m = { to: to(p.mTo[k]), turn: TURN_OF[f & 3], cross: p.mCross[k], uturn: Boolean(f & 4), out: Array.from(p.mOut.subarray(o, o + fromLanes)) };
+    if (f & 8) m.handover = true;
+    if (f & 16) m.bridge = true;
+    o += fromLanes;
+    return m;
+  };
+  for (let i = 0; i < p.n; i++) {
+    if (i % sliceEvery === sliceEvery - 1) yield;
+    const e = edges[i];
+    for (let k = p.moveStart[i]; k < p.moveStart[i + 1]; k++) e.moves.push(move(k, e.lanes.length));
+  }
+  const extraMoves = new Map();
+  const nm = p.moveStart[p.n];
+  for (let k = 0; k < p.extraFrom.length; k++) {
+    const c = cityEdges[p.extraFrom[k]];
+    if (!c) continue;
+    if (!extraMoves.has(c)) extraMoves.set(c, []);
+    extraMoves.get(c).push(move(nm + k, c.lanes.length));
+  }
+  return assemble(edges, extraMoves, roads, city, keepLeft);
+}
+
+/** The worker's whole job: roads.json's data and the city's topology in, the packed network out */
+function buildPackedIslandNetwork(data, topology, { keepLeft = true, coreRing = null, createRoads }) {
+  const roads = createRoads(data, { coreRing });
+  const city = topology ? cityFromTopology(topology) : null;
+  const net = createIslandNetwork(roads, { keepLeft, city, coreRing });
+  return packIslandNetwork(net, roads);
+}
+
+/**
+ * The joined graph for the app: start(roads, url) builds it in a worker (makeWorker()) and puts it together here between
+ * frames; resolve(a, b) gives a trip from a to b the graph to plan on: the city's while both ends are in town, the joined
+ * one once it is ready. A trip out of town before then plans on the city's graph (to its edge) and gets the joined one
+ * through onReady(net) the moment it is ready. Without a worker (or if it fails) the graph is built here the first time a
+ * trip needs it. state: 'waiting' (for the roads), 'building', 'ready' or 'main' (to build here when needed).
+ */
+function createIslandGraph({ city, keepLeft = true, coreRing = null, makeWorker = null, onReady = () => {}, log = console }) {
+  let roads = null;
+  let net = null;
+  let waiting = false; // a trip out of town is on the city's graph for now
+  const g = { state: 'waiting', started: 0, ms: 0 };
+  const buildHere = () => (net = createIslandNetwork(roads, { keepLeft, city, coreRing }));
+  const ready = (n) => {
+    net = n;
+    g.state = 'ready';
+    if (waiting) {
+      waiting = false;
+      onReady(n);
+    }
+  };
+  const fallBack = (why) => {
+    if (g.state === 'ready') return;
+    log.warn?.(`[island] road graph worker: ${why}; building it on the main thread when needed`);
+    g.state = 'main';
+    if (waiting) ready(buildHere());
+  };
+  g.start = (r, url) => {
+    roads = r;
+    let worker;
+    try {
+      worker = makeWorker ? makeWorker() : null;
+    } catch (e) {
+      worker = null;
+      fallBack(e.message || 'unavailable');
+      return;
+    }
+    if (!worker) return fallBack('none');
+    g.state = 'building';
+    g.started = performance.now();
+    worker.onerror = (e) => {
+      worker.terminate?.();
+      fallBack(e.message || 'failed');
+    };
+    worker.onmessage = ({ data }) => {
+      worker.terminate?.();
+      if (data.error) return fallBack(data.error);
+      g.workerMs = performance.now() - g.started;
+      unpackIslandNetworkInSlices(data.packed, roads, { keepLeft, city }).then((n) => {
+        g.ms = performance.now() - g.started;
+        log.info?.(`[island] road graph: ${n.islandEdges ? n.islandEdges.length : n.edges.length} edges, ready in ${Math.round(g.ms)} ms (built off the main thread in ${Math.round(g.workerMs)} ms; put together in ${unpackIslandNetworkInSlices.last.slices} slices, the first ${Math.round(unpackIslandNetworkInSlices.last.first - unpackIslandNetworkInSlices.last.started)} ms after it arrived)`);
+        ready(n);
+      }, (e) => fallBack(e.message || String(e)));
+    };
+    worker.postMessage({ id: 1, url, topology: city ? cityTopology(city) : null, keepLeft, coreRing });
+  };
+  g.resolve = (a, b) => {
+    if (net) return net;
+    if (!roads || (roads.inCore(a.x, a.z) && roads.inCore(b.x, b.z))) return city;
+    if (g.state === 'main') {
+      g.state = 'ready';
+      return buildHere();
+    }
+    waiting = true;
+    return city;
+  };
+  return g;
 }
 
 // Joins dead ends (edges with no moves) to the edges starting nearest their ends, and edges nothing leads into from the
@@ -412,4 +698,4 @@ function ringDistance(ring, x, z) {
   return best;
 }
 
-export { createIslandNetwork, ringDistance };
+export { createIslandNetwork, createIslandGraph, ringDistance, cityTopology, cityFromTopology, packIslandNetwork, unpackIslandNetwork, unpackIslandNetworkInSlices, packedTransferables, buildPackedIslandNetwork };

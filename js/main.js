@@ -31,7 +31,7 @@ import { Weather } from './weather.js';
 import { Navigator } from './navigation.js';
 import { setupNavigationUI } from './navigation-ui.js';
 import { PerceptionOverlay } from './perception-overlay.js';
-import { createIslandNetwork } from './island-network.js';
+import { createIslandGraph } from './island-network.js';
 
 // js/main.js
 // Main entry point for the city simulation (Singapore by default, ?city=nyc for New York) in Three.js WebGPURenderer &
@@ -641,15 +641,15 @@ async function initApp() {
 
   // Drive to a destination (js/navigation.js): turn-by-turn for you, or the self-driving or Crazy Taxi autopilot driving
   // the car over the traffic's own road graph
-  // (beyond the detailed city, over the island's main roads: their graph joined to the city's the first time a trip
-  // starts or ends out there, ~0.5 s, and kept)
-  let joinedNetwork = null;
-  const resolveNetwork = (a, b) => {
-    if (joinedNetwork) return joinedNetwork;
-    if (!islandRoads || (islandRoads.inCore(a.x, a.z) && islandRoads.inCore(b.x, b.z))) return trafficSystem.network;
-    joinedNetwork = createIslandNetwork(islandRoads, { keepLeft: CITY.driveSide === 'left', city: trafficSystem.network, coreRing: cityTiles.index.coreRing });
-    return joinedNetwork;
-  };
+  // Beyond the detailed city, over the island's main roads: their graph joined to the city's, built in a worker once the
+  // roads have loaded and put together here between frames (js/island-network.js createIslandGraph)
+  const islandGraph = createIslandGraph({
+    city: trafficSystem.network, keepLeft: CITY.driveSide === 'left', coreRing: cityTiles?.index?.coreRing || null,
+    makeWorker: () => new Worker(new URL('./island-network-worker.js', import.meta.url), { type: 'module' }),
+    onReady: (net) => routeNavigator.setNetwork(net)
+  });
+  islandRoadsLoading.then((roads) => roads && islandGraph.start(roads, new URL(`${cityTiles.url}roads.json`, location.href).href));
+  const resolveNetwork = (a, b) => islandGraph.resolve(a, b);
   const routeNavigator = new Navigator({ network: trafficSystem.network, trafficSystem, islandTraffic, controllerManager, audioSystem, resolveNetwork });
   const navigationUI = setupNavigationUI({ navigator: routeNavigator, mapSystem, controllerManager, selectMode, closePopovers, teleport: teleportTo });
   // What the autopilot sees, over the view (js/perception-overlay.js): the Navigate menu's switch & [O], remembered
