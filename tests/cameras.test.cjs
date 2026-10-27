@@ -57,13 +57,13 @@ function cameraHarness(entity = {
   };
   window.innerWidth = 1600;
   window.innerHeight = 900;
-  const { CameraSystem } = loadModule(source, {
+  const { CameraSystem, headTarget, HEAD } = loadModule(source, {
     globals: { window, document },
     imports: { 'three/webgpu': { Vector3, PerspectiveCamera }, './landmarks.js': {} }
   });
   const camera = new CameraSystem(canvas, { getActiveEntity: () => entity });
   return {
-    camera, canvas, controls, window, document, captured, entity,
+    camera, canvas, controls, window, document, captured, entity, headTarget, HEAD,
     pointer(target, type, id, x, y = 0, pointerType = 'touch', button = 0) {
       const event = {
         pointerId: id, clientX: x, clientY: y, pointerType, button,
@@ -278,4 +278,39 @@ test('the Crazy Taxi cockpit sits on the driver\'s side, widens with speed, lean
   // the other presets get their own field of view back
   sys.setCameraPreset('chase', true);
   assert.equal(sys.camera.fov, 56);
+});
+
+test('in the cockpit the mouse aims the pilot\'s head without a click: eyes front in the middle, round at the edges', () => {
+  const h = cameraHarness();
+  const { headTarget, HEAD } = h;
+  const t = headTarget(0, 0);
+  close(t.yaw, 0); close(t.pitch, 0);
+  // a quiet zone round the middle
+  close(headTarget(0.1, -0.1).yaw, 0);
+  // left of the screen: the head turns left (+), right: right; to 130° at the edges
+  assert.ok(headTarget(-0.5, 0).yaw > 0.3 && headTarget(0.5, 0).yaw < -0.3);
+  close(headTarget(-1, 0).yaw, HEAD.yaw);
+  assert.ok(headTarget(-0.5, 0).yaw < HEAD.yaw * 0.5, 'further out, further round (an easing curve)');
+  // up the screen: up, to 60°; down: down, less far (the glareshield)
+  close(headTarget(0, -1).pitch, HEAD.up);
+  close(headTarget(0, 1).pitch, -HEAD.down);
+
+  // hovering only works while looking from the cockpit, and a mouse drag there aims rather than orbits
+  h.pointer(h.canvas, 'pointermove', 1, 0, 450, 'mouse');
+  close(h.camera.head.target.yaw, 0);
+  h.camera.head.active = true;
+  h.pointer(h.canvas, 'pointermove', 1, 0, 450, 'mouse');
+  close(h.camera.head.target.yaw, HEAD.yaw);
+  h.pointer(h.canvas, 'pointerdown', 1, 0, 450, 'mouse');
+  h.pointer(h.canvas, 'pointermove', 1, 1600, 450, 'mouse');
+  close(h.camera.head.target.yaw, -HEAD.yaw);
+  close(h.camera.orbitYawOffset, 0);
+  h.pointer(h.canvas, 'pointerup', 1, 1600, 450, 'mouse');
+  // a touch still drags the view round
+  h.pointer(h.canvas, 'pointerdown', 2, 100);
+  h.pointer(h.canvas, 'pointermove', 2, 110);
+  close(h.camera.orbitYawOffset, -0.065);
+  // the mouse off the page: eyes front
+  h.document.dispatch('mouseout', { relatedTarget: null });
+  close(h.camera.head.target.yaw, 0);
 });

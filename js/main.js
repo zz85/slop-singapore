@@ -406,6 +406,8 @@ async function initApp() {
   const elControlsHint = document.getElementById('hud-controls-hint');
   // The jet's head-up display (js/jet-hud.js): in the cockpit the full HUD, behind the jet its numbers
   const jetHud = new JetHUD(document.body, { bearingDeg: GEO.frame?.bearingDeg || 0 });
+  const hudForward = new THREE.Vector3(), hudView = new THREE.Vector3(), hudPoint = new THREE.Vector3();
+  const hudQuat = new THREE.Quaternion();
   const gamepadControls = new GamepadControls(controllerManager, cameraSystem, {
     onCycleMode: (step) => {
       const modes = ['person', 'car', 'cyclist', 'helicopter', 'jet'];
@@ -422,7 +424,7 @@ async function initApp() {
     car: [[['W', 'S'], 'Drive / Reverse'], [['A', 'D'], 'Steer'], [['B'], 'Horn'], [['[', ']'], 'How to go'], [['G'], 'Where to'], [['Drag'], 'Orbit']],
     cyclist: [[['W', 'S'], 'Pedal / Brake'], [['A', 'D'], 'Lean & Turn'], [['Drag'], 'Orbit']],
     helicopter: [[['W', 'S'], 'Pitch'], [['A', 'D'], 'Yaw'], [['Space', 'E'], 'Ascend'], [['Q', 'C'], 'Descend']],
-    jet: [[['W', 'S'], 'Nose down / up'], [['A', 'D'], 'Roll'], [['Space', 'E'], 'Throttle'], [['Q', 'C'], 'Idle / Brake'], [['T'], 'Cockpit']]
+    jet: [[['W', 'S'], 'Nose down / up'], [['A', 'D'], 'Roll'], [['Space', 'E'], 'Throttle'], [['Q', 'C'], 'Idle / Brake'], [['T'], 'Cockpit · mouse looks']]
   };
   // Top speeds in mph (controllers.js caps them at 8.2, 36, 19 & 52 m/s; the jet Mach 1.1, jet-flight.js): full scale
   // of the speed meter
@@ -997,7 +999,23 @@ async function initApp() {
       const cockpit = controllerManager.activeMode === 'jet' && (preset === 'pov' || preset === 'taxi');
       // from the front seat: the cockpit around you, out through the canopy (drawn opaque from outside)
       jet.model.setCockpitView(cockpit);
-      if (controllerManager.activeMode === 'jet') jetHud.update(dt, jet, cameraSystem.camera, cockpit);
+      if (controllerManager.activeMode === 'jet') {
+        // the HUD stays on the jet's boresight as the pilot's head turns, seen through its combiner within ~12°
+        let bore = null;
+        if (cockpit) {
+          const cam = cameraSystem.camera;
+          const q = jet.flight.q;
+          const fwd = hudForward.set(0, 0, 1).applyQuaternion(hudQuat.set(q[0], q[1], q[2], q[3]));
+          const off = fwd.angleTo(cam.getWorldDirection(hudView));
+          cam.updateMatrixWorld();
+          const ndc = hudPoint.copy(cam.position).addScaledVector(fwd, 5000).project(cam);
+          bore = {
+            x: (ndc.x * 0.5 + 0.5) * window.innerWidth, y: (0.5 - ndc.y * 0.5) * window.innerHeight,
+            alpha: ndc.z < 1 ? 1 - THREE.MathUtils.smoothstep(off, 0.12, 0.3) : 0
+          };
+        }
+        jetHud.update(dt, jet, cameraSystem.camera, cockpit, bore);
+      }
     }
     if (airForce) {
       updateAirForceMenu();

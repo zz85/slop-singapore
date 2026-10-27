@@ -35,7 +35,9 @@ class JetHUD {
     return ((deg % 360) + 360) % 360;
   }
 
-  update(dt, jet, camera, cockpit) {
+  // `bore`, from the cockpit: where the jet's boresight is on screen ({ x, y } CSS pixels) and how much of the HUD the
+  // pilot's head still sees through the combiner (0..1): the symbology is fixed to the jet, not the head
+  update(dt, jet, camera, cockpit, bore = null) {
     if (!this.visible || !jet || !this.ctx) return;
     this.time += dt;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -50,7 +52,9 @@ class JetHUD {
     g.scale(dpr, dpr);
     const w = W / dpr, h = H / dpr;
     const s = jet.flight;
-    const cx = w / 2, cy = h / 2;
+    const cx = cockpit && bore ? bore.x : w / 2, cy = cockpit && bore ? bore.y : h / 2;
+    if (cockpit && bore && bore.alpha < 0.02) return;
+    g.globalAlpha = cockpit && bore ? bore.alpha : 1;
     const unit = Math.max(0.75, Math.min(1.25, Math.min(w, h) / 760));
     g.lineWidth = 1.5 * unit;
     g.strokeStyle = GREEN;
