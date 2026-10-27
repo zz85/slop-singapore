@@ -623,6 +623,8 @@ body.hud-minimized .icon-show {
   color: #121314;
 }
 
+.pop-item.active .pop-sub { color: rgba(0, 0, 0, 0.55); }
+
 .pop-item.active kbd {
   color: rgba(0, 0, 0, 0.55);
   background: rgba(0, 0, 0, 0.08);
@@ -1521,6 +1523,7 @@ body[data-mode='jet'] .nav-ways { display: none; }
 }
 .nav-toggle { position: relative; padding-right: 44px; }
 .nav-toggle[aria-checked='true']::after { content: 'On'; color: var(--ok); }
+#graphics-popover .pop-item { flex-direction: column; align-items: flex-start; gap: 1px; }
 #navigate-popover .pop-item:has(.pop-sub) { flex-direction: column; align-items: flex-start; gap: 1px; }
 #nav-places { max-height: 40vh; overflow-y: auto; }
 

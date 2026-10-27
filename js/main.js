@@ -28,6 +28,7 @@ import { NYCMapSystem } from './nyc-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { CityAudioSystem } from './audio-system.js';
 import { Weather } from './weather.js';
+import { initialTreeDetail, bindTreeDetail } from './graphics-settings.js';
 import { Navigator } from './navigation.js';
 import { setupNavigationUI } from './navigation-ui.js';
 import { PerceptionOverlay } from './perception-overlay.js';
@@ -500,6 +501,22 @@ async function initApp() {
     timeButtons.forEach((btn) => {
       btn.classList.toggle('active', btn.getAttribute('data-time') === timeId);
     });
+  }
+
+  // Graphics: the island's tree detail (js/graphics-settings.js), saved; the menu hidden where there are no island tiles
+  const graphicsButton = document.getElementById('btn-graphics');
+  if (cityTiles?.index) {
+    let storage = null;
+    try { storage = localStorage; } catch { /* storage unavailable */ }
+    bindTreeDetail({
+      buttons: [...document.querySelectorAll('#tree-detail [data-trees]')],
+      apply: (level) => cityTiles.setTreeDetail(level),
+      storage,
+      level: initialTreeDetail({ search: location.search, storage })
+    });
+  } else {
+    graphicsButton?.remove();
+    document.getElementById('graphics-popover')?.remove();
   }
 
   // Popovers (native [popover]: light dismiss & Esc for free) open against the control that toggles them: data-anchor
