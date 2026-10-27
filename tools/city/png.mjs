@@ -1,5 +1,5 @@
-// tools/city/png.mjs — a minimal PNG encoder (8-bit RGB or greyscale, no colour profile): enough for the data images the
-// city tools write (tools/city/landuse.mjs), read back as raw values by the browser
+// tools/city/png.mjs — a minimal PNG encoder (8-bit greyscale, RGB or RGBA, no colour profile): enough for the data
+// images the city tools write (tools/city/landuse.mjs), read back as raw values by the browser (js/png-decode.js)
 import zlib from 'node:zlib';
 
 const CRC = new Uint32Array(256);
@@ -22,7 +22,7 @@ function chunk(type, data) {
   return out;
 }
 
-/** PNG bytes of a w × h image, `channels` (1 or 3) bytes a pixel, rows top first */
+/** PNG bytes of a w × h image, `channels` (1, 3 or 4) bytes a pixel, rows top first */
 export function encodePNG(pixels, w, h, channels = 3) {
   const stride = w * channels;
   // each row filtered by the one above (filter 2, "Up"): the large even areas of a data image compress to almost nothing
@@ -39,7 +39,7 @@ export function encodePNG(pixels, w, h, channels = 3) {
   ihdr.writeUInt32BE(w, 0);
   ihdr.writeUInt32BE(h, 4);
   ihdr[8] = 8;
-  ihdr[9] = channels === 3 ? 2 : 0;
+  ihdr[9] = { 1: 0, 3: 2, 4: 6 }[channels];
   return Buffer.concat([
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     chunk('IHDR', ihdr),
@@ -51,7 +51,7 @@ export function encodePNG(pixels, w, h, channels = 3) {
 /** The pixels of a PNG written by encodePNG (for tests): { w, h, channels, pixels } */
 export function decodePNG(buf) {
   const w = buf.readUInt32BE(16), h = buf.readUInt32BE(20);
-  const channels = buf[25] === 2 ? 3 : 1;
+  const channels = { 0: 1, 2: 3, 6: 4 }[buf[25]];
   const idat = [];
   for (let o = 8; o < buf.length;) {
     const len = buf.readUInt32BE(o);

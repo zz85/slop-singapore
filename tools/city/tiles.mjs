@@ -108,7 +108,7 @@ export async function buildTiles(cityOrId, { data, out, geo } = {}) {
     }, [Infinity, Infinity, -Infinity, -Infinity]);
     const elements = luFiles.flatMap((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')).elements);
     const img = landuseImage(elements, toWorld, lb, { res: city.island.landuseRes || 20 });
-    const png = encodePNG(img.rgb, img.w, img.h, 3);
+    const png = encodePNG(img.rgba, img.w, img.h, 4);
     landuse = { png, file: 'landuse.png', x0: img.x0, z0: img.z0, res: img.res, w: img.w, h: img.h, channels: LANDUSE };
     log(`land use: ${img.counts.map((n, c) => `${n} ${LANDUSE[c]}`).join(', ')} areas, as a ${img.w} × ${img.h} image of ${img.res} m (${(png.length / 1024).toFixed(0)} KB)`);
   }

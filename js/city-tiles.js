@@ -1,7 +1,8 @@
 import * as THREE from 'three/webgpu';
-import { Fn, uv, float, vec2, vec3, color, mix, step, fract, floor, sin, dot, smoothstep, attribute, texture, positionWorld, positionView, specularColor, specularColorBlended, specularF90 } from 'three/tsl';
+import { Fn, uv, float, vec2, vec3, vec4, color, mix, step, fract, floor, sin, dot, smoothstep, attribute, texture, instanceIndex, positionGeometry, positionWorld, positionView, specularColor, specularColorBlended, specularF90 } from 'three/tsl';
 import { cityUniforms } from './tsl-materials.js';
-import { buildTileArrays, createLandMask } from './city-tiles-build.js';
+import { buildTileArrays, createLandMask, islandGround } from './city-tiles-build.js';
+import { decodePNG } from './png-decode.js';
 
 // js/city-tiles.js
 // The rest of the island beyond the detailed city: its land, and its buildings and main roads streamed in tiles around
@@ -51,10 +52,10 @@ const vnoise = Fn(([p]) => {
 });
 
 // The island's ground, by what it is (tools/city/landuse.mjs's image `lu` over it: the share of each pixel under trees,
-// grass and paving): woods as dark mottled canopy, parks and playing fields as the city's lawns, industry and car parks
-// as concrete, and the rest (estates, verges, schools...) a mix of grass and paving in patches of a couple of hundred
-// metres. In the city's colours (its lawns, asphalt and pavements), so the island carries on from it. Without the image,
-// all of it the mix.
+// grass, paving and sand): woods as dark mottled canopy, parks and playing fields as the city's lawns, industry and car
+// parks as concrete, beaches as sand, and the rest (estates, verges, schools...) a mix of grass and paving in patches of
+// a couple of hundred metres. In the city's colours (its lawns, asphalt and pavements), so the island carries on from
+// it. Without the image, all of it the mix.
 function landMaterial(lu = null, tex = null) {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 1, metalness: 0 });
   const p = positionWorld.xz;
@@ -66,15 +67,16 @@ function landMaterial(lu = null, tex = null) {
     ? texture(tex, vec2(
       p.x.add(mid.sub(0.5).mul(18)).sub(lu.x0).div(lu.w * lu.res),
       p.y.add(fine.sub(0.5).mul(18)).sub(lu.z0).div(lu.h * lu.res)
-    )).rgb
-    : vec3(0);
+    ))
+    : vec4(0);
   const urban = mix(mix(color(0x30422a), color(0x46583a), fine), mix(color(0x4c4d48), color(0x5e5d57), fine), smoothstep(0.52, 0.8, big.mul(0.7).add(mid.mul(0.3))).mul(0.85));
   const grass = mix(color(0x2a5424), color(0x47772f), mid.mul(0.55).add(fine.mul(0.45)));
   const wood = mix(color(0x142e15), color(0x2a4a1f), smoothstep(0.3, 0.8, fine.mul(0.65).add(mid.mul(0.35))));
   const paved = mix(color(0x55554f), color(0x75736b), mid.mul(0.5).add(fine.mul(0.5)));
-  const rest = float(1).sub(share.r).sub(share.g).sub(share.b).max(0);
-  m.colorNode = urban.mul(rest).add(wood.mul(share.r)).add(grass.mul(share.g)).add(paved.mul(share.b));
-  m.roughnessNode = float(1).sub(share.b.mul(0.12));
+  const sand = mix(color(0xcdbb92), color(0xe2d4b0), mid.mul(0.6).add(fine.mul(0.4)));
+  const rest = float(1).sub(share.r).sub(share.g).sub(share.b).sub(share.a).max(0);
+  m.colorNode = urban.mul(rest).add(wood.mul(share.r)).add(grass.mul(share.g)).add(paved.mul(share.b)).add(sand.mul(share.a));
+  m.roughnessNode = float(1).sub(share.b.mul(0.12)).sub(share.a.mul(0.05));
   // grass and leaves don't mirror the sky at a grazing angle (as the city's lawns, js/tsl-materials.js)
   m.setupSpecular = function () {
     specularColor.assign(vec3(0.025));
@@ -85,17 +87,88 @@ function landMaterial(lu = null, tex = null) {
 }
 
 // tools/city/landuse.mjs's image as a texture of raw values (not colours): its rows from z0 down, filtered linearly so
-// the shares blend from pixel to pixel
-async function loadLanduse(url) {
-  const tex = await new THREE.TextureLoader().loadAsync(url);
+// the shares blend from pixel to pixel. Empty (all the land's own mix) until its pixels arrive (setLanduse).
+function landuseTexture(lu) {
+  const tex = new THREE.DataTexture(new Uint8Array(lu.w * lu.h * 4), lu.w, lu.h, THREE.RGBAFormat, THREE.UnsignedByteType);
   tex.colorSpace = THREE.NoColorSpace;
   tex.flipY = false;
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
   tex.anisotropy = 8;
   tex.needsUpdate = true;
   return tex;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The island's trees (js/city-tiles-build.js scatterTrees: one instance matrix each, a unit tree scaled to its height
+// and crown): a rounded crown on a trunk, ~60 triangles, one instanced mesh per tile, drawn only within TREE_RANGE of
+// the camera (beyond, the ground's canopy shading carries the woods), in two levels of detail: ~90 triangles a tree in
+// the tiles nearest the camera, ~30 in the rest
+// ---------------------------------------------------------------------------------------------------------------------
+const TREE_RANGE = 2300; // m
+const TREE_NEAR = 500; // m (from the camera to a tile's nearest point)
+
+// A unit tree 1 m tall and 1 m across: its crown (an icosphere, its normals pointing out from the crown's centre for soft
+// light) from 0.38 to 1, on a trunk up to 0.5; `crown` 1 on the crown's vertices, 0 on the trunk's
+function treeGeometry(detail = 1) {
+  const crown = new THREE.IcosahedronGeometry(0.5, detail); // (not indexed)
+  const cp = crown.attributes.position;
+  const pos = [], nrm = [], isCrown = [];
+  for (let k = 0; k < cp.count; k++) {
+    const x = cp.getX(k), y = cp.getY(k), z = cp.getZ(k);
+    // a little flattened underneath, lumpy round the edge (by direction, so the faces stay joined)
+    const lump = 1 + 0.12 * Math.sin(x * 23.1 + z * 17.3) * Math.cos(y * 19.7 - x * 7.1);
+    const yy = y < 0 ? y * 0.55 : y * 0.75;
+    pos.push(x * lump, 0.69 + yy * lump * 1.24, z * lump);
+    const l = Math.hypot(x, y, z) || 1;
+    nrm.push(x / l, y / l, z / l);
+    isCrown.push(1);
+  }
+  const trunk = new THREE.CylinderGeometry(0.022, 0.035, 0.52, detail ? 5 : 3, 1, true).translate(0, 0.26, 0).toNonIndexed();
+  const tp = trunk.attributes.position, tn = trunk.attributes.normal;
+  for (let k = 0; k < tp.count; k++) {
+    pos.push(tp.getX(k), tp.getY(k), tp.getZ(k));
+    nrm.push(tn.getX(k), tn.getY(k), tn.getZ(k));
+    isCrown.push(0);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute('crown', new THREE.Float32BufferAttribute(isCrown, 1));
+  crown.dispose();
+  trunk.dispose();
+  return g;
+}
+
+// Tropical greens, a different one per tree, darker inside and underneath the crown, clumped by a noise in the world
+function treeMaterial() {
+  const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0 });
+  const isCrown = attribute('crown', 'float');
+  const tone = hash1(float(instanceIndex).mul(0.6180339));
+  const tone2 = hash1(float(instanceIndex).mul(1.3247).add(7.0));
+  const leaf = mix(mix(color(0x1d3f19), color(0x335f22), tone), color(0x4a6e26), tone2.mul(tone2).mul(0.5));
+  const clump = vnoise(positionWorld.xz.mul(0.45).add(positionWorld.y.mul(0.6)));
+  const under = smoothstep(0.35, 0.95, positionGeometry.y); // the crown's underside in its own shade
+  const crownColour = leaf.mul(clump.mul(0.45).add(0.7)).mul(under.mul(0.55).add(0.45));
+  m.colorNode = mix(color(0x4a3c2c), crownColour, isCrown);
+  m.setupSpecular = function () {
+    specularColor.assign(vec3(0.02));
+    specularColorBlended.assign(vec3(0.02));
+    specularF90.assign(0.25);
+  };
+  return m;
+}
+
+function treeMesh(trees, geometry, material) {
+  const mesh = new THREE.InstancedMesh(geometry, material, trees.count);
+  mesh.instanceMatrix = new THREE.InstancedBufferAttribute(trees.matrices, 16);
+  const [x, y, z, r] = trees.sphere;
+  mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(x, y, z), r);
+  mesh.receiveShadow = true;
+  mesh.name = 'IslandTrees';
+  return mesh;
 }
 
 // A tile's collision boxes ([cx, cz, hx, hz, ux, uz, minY, maxY] relative to its corner at ox, oz) as the player's
@@ -163,7 +236,11 @@ class CityTiles {
     this.group = new THREE.Group();
     this.group.name = 'CityTiles';
     scene.add(this.group);
-    this.materials = { walls: wallMaterial(), roofs: roofMaterial(), roads: roadMaterial() };
+    this.materials = { walls: wallMaterial(), roofs: roofMaterial(), roads: roadMaterial(), trees: treeMaterial() };
+    this.treeGeometry = treeGeometry(1);
+    this.treeGeometryFar = treeGeometry(0);
+    this.treeRange = TREE_RANGE; // m (0: no trees)
+    this.groundAt = null; // (i, j) => buildTileArrays's ground, for the main thread's builds
     this.loaded = new Map(); // key -> { group } | { pending: true }
     this.queue = []; // built tiles waiting to be added, one a frame
     this.inflight = 0;
@@ -176,6 +253,7 @@ class CityTiles {
       this.worker.onerror = (e) => {
         console.warn(`[tiles] worker failed (${e.message || 'error'}): building tiles on the main thread`);
         this.worker = null;
+        this.readGroundHere();
         for (const { key } of this.requests.values()) this.loaded.delete(key);
         this.requests.clear();
         this.inflight = 0;
@@ -184,7 +262,7 @@ class CityTiles {
       this.worker = null;
     }
     this.index = null;
-    this.stats = { tiles: 0, walls: 0 };
+    this.stats = { tiles: 0, walls: 0, trees: 0, treesShown: 0 };
     // called with (key, tile corner x, z, outlines) as each tile is added (the maps draw its buildings), with (key,
     // colliders) as it's added and (key, null) as it's dropped (the player bumps into its buildings)
     this.onTileOutlines = null;
@@ -196,7 +274,10 @@ class CityTiles {
     stand.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
     stand.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
     stand.setAttribute('color', new THREE.Float32BufferAttribute([1, 1, 1, 1, 1, 1, 1, 1, 1], 3));
-    for (const mat of Object.values(this.materials)) this.group.add(new THREE.Mesh(stand, mat));
+    for (const [k, mat] of Object.entries(this.materials)) if (k !== 'trees') this.group.add(new THREE.Mesh(stand, mat));
+    const standTree = new THREE.InstancedMesh(this.treeGeometryFar, this.materials.trees, 1);
+    standTree.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, -60, 0));
+    this.group.add(standTree);
   }
 
   async init() {
@@ -209,16 +290,16 @@ class CityTiles {
       return false;
     }
     const seawall = new THREE.MeshStandardNodeMaterial({ color: 0x5c5a55, roughness: 0.82, metalness: 0.1 });
-    let landuse = null;
-    if (this.index.landuse) {
-      try {
-        landuse = await loadLanduse(new URL(`${this.url}${this.index.landuse.file}`, location.href).href);
-      } catch (e) {
-        console.warn(`[tiles] no land use (${e.message || e}): the island's ground all one mix`);
-      }
+    // the ground's land use: read by the worker (which plants the tiles' trees by it) and handed back for the texture
+    const lu = this.index.landuse;
+    this.landuse = lu ? landuseTexture(lu) : null;
+    this.land = buildLand(this.index.land, landMaterial(lu || null, this.landuse), seawall);
+    if (lu) {
+      const ground = { type: 'ground', url: new URL(`${this.url}${lu.file}`, location.href).href, landuse: { x0: lu.x0, z0: lu.z0, res: lu.res, w: lu.w, h: lu.h }, land: this.index.land, coreRing: this.index.coreRing, tile: this.index.tile };
+      this.groundMessage = ground;
+      if (this.worker) this.worker.postMessage(ground);
+      else this.readGroundHere();
     }
-    this.landuse = landuse;
-    this.land = buildLand(this.index.land, landMaterial(landuse && this.index.landuse, landuse), seawall);
     this.group.add(this.land);
     this.byKey = new Map(this.index.tiles.map((t) => [`${t.i},${t.j}`, t]));
     this.landMask = createLandMask(this.index.land);
@@ -245,8 +326,37 @@ class CityTiles {
     return { R, tiles: out.map(([, t]) => t) };
   }
 
+  // The land-use image's pixels: into the ground's texture
+  setLanduse(pixels) {
+    if (!this.landuse || !pixels || pixels.length !== this.landuse.image.data.length) return;
+    this.landuse.image.data = pixels;
+    this.landuse.needsUpdate = true;
+    console.info(`[tiles] land use: ${this.landuse.image.width} × ${this.landuse.image.height} at ${this.index.landuse.res} m`);
+  }
+
+  // Without the worker: read the land use here (for the texture, and the trees of the tiles built here from then on)
+  async readGroundHere() {
+    const g = this.groundMessage;
+    if (!g || this.groundAt) return;
+    try {
+      const r = await fetch(g.url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const png = await decodePNG(new Uint8Array(await r.arrayBuffer()));
+      this.groundAt = islandGround({ landuse: { ...g.landuse, pixels: png.pixels }, land: g.land, coreRing: g.coreRing, tile: g.tile });
+      this.setLanduse(png.pixels.slice());
+    } catch (e) {
+      console.warn(`[tiles] no land use (${e.message || e}): the island's ground all one mix, and no trees`);
+    }
+  }
+
   // A tile back from the worker (or the main-thread fallback)
-  received({ id, key, t, built, error }) {
+  received(data) {
+    if (data.type === 'ground') {
+      if (data.error) console.warn(`[tiles] no land use (${data.error}): the island's ground all one mix, and no trees`);
+      else this.setLanduse(data.pixels);
+      return;
+    }
+    let { id, key, t, built, error } = data;
     if (id !== undefined) {
       const request = this.requests.get(id);
       if (!request) return; // (the worker was replaced)
@@ -285,9 +395,9 @@ class CityTiles {
       if (this.worker) {
         const id = this.nextId++;
         this.requests.set(id, { key, t });
-        this.worker.postMessage({ id, url });
+        this.worker.postMessage({ id, url, i: t.i, j: t.j });
       } else {
-        fetch(url).then((r) => r.json()).then((data) => this.received({ key, t, built: buildTileArrays(data) }))
+        fetch(url).then((r) => r.json()).then((data) => this.received({ key, t, built: buildTileArrays(data, this.groundAt ? this.groundAt(t.i, t.j) : null) }))
           .catch((e) => this.received({ key, t, error: e.message }));
       }
     }
@@ -297,8 +407,15 @@ class CityTiles {
       const group = tileMeshes(job.built, this.materials);
       group.position.set(job.t.i * T, 0, job.t.j * T);
       group.name = `tile_${job.key}`;
+      let trees = null;
+      if (job.built.trees && job.built.trees.count) {
+        trees = treeMesh(job.built.trees, this.treeGeometry, this.materials.trees);
+        trees.visible = false; // (shown from the next frame, if near enough)
+        group.add(trees);
+        this.stats.trees += job.built.trees.count;
+      }
       this.group.add(group);
-      this.loaded.set(job.key, { group, walls: job.built.counts.walls });
+      this.loaded.set(job.key, { group, trees, walls: job.built.counts.walls });
       this.stats.tiles++;
       this.stats.walls += job.built.counts.walls;
       if (this.onTileOutlines && job.built.outlines) this.onTileOutlines(job.key, job.t.i * T, job.t.j * T, job.built.outlines);
@@ -309,10 +426,24 @@ class CityTiles {
       if (!entry.group) continue;
       const t = this.byKey.get(key);
       const d = Math.hypot(clamp(x, t.i * T, (t.i + 1) * T) - x, clamp(z, t.j * T, (t.j + 1) * T) - z);
+      // its trees only near enough to make out
+      if (entry.trees) {
+        const far = Math.hypot(d, y);
+        const show = far < this.treeRange;
+        if (show !== entry.trees.visible) this.stats.treesShown += show ? entry.trees.count : -entry.trees.count;
+        entry.trees.visible = show;
+        const geometry = far < TREE_NEAR ? this.treeGeometry : this.treeGeometryFar;
+        if (entry.trees.geometry !== geometry) entry.trees.geometry = geometry;
+      }
       if (d > R + T) {
         this.group.remove(entry.group);
+        if (entry.trees) {
+          this.stats.trees -= entry.trees.count;
+          if (entry.trees.visible) this.stats.treesShown -= entry.trees.count;
+          entry.trees.dispose();
+        }
         if (this.onTileColliders) this.onTileColliders(key, null);
-        for (const mesh of entry.group.children) mesh.geometry.dispose();
+        for (const mesh of entry.group.children) if (mesh !== entry.trees) mesh.geometry.dispose();
         this.loaded.delete(key);
         this.stats.tiles--;
         this.stats.walls -= entry.walls;

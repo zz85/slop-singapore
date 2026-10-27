@@ -6,7 +6,7 @@ import test from 'node:test';
 import { buildTiles } from '../tools/city/tiles.mjs';
 import { islandQueries } from '../tools/city/fetch-island.mjs';
 import { decodePNG } from '../tools/city/png.mjs';
-import { decodeBuildings, buildTileArrays, triangulate } from '../js/city-tiles-build.js';
+import { decodeBuildings, buildTileArrays, triangulate, transferables, islandGround, TREE_SPACING } from '../js/city-tiles-build.js';
 
 const LAT0 = 1.3, LON0 = 103.8;
 const way = (id, coords, tags) => ({ type: 'way', id, nodes: coords.map((_, i) => (i === coords.length - 1 ? id * 100 : id * 100 + i)), geometry: coords.map(([lon, lat]) => ({ lon, lat })), tags });
@@ -172,19 +172,129 @@ test('island tiles: the land use, as an image over the land', async () => {
     const lu = index.landuse;
     assert.ok(lu, 'in the index');
     assert.equal(lu.file, 'landuse.png');
-    assert.deepEqual(lu.channels, ['wood', 'grass', 'paved']);
+    assert.deepEqual(lu.channels, ['wood', 'grass', 'paved', 'sand']);
     assert.ok(lu.x0 <= -3900 && lu.x0 + lu.w * lu.res >= 3900, 'over the land');
     const img = decodePNG(fs.readFileSync(path.join(out, 'landuse.png')));
     assert.equal(img.w, lu.w);
     assert.equal(img.h, lu.h);
     const at = (x, z) => {
       const i = Math.floor((x - lu.x0) / lu.res), j = Math.floor((z - lu.z0) / lu.res);
-      return Array.from(img.pixels.subarray((j * img.w + i) * 3, (j * img.w + i) * 3 + 3));
+      return Array.from(img.pixels.subarray((j * img.w + i) * 4, (j * img.w + i) * 4 + 4));
     };
-    assert.deepEqual(at(2000, 1000), [0, 255, 0], 'the park');
-    assert.deepEqual(at(-2000, -1000), [255, 0, 0], 'the woods');
-    assert.deepEqual(at(0, 2500), [0, 0, 0], 'the rest');
+    assert.equal(img.channels, 4);
+    assert.deepEqual(at(2000, 1000), [0, 255, 0, 0], 'the park');
+    assert.deepEqual(at(-2000, -1000), [255, 0, 0, 0], 'the woods');
+    assert.deepEqual(at(0, 2500), [0, 0, 0, 0], 'the rest');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The island's trees, planted by its land use
+// ---------------------------------------------------------------------------------------------------------------------
+// A 600 m tile at (1200, 0): woods in its west third, grass in the middle, paving in the east, its top 100 m the land's
+// own mix; a 60 m building in the woods and a road (14 m) across the tile at z = 450
+function treeTile() {
+  const ox = 1200, oz = 0, size = 600;
+  const res = 20, w = 30, h = 30;
+  const pixels = new Uint8Array(w * h * 4);
+  for (let j = 5; j < h; j++) for (let i = 0; i < w; i++) pixels[(j * w + i) * 4 + (i < 10 ? 0 : i < 20 ? 1 : 2)] = 255;
+  const landuse = { x0: ox, z0: oz, res, w, h, pixels };
+  const enc = (pts) => { const d = [1, 200, 0, 0, pts.length]; let px = 0, pz = 0; for (const [x, z] of pts) { d.push(x * 10 - px, z * 10 - pz); px = x * 10; pz = z * 10; } return d; };
+  const tile = {
+    buildings: { types: ['apartments'], data: enc([[70, 270], [70, 330], [130, 330], [130, 270]]) },
+    roads: [[1, 140, 0, 2, 0, 4500, 6000, 0]]
+  };
+  return { ox, oz, size, landuse, tile };
+}
+const treesOf = (m) => Array.from({ length: m.count }, (_, k) => ({ x: m.matrices[k * 16 + 12], z: m.matrices[k * 16 + 14], h: m.matrices[k * 16 + 5], w: Math.hypot(m.matrices[k * 16], m.matrices[k * 16 + 2]) }));
+
+test('island trees: dense in the woods, scattered in parks, a few elsewhere, none on paving', () => {
+  const { ox, oz, size, landuse, tile } = treeTile();
+  const built = buildTileArrays(tile, { ox, oz, size, landuse });
+  const trees = treesOf(built.trees);
+  assert.ok(built.trees.count > 500, `${built.trees.count} trees`);
+  const per = (x0, x1, z0, z1) => trees.filter((t) => t.x >= x0 && t.x < x1 && t.z >= z0 && t.z < z1).length / ((x1 - x0) * (z1 - z0));
+  const site = 1 / (TREE_SPACING * TREE_SPACING);
+  const woods = per(0, 190, 110, 260), park = per(210, 390, 110, 430), paved = per(410, 600, 110, 430), rest = per(0, 600, 0, 90);
+  assert.ok(Math.abs(woods / site - 0.85) < 0.1, `woods ${(woods / site).toFixed(2)} a site`);
+  assert.ok(Math.abs(park / site - 0.12) < 0.05, `parks ${(park / site).toFixed(2)} a site`);
+  assert.equal(paved, 0, 'none on paving');
+  assert.ok(rest > 0 && rest / site < 0.08, `the rest ${(rest / site).toFixed(3)} a site`);
+  // sizes: the woods' tall, a unit tree scaled up (column-major, translation in the last column, on the ground)
+  for (const t of trees.filter((q) => q.x < 190 && q.z > 110)) assert.ok(t.h >= 13 && t.h <= 24 && t.w >= 9 && t.w <= 13);
+  for (let k = 0; k < built.trees.count; k++) assert.equal(built.trees.matrices[k * 16 + 13], 0);
+  assert.ok(transferables(built).includes(built.trees.matrices.buffer), 'transferred');
+  // the same trees every time
+  assert.deepEqual(buildTileArrays(tile, { ox, oz, size, landuse }).trees.matrices, built.trees.matrices);
+  // and none without the land use
+  assert.equal(buildTileArrays(tile).trees, null);
+});
+
+test('island trees keep clear of buildings, roads, the sea and the detailed city', () => {
+  const { ox, oz, size, landuse, tile } = treeTile();
+  const onLand = (x, z) => z < 560;
+  const inCore = (x, z) => x < ox + 40;
+  const trees = treesOf(buildTileArrays(tile, { ox, oz, size, landuse, onLand, inCore }).trees);
+  assert.ok(trees.length > 300);
+  for (const t of trees) {
+    assert.ok(!(t.x > 70 - 2.5 && t.x < 130 + 2.5 && t.z > 270 - 2.5 && t.z < 330 + 2.5), `in the building at ${t.x}, ${t.z}`);
+    assert.ok(Math.abs(t.z - 450) > 7 + 2.5 - 0.01, `on the road at ${t.x}, ${t.z}`);
+    assert.ok(t.z + oz < 560, 'in the sea');
+    assert.ok(t.x + ox >= ox + 40, 'in the detailed city');
+  }
+  // (the woods do reach right up to them)
+  assert.ok(trees.some((t) => t.x > 50 && t.x < 150 && t.z > 255 && t.z < 268), 'up to the building');
+});
+
+test('islandGround: the tiles\' corners, the land and the detailed city from the index', () => {
+  const { landuse } = treeTile();
+  const at = islandGround({ landuse, land: [[[0, 0, 3000, 0, 3000, 560, 0, 560]]], coreRing: [0, 0, 1240, 0, 1240, 600, 0, 600], tile: 600 });
+  const g = at(2, 0);
+  assert.equal(g.ox, 1200);
+  assert.equal(g.oz, 0);
+  assert.equal(g.size, 600);
+  assert.equal(g.landuse, landuse);
+  assert.equal(g.inCore(1230, 100), true);
+  assert.equal(g.inCore(1250, 100), false);
+  assert.equal(g.onLand(1300, 100), true);
+  assert.equal(g.onLand(1300, 580), false);
+});
+
+test('the tile worker: reads the land use once, hands it back, and plants the tiles it builds', async () => {
+  const { landuse, tile } = treeTile();
+  const { encodePNG } = await import('../tools/city/png.mjs');
+  const png = encodePNG(landuse.pixels, landuse.w, landuse.h, 4);
+  const src = fs.readFileSync(new URL('../js/city-tiles-worker.js', import.meta.url), 'utf8');
+  const posted = [];
+  const self = { postMessage: (msg, transfer) => posted.push({ msg, transfer }) };
+  globalThis.self = self;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => (url === 'landuse.png' ? new Response(png) : url === 'tile.json' ? new Response(JSON.stringify(tile)) : new Response('', { status: 404 }));
+  try {
+    const dir = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'js');
+    const file = path.join(dir, `.city-tiles-worker.test.${process.pid}.mjs`);
+    fs.writeFileSync(file, src);
+    try {
+      await import(file);
+    } finally {
+      fs.rmSync(file, { force: true });
+    }
+    const meta = { x0: landuse.x0, z0: landuse.z0, res: landuse.res, w: landuse.w, h: landuse.h };
+    // a tile asked for while the ground is being read waits for it
+    const reading = self.onmessage({ data: { type: 'ground', url: 'landuse.png', landuse: meta, land: [[[0, 0, 3000, 0, 3000, 600, 0, 600]]], coreRing: [], tile: 600 } });
+    const building = self.onmessage({ data: { id: 5, url: 'tile.json', i: 2, j: 0 } });
+    await Promise.all([reading, building]);
+    const ground = posted.find((p) => p.msg.type === 'ground');
+    assert.deepEqual(ground.msg.pixels, landuse.pixels, 'the pixels, for the texture');
+    assert.deepEqual(ground.transfer, [ground.msg.pixels.buffer]);
+    const built = posted.find((p) => p.msg.id === 5).msg.built;
+    assert.ok(built.trees && built.trees.count > 300, 'planted');
+    await self.onmessage({ data: { id: 6, url: 'missing.json', i: 0, j: 0 } });
+    assert.equal(posted.find((p) => p.msg.id === 6).msg.error, 'HTTP 404');
+  } finally {
+    globalThis.fetch = realFetch;
+    delete globalThis.self;
   }
 });
