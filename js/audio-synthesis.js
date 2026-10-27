@@ -305,7 +305,7 @@ function smoothParameter(parameter, timeConstant = 0.07, epsilon = 0.0001, snapI
 }
 
 export function createMotorVoice(context, resources, kind, output) {
-  if (!['sedan', 'suv', 'bus', 'helicopter', 'cyclist', 'siren'].includes(kind)) {
+  if (!['sedan', 'suv', 'bus', 'helicopter', 'jet', 'cyclist', 'siren'].includes(kind)) {
     throw new RangeError(`Unknown motor voice: ${kind}`);
   }
   const nodes = [];
@@ -496,6 +496,47 @@ export function createMotorVoice(context, resources, kind, output) {
       turbineLevel(0.055 + load * 0.055, now);
       turbineRate((0.92 + load * 0.16) * doppler, now);
       noiseRate(doppler, now);
+    };
+  } else if (kind === 'jet') {
+    // Twin F110s: the exhaust's broadband roar opening up with the throttle, the compressors' whine rising with the
+    // spool, the afterburner's low rumble once it lights (load above 0.8 is its stage), and the rush of the air
+    const roar = loop();
+    const roarFilter = filter('lowpass', 400, 0.6);
+    const roarGain = gain();
+    roar.connect(roarFilter).connect(roarGain).connect(mix);
+    const rumble = loop();
+    const rumbleFilter = filter('lowpass', 150, 0.8);
+    const rumbleGain = gain();
+    rumble.connect(rumbleFilter).connect(rumbleGain).connect(mix);
+    const whine = loop(resources.turbine);
+    const whineFilter = filter('bandpass', 2800, 0.8);
+    const whineGain = gain();
+    whine.connect(whineFilter).connect(whineGain).connect(mix);
+    const air = loop();
+    const airFilter = filter('bandpass', 900, 0.5);
+    const airGain = gain();
+    air.connect(airFilter).connect(airGain).connect(mix);
+    const roarLevel = smoothParameter(roarGain.gain, 0.35);
+    const roarCutoff = smoothParameter(roarFilter.frequency, 0.35, 1);
+    const rumbleLevel = smoothParameter(rumbleGain.gain, 0.25);
+    const whineLevel = smoothParameter(whineGain.gain, 0.5);
+    const whineRate = smoothParameter(whine.playbackRate, 0.9, 0.0005, true);
+    const whineFrequency = smoothParameter(whineFilter.frequency, 0.9, 1);
+    const airLevel = smoothParameter(airGain.gain, 0.3);
+    const airFrequency = smoothParameter(airFilter.frequency, 0.3, 1);
+    const noiseRate = smoothParameter(roar.playbackRate, 0.15, 0.001);
+    render = (speed, load, doppler, now) => {
+      const spool = Math.min(1, load / 0.8);
+      const burner = clamp((load - 0.8) / 0.2, 0, 1);
+      roarLevel(0.07 + spool * 0.26 + burner * 0.14, now);
+      roarCutoff((350 + spool * 1300 + burner * 900) * doppler, now);
+      rumbleLevel(burner * 0.8, now);
+      whineLevel(0.05 + spool * 0.05, now);
+      whineRate((0.55 + spool * 0.55 + variation * 0.04) * doppler, now);
+      whineFrequency((2200 + spool * 1600) * doppler, now);
+      airLevel(Math.min(0.22, speed / 1400), now);
+      airFrequency(600 + Math.min(2400, speed * 6), now);
+      noiseRate(doppler * (0.9 + variation * 0.1), now);
     };
   } else if (kind === 'cyclist') {
     const road = loop();

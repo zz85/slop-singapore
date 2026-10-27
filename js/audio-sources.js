@@ -118,7 +118,7 @@ class CityAudioSources {
       const siren = this.sirens.take(d2);
       if (siren) writeMotor(siren, id, 'siren', x, y, z, speed, load, heading, true, player, seed, blocked, 1, 200);
     }
-    const reach = kind === 'helicopter' ? range : MOTOR_RANGE;
+    const reach = kind === 'helicopter' || kind === 'jet' ? range : MOTOR_RANGE;
     if (d2 > reach * reach) return;
     const item = this.motors.take(player ? -1 : d2);
     if (!item) return null;
@@ -129,7 +129,7 @@ class CityAudioSources {
   // Is the player standing in the road for nothing? Stopped, with no vehicle or person just ahead of it (a car it is
   // queueing behind, someone crossing): then a car stopped behind it, on green, is being held up by it
   playerHoldingUp(active) {
-    if (!active || active.type === 'helicopter' || this.snapshot.motion > 0.5) return false;
+    if (!active || active.type === 'helicopter' || active.type === 'jet' || this.snapshot.motion > 0.5) return false;
     const px = active.position.x, pz = active.position.z;
     const fx = Math.sin(active.heading || 0), fz = Math.cos(active.heading || 0);
     const inFront = (x, z, reach) => {
@@ -204,13 +204,15 @@ class CityAudioSources {
         this.person(entity, x, y, z, entity.rig.speed, grounded, entity.rig, true, player);
       } else {
         // Inactive bicycles stop updating and are silent, even if their stored speed is left over from riding.
-        if (!player && entity.type === 'cyclist') continue;
+        if (!player && (entity.type === 'cyclist' || entity.type === 'jet')) continue;
         const kind = entity.type === 'car' ? 'sedan' : entity.type;
         const helicopter = kind === 'helicopter';
         const verticalSpeed = player && helicopter ? helicopterVerticalSpeed(entity) : 0;
-        const load = player ? helicopter ? helicopterLoad(entity, keys, verticalSpeed) : driveLoad(keys, entity.speed, kind === 'cyclist') : 0;
+        const jet = kind === 'jet';
+        // (the jet's load is its throttle: above 0.8 the afterburner's stage)
+        const load = player ? jet ? entity.flight.throttle : helicopter ? helicopterLoad(entity, keys, verticalSpeed) : driveLoad(keys, entity.speed, kind === 'cyclist') : 0;
         const gain = player ? 1 : helicopter ? 0.22 : 0.5;
-        const range = helicopter ? (player ? 500 : 200) : 160;
+        const range = jet ? 1500 : helicopter ? (player ? 500 : 200) : 160;
         this.motor(entity, kind, x, y + (helicopter ? 2.66 : 0.7), z, player ? entity.speed : 0, load, entity.heading,
           false, player, seedAt(i), false, gain, range, verticalSpeed);
       }

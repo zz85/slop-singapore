@@ -23,6 +23,9 @@ import {
 import { PersonCrowd, PersonRig } from './pedestrians.js';
 import { HEADLIGHTS, createVehicleHeadlight, placeVehicleHeadlight } from './vehicle-lights.js';
 import { bryantParkLawn } from './landmarks.js';
+import { createJetModel } from './jet-model.js';
+import { JET, createJetState, stepJet, attitude as jetAttitude, axes as jetAxes } from './jet-flight.js';
+import { WingtipTrails, Explosion } from './jet-effects.js';
 
 // js/controllers.js
 // Sculpted, non-blocky GTA 6-style 3D models, animations, and physics controllers
@@ -31,6 +34,7 @@ import { bryantParkLawn } from './landmarks.js';
 // 2. Car (Aerodynamic Sculpted NYC Medallion Yellow Taxi with Sloped Windshield & Clearcoat)
 // 3. Cyclist (Sculpted Road Cyclist with Drop-Bar Frame & Aero Helmet)
 // 4. Helicopter (Manhattan Sightseeing Twin-Turbine Chopper)
+// 5. Jet (the RSAF's F-15SG Strike Eagle: js/jet-model.js, flown by js/jet-flight.js)
 
 // Spawn on 5th Ave at 37th St, facing south down the avenue toward the Empire State Building (34th St)
 const SPAWN_Z = streetZ(37);
@@ -73,6 +77,9 @@ const HELI_RANGE = CITY?.open ? 30000 : 6000;
 // Walking surface for the player's pedestrian (its rig samples it around its feet)
 const personGround = (controllers, x, z) => controllers.getGroundHeight(x, z, 'person');
 
+// The modes that fly, free of the streets and the shore
+const flies = (mode) => mode === 'helicopter' || mode === 'jet';
+
 function collisionBody(mode, radius, heading, margin = 0) {
   const car = mode === 'car';
   const sin = Math.sin(heading), cos = Math.cos(heading);
@@ -81,8 +88,8 @@ function collisionBody(mode, radius, heading, margin = 0) {
     car, sin, cos, hx, hz, radius: radius + margin,
     extX: car ? Math.abs(cos) * hx + Math.abs(sin) * hz : radius + margin,
     extZ: car ? Math.abs(sin) * hx + Math.abs(cos) * hz : radius + margin,
-    bottom: mode === 'helicopter' ? -0.25 : 0,
-    top: mode === 'helicopter' ? 3.2 : car ? 1.8 : 1.9
+    bottom: mode === 'helicopter' ? -0.25 : mode === 'jet' ? -1.4 : 0,
+    top: mode === 'helicopter' ? 3.2 : mode === 'jet' ? 1.9 : car ? 1.8 : 1.9
   };
 }
 
@@ -206,7 +213,7 @@ class ThirdPersonControllerManager {
     this.scene = scene;
     this.colliders = colliders;
     this._colliderCells = null; // built on first use, see nearColliders()
-    this.activeMode = 'car'; // 'person' | 'car' | 'cyclist' | 'helicopter'
+    this.activeMode = 'car'; // 'person' | 'car' | 'cyclist' | 'helicopter' | 'jet'
 
     this.keys = {
       forward: false,
@@ -221,7 +228,8 @@ class ThirdPersonControllerManager {
       person: this.createPersonEntity(),
       car: this.createCarEntity(),
       cyclist: this.createCyclistEntity(),
-      helicopter: this.createHelicopterEntity()
+      helicopter: this.createHelicopterEntity(),
+      jet: this.createJetEntity()
     };
 
     Object.values(this.entities).forEach((ent) => {
@@ -374,15 +382,23 @@ class ThirdPersonControllerManager {
     this.resetInput();
     if (!Number.isFinite(heading)) heading = ent.heading;
     const heli = this.activeMode === 'helicopter';
-    const altitude = heli ? Math.max(0.25, Math.min(380, savedAltitude ?? Math.max(92, ent.position.y))) : 0;
+    const jet = this.activeMode === 'jet';
+    // the jet: back on its runway if it was parked (or never flown), otherwise arriving in flight
+    if (jet && savedAltitude !== null && savedAltitude < 20 && this.jetHome) return this.parkJet();
+    const altitude = heli ? Math.max(0.25, Math.min(380, savedAltitude ?? Math.max(92, ent.position.y)))
+      : jet ? Math.max(450, Math.min(JET.ceiling, savedAltitude ?? ent.position.y)) : 0;
     const destination = this.findTeleportPosition(x, z, heading, altitude);
     if (destination) {
       ent.position.x = destination.x;
       ent.position.z = destination.z;
       ent.heading = heading;
-      ent.position.y = heli ? altitude : this.getGroundHeight(destination.x, destination.z, this.activeMode);
+      ent.position.y = heli || jet ? altitude : this.getGroundHeight(destination.x, destination.z, this.activeMode);
     }
     ent.speed = 0;
+    if (jet) {
+      this.resetJet(ent, { flying: true, speed: 170, throttle: 0.75 });
+      return { x: ent.position.x, z: ent.position.z };
+    }
     if (this.activeMode === 'person') {
       ent.verticalVel = 0;
       ent.rig.reset(ent.position.x, ent.position.z, ent.heading, personGround, this);
@@ -415,8 +431,8 @@ class ThirdPersonControllerManager {
   // between overlapping buildings, so test whole candidate footprints instead; retain the old position if none fits.
   findTeleportPosition(x, z, heading, altitude) {
     if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
-    const heli = this.activeMode === 'helicopter';
-    const radius = heli ? 4.5 : this.activeMode === 'person' ? 0.48 : 0.65;
+    const heli = flies(this.activeMode);
+    const radius = this.activeMode === 'jet' ? 7 : heli ? 4.5 : this.activeMode === 'person' ? 0.48 : 0.65;
     const sinH = Math.sin(heading), cosH = Math.cos(heading);
     const shape = collisionBody(this.activeMode, radius, heading, 0.1);
     const reach = Math.max(shape.extX, shape.extZ);
@@ -424,10 +440,10 @@ class ThirdPersonControllerManager {
     const margin = wide ? HELI_RANGE : 0;
     const entity = this.getActiveEntity();
     // Conservative body cylinders, including the taxi's corners, bicycle wheels and helicopter tail/rotor.
-    const body = { person: [0.48, 1.9], car: [2.4, 1.9], cyclist: [1.0, 1.9], helicopter: [6.2, 3.2] };
+    const body = { person: [0.48, 1.9], car: [2.4, 1.9], cyclist: [1.0, 1.9], helicopter: [6.2, 3.2], jet: [9.8, 3.4] };
     const others = Object.values(this.entities).filter(e => e !== entity).map(e => ({
       x: e.position.x, z: e.position.z, radius: body[e.type][0],
-      bottom: e.position.y - (e.type === 'helicopter' ? 0.7 : 0), top: e.position.y + body[e.type][1]
+      bottom: e.position.y - (e.type === 'helicopter' ? 0.7 : e.type === 'jet' ? 2.3 : 0), top: e.position.y + body[e.type][1]
     }));
     const cameraBack = Math.cos(0.09) * entity.chaseDistance;
     const cameraUp = entity.chaseHeight + Math.sin(0.09) * entity.chaseDistance * 0.85;
@@ -881,6 +897,172 @@ class ThirdPersonControllerManager {
     };
   }
 
+  // The RSAF F-15SG Strike Eagle (js/jet-model.js): the root turns with the heading like every entity, the attitude
+  // pivot inside it carries the pitch and bank (any attitude: loops, rolls, inverted), as js/jet-flight.js flies it
+  createJetEntity() {
+    const model = createJetModel();
+    const root = new THREE.Group();
+    root.name = 'F15SG_root';
+    const attitudePivot = new THREE.Group();
+    attitudePivot.add(model.root);
+    root.add(attitudePivot);
+    this.scene.add(root);
+    const position = new THREE.Vector3(-260, JET.gearHeight, SPAWN_Z + 120);
+    const heading = 0.62;
+    const flight = createJetState({ heading });
+    flight.position = position; // (one position: the entity's is the flight model's)
+    return {
+      type: 'jet',
+      label: 'RSAF F-15SG Strike Eagle',
+      mesh: root,
+      attitudePivot,
+      model,
+      flight,
+      input: { pitch: 0, roll: 0, throttle: 0, brake: false },
+      stick: 0, // the stabilators' smoothed pitch command
+      attitude: { pitch: 0, bank: 0 },
+      position,
+      heading,
+      speed: 0,
+      crashed: 0, // s until it's back in the air after a crash
+      trails: new WingtipTrails(this.scene),
+      explosion: new Explosion(this.scene),
+      cameraTargetOffset: new THREE.Vector3(0, 1.2, 0),
+      chaseDistance: 24,
+      chaseHeight: 5.5
+    };
+  }
+
+  // Where the jet is parked (js/airbases.js home: Paya Lebar's runway 02), for a fresh start and after a reload
+  setJetHome(home) {
+    this.jetHome = home && [home.x, home.z, home.heading].every(Number.isFinite) ? home : null;
+  }
+
+  /** Line the jet up on its home runway, stopped, engines at idle */
+  parkJet() {
+    const j = this.entities.jet;
+    const home = this.jetHome;
+    if (home) {
+      j.position.x = home.x;
+      j.position.z = home.z;
+      j.heading = home.heading;
+    }
+    this.resetJet(j, { flying: false });
+    return { x: j.position.x, z: j.position.z };
+  }
+
+  // Reset the jet's flight to straight and level (flying at `speed`) or parked on the ground at its position
+  resetJet(j, { flying = false, speed = 0, throttle = 0 } = {}) {
+    const s = j.flight;
+    s.onGround = !flying;
+    s.speed = flying ? speed : 0;
+    s.throttle = throttle;
+    s.sink = s.groundPitch = s.afterburner = s.pitchRate = s.rollRate = s.climbRate = 0;
+    s.gear = flying ? 0 : 1;
+    s.g = 1;
+    s.stalled = s.speedBrake = false;
+    s.heading = j.heading;
+    jetAttitude(j.heading, 0, 0, s.q);
+    if (!flying) j.position.y = this.getGroundHeight(j.position.x, j.position.z, 'jet') + JET.gearHeight;
+    j.speed = s.speed;
+    j.crashed = 0;
+    j.stick = 0;
+    j.mesh.visible = true;
+    j.attitude.pitch = j.attitude.bank = 0;
+    j.attitudePivot.quaternion.set(0, 0, 0, 1);
+    j.trails.clear();
+  }
+
+  // Fly the jet: the stick (W/S pitch, A/D roll), the throttle (Space/E up, Q/C down; at idle, the brakes) over
+  // js/jet-flight.js in 120 Hz steps, each checked against the buildings; a crash blows it up, and a few seconds later
+  // it is back in the air above where it went down
+  updateJet(dt) {
+    const j = this.entities.jet;
+    if (!(dt > 0)) return;
+    if (j.crashed > 0) {
+      j.crashed -= dt;
+      if (j.crashed <= 0) {
+        j.position.y = this.getGroundHeight(j.position.x, j.position.z, 'jet') + 450;
+        this.resetJet(j, { flying: true, speed: 170, throttle: 0.75 });
+      }
+      return;
+    }
+    const value = (v) => (v === true ? 1 : Number(v) || 0);
+    const k = this.keys, input = j.input, s = j.flight, p = j.position;
+    input.pitch = value(k.backward) - value(k.forward);
+    input.roll = value(k.right) - value(k.left);
+    input.throttle = value(k.up) - value(k.down);
+    input.brake = value(k.down) > 0;
+    const env = this._jetEnv ??= {
+      // the land under it (over the sea: null), flat at the city's ground level
+      groundAt: (x, z) => (this.onLand && !this.onLand(x, z) ? null : this.getGroundHeight(x, z, 'jet'))
+    };
+    const steps = Math.ceil(dt * 120), h = dt / steps;
+    const m = HELI_RANGE;
+    for (let i = 0; i < steps; i++) {
+      const event = stepJet(s, input, h, env);
+      p.x = Math.max(ISLAND_BOUNDS.minX - m, Math.min(ISLAND_BOUNDS.maxX + m, p.x));
+      p.z = Math.max(ISLAND_BOUNDS.minZ - m, Math.min(ISLAND_BOUNDS.maxZ + m, p.z));
+      if (event?.event === 'crash') {
+        this.crashJet(j, groundCollider, 'ground');
+        return;
+      }
+      if (s.onGround && s.speed < 0.1 && !input.throttle) break;
+      const body = this._jetBody = collisionBody('jet', 4.2, s.heading);
+      for (const c of this.nearColliders(p.x, p.z, 12)) {
+        if (buildingContact(c, p.x, p.y, p.z, body)) {
+          this.crashJet(j, c, 'building');
+          return;
+        }
+      }
+    }
+    j.heading = s.heading;
+    j.speed = s.speed;
+    const a = jetAxes(s.q);
+    j.attitude.pitch = a.pitch;
+    j.attitude.bank = a.bank;
+    j.stick += (input.pitch - j.stick) * Math.min(1, dt * 8);
+  }
+
+  crashJet(j, collider, kind) {
+    const p = j.position;
+    this.reportCollision(j, collider, kind, p.x, p.y, p.z, 0, 1, 0, Math.max(30, j.flight.speed));
+    j.explosion.trigger(p.x, Math.max(p.y, 3), p.z);
+    j.trails.clear();
+    j.crashed = 3.2;
+    j.mesh.visible = false;
+    j.speed = j.flight.speed = 0;
+    j.flight.throttle = 0;
+  }
+
+  // Every frame, flown or parked: its attitude onto the model, the stabilators, gear and afterburner, the strobe,
+  // the vapour off its wingtips, an explosion playing out
+  animateJet(dt, elapsed) {
+    const j = this.entities.jet;
+    if (!j) return;
+    const s = j.flight, model = j.model;
+    // the attitude relative to the heading the root already turns by
+    const q = this._jetQ ??= new THREE.Quaternion();
+    const yaw = this._jetYaw ??= new THREE.Quaternion();
+    const up = this._jetUp ??= new THREE.Vector3(0, 1, 0);
+    q.set(s.q[0], s.q[1], s.q[2], s.q[3]);
+    yaw.setFromAxisAngle(up.set(0, 1, 0), -j.heading);
+    j.attitudePivot.quaternion.multiplyQuaternions(yaw, q);
+    model.setStabilators(j.stick);
+    model.setGear(s.gear);
+    model.setAfterburner(j.crashed > 0 ? 0 : s.afterburner);
+    model.strobe.visible = (elapsed % 1.3) < 0.07;
+    if (dt > 0) {
+      const tips = this._jetTips ??= [new THREE.Vector3(), new THREE.Vector3()];
+      tips[0].set(6.45, 0.3, -4.4).applyQuaternion(q).add(j.position);
+      tips[1].set(-6.45, 0.3, -4.4).applyQuaternion(q).add(j.position);
+      up.set(0, 1, 0).applyQuaternion(q);
+      const vapour = j.crashed > 0 || s.onGround ? 0 : Math.max(0, Math.min(1, (s.g - 3.8) / 2.5));
+      j.trails.update(dt, tips, up, vapour);
+      j.explosion.update(dt);
+    }
+  }
+
   // On a raised curb island (city-config.js BLOCKS: the real blocks, malls & plazas), not in a park
   isPointOnSidewalk(x, z) {
     const b = blockAt(x, z);
@@ -990,7 +1172,7 @@ class ThirdPersonControllerManager {
   resolveHorizontalCollision(pos, radius, carEntity = null, entity = carEntity) {
     // The detailed island (the helicopter may roam out over the harbour & the boroughs), or with the whole island's
     // land known (setLand), anywhere on it: a step into the water goes back to the last place on land
-    const heli = this.activeMode === 'helicopter';
+    const heli = flies(this.activeMode);
     const m = heli || this.onLand ? HELI_RANGE : 0;
     pos.x = Math.max(ISLAND_BOUNDS.minX - m, Math.min(ISLAND_BOUNDS.maxX + m, pos.x));
     pos.z = Math.max(ISLAND_BOUNDS.minZ + (heli || this.onLand ? -HELI_RANGE : 30), Math.min(ISLAND_BOUNDS.maxZ + m, pos.z));
@@ -1004,7 +1186,7 @@ class ThirdPersonControllerManager {
         if (carEntity && carEntity.speed) carEntity.speed *= 0.4;
         if (carEntity) { carEntity.vx = 0; carEntity.vz = 0; }
       }
-    } else if (this.activeMode !== 'helicopter' && getIslandBoundsAtZ) {
+    } else if (!heli && getIslandBoundsAtZ) {
       const shore = getIslandBoundsAtZ(pos.z);
       const minShoreX = shore.westX + 8.0;
       const maxShoreX = shore.eastX - 8.0;
@@ -1130,7 +1312,10 @@ class ThirdPersonControllerManager {
       this.updateCyclist(dt, elapsed);
     } else if (this.activeMode === 'helicopter') {
       this.updateHelicopter(dt, elapsed);
+    } else if (this.activeMode === 'jet') {
+      this.updateJet(dt, elapsed);
     }
+    this.animateJet(dt, elapsed);
 
     for (const key of Object.keys(this.entities)) {
       const e = this.entities[key];
