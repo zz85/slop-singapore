@@ -8,9 +8,10 @@
 // tile's corner. Their arrays are transferable.
 // createLandMask(land) -> { at(x, z) } the island's land (index.json land: [[outer, ...holes]]) for the player to keep
 // to, by scanlines.
-// With `ground` (buildTileArrays(tile, { ox, oz, size, landuse, onLand, inCore })), `trees` too: the island's woods,
-// parks and gardens planted from its land use (tools/city/landuse.mjs's image), clear of the tile's buildings and roads,
-// as instance matrices (scatterTrees).
+// `trees` too, as instance matrices: NParks' trees where the tile has them (tools/city/tiles.mjs, kept off its buildings
+// and carriageways), and with `ground` (buildTileArrays(tile, { ox, oz, size, landuse, onLand, inCore })) the island's
+// woods, parks and gardens filled in from its land use (tools/city/landuse.mjs's image) where NParks has none, clear of
+// the tile's buildings and roads (scatterTrees).
 
 // Building colours by type: Singapore's HDB estates in their painted pastels, factories in grey and blue steel
 const PASTELS = [0xf2efe6, 0xefe6d2, 0xdfe9ef, 0xe5efdf, 0xf3e2d4, 0xe9e1ee, 0xf4f1ea, 0xd9e4e8, 0xf0dccb];
@@ -213,13 +214,15 @@ const TREE_KINDS = [
   { p: 0.05, h: [7, 13], w: [6, 10] } // the rest (estates, verges, schools): a few
 ];
 const CLEAR = 2.5; // m kept clear of a building or a road's edge (to a tree's trunk)
+const TILE_SIZE = 1500; // m (tools/city/tiles.mjs; index.json tile, passed in `ground`)
 
-// What's in the way of planting in a tile `size` m square: its buildings' footprints and its roads, on a 3 m grid
-function obstacleGrid(buildings, runs, size, cell = 3) {
+// What's in the way of planting in a tile `size` m square: its buildings' footprints and its roads, `clear` m round
+// them, on a 3 m grid
+function obstacleGrid(buildings, runs, size, clear = CLEAR, cell = 3) {
   const n = Math.ceil(size / cell);
   const g = new Uint8Array(n * n);
   const mark = (i, j) => { if (i >= 0 && j >= 0 && i < n && j < n) g[j * n + i] = 1; };
-  const pad = Math.ceil(CLEAR / cell);
+  const pad = Math.ceil(clear / cell);
   for (const b of buildings) {
     const pts = b.pts, m = pts.length / 2;
     let z0 = Infinity, z1 = -Infinity;
@@ -240,7 +243,7 @@ function obstacleGrid(buildings, runs, size, cell = 3) {
     }
   }
   for (const r of runs) {
-    const w = r.w + CLEAR;
+    const w = r.w + clear;
     for (let k = 0; k + 3 < r.P.length; k += 2) {
       const ax = r.P[k], az = r.P[k + 1], bx = r.P[k + 2], bz = r.P[k + 3];
       const len = Math.hypot(bx - ax, bz - az);
@@ -262,6 +265,53 @@ function obstacleGrid(buildings, runs, size, cell = 3) {
   return { at: (x, z) => { const i = Math.floor(x / cell), j = Math.floor(z / cell); return i >= 0 && j >= 0 && i < n && j < n && g[j * n + i] === 1; } };
 }
 
+// A tile's NParks trees ([dx, dz (dm), height (m)] flat, from its corner), less those on a building or a carriageway
+// (`blocked`): [{ x, z, h }] relative to the tile's corner
+function decodeTrees(flat, blocked = () => false) {
+  const out = [];
+  let px = 0, pz = 0;
+  for (let k = 0; k + 2 < flat.length; k += 3) {
+    px += flat[k];
+    pz += flat[k + 1];
+    const x = px / 10, z = pz / 10;
+    if (!blocked(x, z)) out.push({ x, z, h: flat[k + 2] });
+  }
+  return out;
+}
+
+// An NParks tree's instance: its recorded height (8 m when there's none), its crown about 0.6 of it (a street tree's
+// rain tree or angsana spreads wider than it's tall in the inventory's bands, a palm much less: the spread is jittered)
+function realTreeMatrix(out, t) {
+  const r1 = hash(t.x * 0.37 + 11, t.z * 0.53), r2 = hash(t.z * 0.29 + 7, t.x * 0.41);
+  const h = (t.h > 0 ? t.h : 8) * (0.9 + r1 * 0.2);
+  const w = Math.min(15, Math.max(3.5, h * (0.45 + r2 * 0.35)));
+  const a = hash(t.x + t.z, t.x - t.z + 3) * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a);
+  out.push(c * w, 0, -sn * w, 0, 0, h, 0, 0, sn * w, 0, c * w, 0, t.x, 0, t.z, 1);
+  return h;
+}
+
+// Where NParks' trees stand, for the filled-in ones to keep away from: `near(x, z, r)` whether one is within r m (r up
+// to `reach`), on a 5 m grid
+function nearGrid(real, size, reach = 25, cell = 5) {
+  const n = Math.ceil(size / cell);
+  const d = new Float32Array(n * n).fill(Infinity); // the nearest one's distance from each cell's centre
+  const rr = Math.ceil(reach / cell) + 1;
+  for (const t of real) {
+    const ci = Math.floor(t.x / cell), cj = Math.floor(t.z / cell);
+    for (let j = Math.max(0, cj - rr); j <= Math.min(n - 1, cj + rr); j++) {
+      for (let i = Math.max(0, ci - rr); i <= Math.min(n - 1, ci + rr); i++) {
+        const e = Math.hypot((i + 0.5) * cell - t.x, (j + 0.5) * cell - t.z);
+        if (e < d[j * n + i]) d[j * n + i] = e;
+      }
+    }
+  }
+  const slack = cell * Math.SQRT1_2;
+  return (x, z, r) => {
+    const i = Math.floor(x / cell), j = Math.floor(z / cell);
+    return i >= 0 && j >= 0 && i < n && j < n && d[j * n + i] < r + slack;
+  };
+}
+
 // The shares of wood, grass, paving and sand at a world point (nearest pixel of tools/city/landuse.mjs's image)
 function landuseAt(lu, x, z) {
   const i = Math.floor((x - lu.x0) / lu.res), j = Math.floor((z - lu.z0) / lu.res);
@@ -270,17 +320,24 @@ function landuseAt(lu, x, z) {
   return [p[k] / 255, p[k + 1] / 255, p[k + 2] / 255, p[k + 3] / 255];
 }
 
+// How far a filled-in tree keeps from an NParks one (m): in woods just its crown's room (NParks records few trees there,
+// its own estate's edges), elsewhere well clear (parks and verges NParks has planted are in its inventory already)
+const REAL_ROOM = [6, 28, 0, 0, 28];
+
 /**
- * The trees of a tile at (ox, oz), `size` m square: a site every TREE_SPACING m (jittered), planted with the chance of
- * its ground's kind (its shares of each), not where `blocked`, off the land or in the detailed city -> { matrices
- * (Float32Array, 16 a tree, relative to the tile's corner), count, sphere }. Seeded by the world position, so a tile
- * grows the same trees every time it's built.
+ * The trees of a tile at (ox, oz), `size` m square: NParks' `real` ones ([{ x, z, h }] relative to its corner), then
+ * with `landuse` a site every TREE_SPACING m (jittered), planted with the chance of its ground's kind (its shares of
+ * each), not where `blocked`, near a real one (REAL_ROOM), off the land or in the detailed city -> { matrices
+ * (Float32Array, 16 a tree, relative to the tile's corner), count, real (how many of them NParks'), sphere }. Seeded by
+ * the world position, so a tile grows the same trees every time it's built.
  */
-function scatterTrees({ ox, oz, size, landuse, onLand = () => true, inCore = () => false, blocked = () => false }) {
+function scatterTrees({ ox, oz, size, landuse = null, real = [], onLand = () => true, inCore = () => false, blocked = () => false }) {
   const out = [];
   const s = TREE_SPACING;
-  const n = Math.floor(size / s);
+  const n = landuse ? Math.floor(size / s) : 0;
   let top = 0;
+  for (const t of real) top = Math.max(top, realTreeMatrix(out, t));
+  const near = real.length ? nearGrid(real, size) : () => false;
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
       const gx = ox + i * s, gz = oz + j * s;
@@ -300,7 +357,7 @@ function scatterTrees({ ox, oz, size, landuse, onLand = () => true, inCore = () 
       const K = TREE_KINDS[kind];
       if (roll >= K.p) continue;
       const lx = x - ox, lz = z - oz;
-      if (blocked(lx, lz) || inCore(x, z) || !onLand(x, z)) continue;
+      if (blocked(lx, lz) || near(lx, lz, REAL_ROOM[kind]) || inCore(x, z) || !onLand(x, z)) continue;
       const r1 = hash(x * 0.37, z * 0.53), r2 = hash(z * 0.29 + 1, x * 0.41 - 1), r3 = hash(x + z, x - z);
       const h = K.h[0] + (K.h[1] - K.h[0]) * r1;
       const w = K.w[0] + (K.w[1] - K.w[0]) * (r2 * 0.7 + r1 * 0.3);
@@ -311,7 +368,7 @@ function scatterTrees({ ox, oz, size, landuse, onLand = () => true, inCore = () 
     }
   }
   const half = size / 2;
-  return { matrices: new Float32Array(out), count: out.length / 16, sphere: [half, top / 2, half, Math.hypot(half, half, top / 2) + 8] };
+  return { matrices: new Float32Array(out), count: out.length / 16, real: real.length, sphere: [half, top / 2, half, Math.hypot(half, half, top / 2) + 8] };
 }
 
 /**
@@ -421,9 +478,13 @@ function buildTileArrays(tile, ground = null) {
     return { position, sphere: sphereOf(position), ...extra(position.length / 3) };
   };
   let trees = null;
-  if (ground && ground.landuse) {
-    const blocked = obstacleGrid(buildings, runs, ground.size).at;
-    trees = scatterTrees({ ...ground, blocked });
+  if ((ground && ground.landuse) || (tile.trees && tile.trees.length)) {
+    const size = ground ? ground.size : TILE_SIZE;
+    // NParks' trees off the buildings and carriageways (kerbside ones a metre clear of the estimated road edge)
+    const strict = tile.trees ? obstacleGrid(buildings, runs, size, 0.5, 1).at : null;
+    const real = tile.trees ? decodeTrees(tile.trees, strict) : [];
+    const blocked = ground && ground.landuse ? obstacleGrid(buildings, runs, size).at : undefined;
+    trees = scatterTrees({ ox: 0, oz: 0, size, ...(ground || {}), real, blocked });
   }
   return {
     trees,
@@ -449,4 +510,4 @@ function transferables(built) {
   return list;
 }
 
-export { buildTileArrays, decodeBuildings, triangulate, transferables, createLandMask, scatterTrees, landuseAt, islandGround, TREE_SPACING };
+export { buildTileArrays, decodeBuildings, decodeTrees, triangulate, transferables, createLandMask, scatterTrees, landuseAt, islandGround, TREE_SPACING, REAL_ROOM };

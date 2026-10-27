@@ -7,6 +7,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadCity, dataDir } from './config.mjs';
+import { fetchTrees } from './fetch.mjs';
 
 // The Overpass cells (deg) of the island box, [s, w, n, e] each, and the island-wide layers
 export function islandQueries(city) {
@@ -56,6 +57,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   fs.mkdirSync(dir, { recursive: true });
   const overpass = fileURLToPath(new URL('../overpass.sh', import.meta.url));
   const todo = Object.entries(islandQueries(city)).filter(([key]) => force || !fs.existsSync(path.join(dir, `${key}.json`)));
+  // the island's trees (NParks' inventory, tools/city/fetch.mjs fetchTrees) across the island box
+  if (city.trees && (force || !fs.existsSync(path.join(dir, 'trees.csv')))) {
+    console.log(`[island] trees from ${city.trees.url} ...`);
+    fs.writeFileSync(path.join(dir, 'trees.csv'), await fetchTrees(city, { box: city.island.box }));
+    console.log('[island] trees: wrote trees.csv');
+  }
   console.log(`[island] ${todo.length} layers to fetch into ${dir}`);
   let failed = 0;
   let done = 0;

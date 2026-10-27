@@ -24,10 +24,11 @@ export function queries(city) {
   };
 }
 
-// The city's trees inside its detail box grown by its margin, as CSV: lng, lat, height (m), family. From
-// cheeaun/sgtreesdata's trees.csv (id, tree_id, species_id, girth, girth_size, height, height_est, age, lng, lat) and its
-// families-species.json ({ family: [species ids] })
-export async function fetchTrees(city) {
+// The city's trees inside its detail box grown by its margin (or `box` [s, w, n, e]: tools/city/fetch-island.mjs asks
+// for the whole island's), as CSV: lng, lat, height (m), family. From cheeaun/sgtreesdata's trees.csv (id, tree_id,
+// species_id, girth, girth_size, height, height_est, age, lng, lat) and its families-species.json ({ family: [species
+// ids] })
+export async function fetchTrees(city, { box = null } = {}) {
   if (city.trees.source !== 'sgtreesdata') throw new Error(`unknown tree source ${city.trees.source}`);
   const get = async (url) => {
     const r = await fetch(url);
@@ -36,8 +37,8 @@ export async function fetchTrees(city) {
   };
   const familyOf = new Map();
   for (const [family, ids] of Object.entries(JSON.parse(await get(city.trees.families)))) for (const id of ids) familyOf.set(String(id), family);
-  const [s, w, n, e] = city.detail;
-  const m = city.margin;
+  const [s, w, n, e] = box || city.detail;
+  const m = box ? 0 : city.margin;
   const lines = (await get(city.trees.url)).split('\n');
   const col = Object.fromEntries(lines[0].split(',').map((k, i) => [k.trim(), i]));
   const out = ['lng,lat,height,family'];
