@@ -139,6 +139,7 @@ test('island traffic stops behind the player and gets bumped out of the way', ()
   for (let i = 0; i < 30 * 20; i++) traffic.update(1 / 30, cam, player, 'car');
   const gap = Math.hypot(player.position.x - c.x, player.position.z - c.z);
   assert.ok(c.v < 0.2 && gap > 4.6 && gap < 4.6 + 6, `stopped behind the player (${gap.toFixed(1)} m, ${c.v.toFixed(2)} m/s)`);
+  assert.equal(c.byPlayer, true, 'held up by the player (the audio honks)');
   // the player reverses into it: pushed back out
   player.position.x = c.x + 2;
   player.position.z = c.z;

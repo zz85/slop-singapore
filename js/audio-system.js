@@ -4,6 +4,8 @@ import { CityAudioSources } from './audio-sources.js';
 import { CityAcoustics } from './audio-acoustics.js';
 import { createTropicalAmbience } from './audio-tropics.js';
 
+// Seconds a car waits behind a player holding it up before it honks (plus up to 1 s, car to car)
+const HOLD_UP_AFTER = 3;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const smooth = (param, value, now, time = 0.035, immediate = false) => {
   param.cancelScheduledValues(now);
@@ -231,7 +233,7 @@ class CityAudioSystem {
       const hash = Math.sin(source.seed * 127.1 + 311.7) * 43758.5453;
       const variation = hash - Math.floor(hash);
       state = { variation, phase: source.phase, grounded: source.grounded, x: source.x, z: source.z,
-        signal: now + variation, horn: now + 8 + variation * 13, stopped: 0, stepSequence: 0 };
+        signal: now + variation, horn: now + 8 + variation * 13, stopped: 0, held: 0, heldHorns: 0, heldHorn: 0, stepSequence: 0 };
       this.states.set(source.id, state);
     }
     return state;
@@ -535,9 +537,34 @@ class CityAudioSystem {
         state.signal = when + (source.walk ? 0.5 : 1);
       }
     }
-    for (const source of sources.motors) {
+    this.trafficHorns(sources.motors, now, dt);
+    Object.assign(this.windParams, { speed: Math.min(sources.motion, 50), altitude: position.y, traffic: sources.traffic, night: night ? 1 : 0, enclosure });
+    this.wind.update(this.windParams, now);
+    this.tropics?.update({ time: this.ambience.time, storm: this.ambience.storm, altitude: position.y, enclosure, traffic: sources.traffic }, now);
+  }
+
+  // Traffic horns: a car held up by the player honks after a few seconds, more and harder the longer it waits; one
+  // otherwise stuck (in a jam, not at a light) now and then
+  trafficHorns(motors, now, dt) {
+    for (const source of motors) {
       if (source.player || source.kind === 'helicopter' || source.kind === 'cyclist') continue;
       const state = this.state(source, now);
+      // Held up by the player (stopped behind it on green, the player going nowhere): a toot after 3 s or so, then
+      // more and harder every few seconds while it stays put. Its own gate, so a second car can join in.
+      state.held = source.held ? state.held + dt : 0;
+      if (!source.held) state.heldHorns = 0;
+      else {
+        if (state.held > HOLD_UP_AFTER + state.variation && now >= state.heldHorn) {
+          const n = state.heldHorns;
+          if (this.emit('horn', source, { intensity: Math.min(0.95, 0.6 + 0.12 * n), priority: true })) {
+            state.heldHorns++;
+            state.heldHorn = now + Math.max(1.4, 4.5 - 0.8 * n) + state.variation * 1.5;
+            this.lastHorn = now;
+          }
+        }
+        state.stopped = 0;
+        continue;
+      }
       state.stopped = source.blocked ? state.stopped + dt : 0;
       if (state.stopped > 4 && now > state.horn && now - this.lastHorn > 3) {
         if (this.emit('horn', source, { intensity: 0.55 })) {
@@ -546,9 +573,6 @@ class CityAudioSystem {
         }
       }
     }
-    Object.assign(this.windParams, { speed: Math.min(sources.motion, 50), altitude: position.y, traffic: sources.traffic, night: night ? 1 : 0, enclosure });
-    this.wind.update(this.windParams, now);
-    this.tropics?.update({ time: this.ambience.time, storm: this.ambience.storm, altitude: position.y, enclosure, traffic: sources.traffic }, now);
   }
 
   dispose() {

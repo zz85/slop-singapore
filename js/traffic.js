@@ -949,6 +949,7 @@ function createTrafficSystem(scene, sidewalks, obstacles, signalIntersections) {
     let worst = 0;
     let cap = Infinity;
     v.gap = Infinity;
+    v.byPlayer = false; // (the player is the leader: audio honks at a player holding the lane up)
     if (!v.conn) {
       worst = follow(v, e.occ[v.lane], v.s);
       const side = straddle(v);
@@ -997,6 +998,7 @@ function createTrafficSystem(scene, sidewalks, obstacles, signalIntersections) {
       if (pg < v.gap) {
         v.gap = pg;
         v.leaderSpeed = v.pSpeed;
+        v.byPlayer = true;
       }
     }
     const acc = Math.min(freeAcc(v) + worst, (cap - v.speed) * 2);

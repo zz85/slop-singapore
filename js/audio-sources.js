@@ -49,6 +49,7 @@ function writeMotor(item, id, kind, x, y, z, speed, load, heading, police, playe
   item.player = player;
   item.seed = seed;
   item.blocked = blocked;
+  item.held = false;
   item.gain = gain;
   item.range = range;
 }
@@ -120,8 +121,28 @@ class CityAudioSources {
     const reach = kind === 'helicopter' ? range : MOTOR_RANGE;
     if (d2 > reach * reach) return;
     const item = this.motors.take(player ? -1 : d2);
-    if (!item) return;
+    if (!item) return null;
     writeMotor(item, id, kind, x, y, z, speed, load, heading, police, player, seed, blocked, gain, range, verticalSpeed);
+    return item;
+  }
+
+  // Is the player standing in the road for nothing? Stopped, with no vehicle or person just ahead of it (a car it is
+  // queueing behind, someone crossing): then a car stopped behind it, on green, is being held up by it
+  playerHoldingUp(active) {
+    if (!active || active.type === 'helicopter' || this.snapshot.motion > 0.5) return false;
+    const px = active.position.x, pz = active.position.z;
+    const fx = Math.sin(active.heading || 0), fz = Math.cos(active.heading || 0);
+    const inFront = (x, z, reach) => {
+      const dx = x - px, dz = z - pz;
+      const along = dx * fx + dz * fz;
+      return along > 0 && along < reach && Math.abs(dx * fz - dz * fx) < 2.2;
+    };
+    for (const list of [this.cars, this.buses]) {
+      for (const v of list) if (v.edge && inFront(v.x, v.z, 12)) return false;
+    }
+    for (const c of this.islandCars) if (c.active && inFront(c.x, c.z, 12)) return false;
+    for (const p of this.peds) if (p.placed && inFront(p.x, p.z, 7)) return false;
+    return true;
   }
 
   person(id, x, y, z, speed, grounded, rig, player = false, priority = player) {
@@ -144,7 +165,7 @@ class CityAudioSources {
     item.rightX = right.px; item.rightY = right.py; item.rightZ = right.pz;
   }
 
-  streetVehicles(vehicles, elapsed, seedOffset) {
+  streetVehicles(vehicles, elapsed, seedOffset, holdingUp = false) {
     for (let i = 0; i < vehicles.length; i++) {
       const v = vehicles[i];
       if (!v.edge) continue;
@@ -156,8 +177,10 @@ class CityAudioSources {
       }
       const green = !v.edge.to.signal || signalPhase(elapsed, v.edge.axisIndex === 0) === 'green';
       const blocked = v.wait > 2 && v.speed < 0.5 && v.gap < 8 && v.leaderSpeed < 0.5 && green && !v.conn && !v.yielding;
-      this.motor(v, v.bus ? 'bus' : v.isSUV ? 'suv' : 'sedan', v.x, 0.7, v.z,
+      const item = this.motor(v, v.bus ? 'bus' : v.isSUV ? 'suv' : 'sedan', v.x, 0.7, v.z,
         v.speed, roadLoad(v.speed, v.acc, v.driver.a), v.yaw + v.yawOffset, !!v.isPolice, false, seedAt(seedOffset + i), blocked);
+      // stopped right behind a player who is going nowhere, on green
+      if (item && holdingUp) item.held = !!v.byPlayer && v.speed < 0.5 && v.gap < 10 && green && !v.yielding;
     }
   }
 
@@ -193,8 +216,9 @@ class CityAudioSources {
       }
     }
 
-    this.streetVehicles(this.cars, elapsed, 100);
-    this.streetVehicles(this.buses, elapsed, 1000);
+    const holdingUp = this.playerHoldingUp(active);
+    this.streetVehicles(this.cars, elapsed, 100, holdingUp);
+    this.streetVehicles(this.buses, elapsed, 1000, holdingUp);
     for (let i = 0; i < this.highwayCars.length; i++) {
       const car = this.highwayCars[i];
       // Lane ends sink into the road and the Battery tunnel is underground; neither should sound above ground.
@@ -213,8 +237,9 @@ class CityAudioSources {
       this.snapshot.traffic += (1 - d2 / (MOTOR_RANGE * MOTOR_RANGE)) * (0.2 + 0.8 * unit(car.v / 12));
       // stuck (not at a light or bumped): may honk
       const blocked = car.v < 0.5 && !car.light && !(car.stunned > 0);
-      this.motor(car, car.kind === 'suv' ? 'suv' : 'sedan', car.x, 0.7, car.z,
+      const item = this.motor(car, car.kind === 'suv' ? 'suv' : 'sedan', car.x, 0.7, car.z,
         car.v, roadLoad(car.v, car.acc, 1.5), Math.atan2(car.dx, car.dz), false, false, seedAt(3000 + i), blocked);
+      if (item && holdingUp) item.held = !!car.byPlayer && car.v < 0.5 && car.lightPhase !== 'red' && car.lightPhase !== 'amber';
     }
     this.snapshot.traffic = unit(this.snapshot.traffic / 16);
 

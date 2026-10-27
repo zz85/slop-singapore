@@ -266,6 +266,7 @@ function createIslandTraffic(scene, { vehicles, keepLeft = true, count = 40 } = 
     for (const c of cars) {
       if (!c.active) continue;
       let gap = Infinity, dv = 0;
+      c.byPlayer = false; // (the player is the car's leader: audio honks at a player holding the lane up)
       for (const o of cars) {
         if (o === c || !o.active) continue;
         // ahead along this car's direction, close to its line
@@ -282,19 +283,22 @@ function createIslandTraffic(scene, { vehicles, keepLeft = true, count = 40 } = 
         const along = rx * c.dx + rz * c.dz;
         if (along > 0 && along < 120 && Math.abs(rx * c.dz - rz * c.dx) < 2.2) {
           const g = along - ISL_CAR_LEN;
-          if (g < gap) { gap = g; dv = c.v - Math.max(0, plSpeed * (Math.sin(pl.heading || 0) * c.dx + Math.cos(pl.heading || 0) * c.dz)); }
+          if (g < gap) { gap = g; c.byPlayer = true; dv = c.v - Math.max(0, plSpeed * (Math.sin(pl.heading || 0) * c.dx + Math.cos(pl.heading || 0) * c.dz)); }
         }
       }
       // the traffic light ahead: its stop line a standing car's leader on red, and on amber unless too close to stop
       plan(c);
       const light = c.curve ? null : roads.signalAhead(c.road, c.dir, c.s);
       c.light = null;
+      c.lightPhase = null; // (the light ahead, whoever leads)
       if (light) {
         const phase = roads.phase(light.signal, light.group, time);
+        c.lightPhase = phase;
         const g = light.d - ISL_CAR_LEN / 2;
         const stoppable = g > (c.v * c.v) / (2 * D.b * 1.6) + 1;
         if ((phase === 'red' || (phase === 'amber' && stoppable)) && g < gap) {
           gap = g;
+          c.byPlayer = false;
           dv = c.v;
           c.light = phase;
         }
