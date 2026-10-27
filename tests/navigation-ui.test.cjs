@@ -43,10 +43,21 @@ function harness({ teleportable = true } = {}) {
   const ids = {};
   const byId = (id) => ids[id] || (ids[id] = element());
   const popover = byId('navigate-popover');
-  for (const d of ['you', 'self', 'crazy', 'teleport']) {
+  popover.showPopover = () => { popover.shown = (popover.shown || 0) + 1; };
+  // the ways strip: its two arrows and the four ways
+  const ways = byId('nav-ways');
+  const track = byId('nav-ways-track');
+  for (const s of ['-1', '1']) {
     const b = element();
+    b.dataset.step = s;
+    ways.appendChild(b);
+  }
+  ways.appendChild(track);
+  for (const d of ['you', 'self', 'crazy', 'teleport']) {
+    const b = element({ textContent: { you: 'You drive', self: 'Self-driving', crazy: 'Crazy Taxi', teleport: 'Teleport' }[d] });
     b.dataset.driver = d;
-    popover.appendChild(b);
+    b.dataset.sub = `${d} sub`;
+    track.appendChild(b);
   }
   const pick = byId('map-pick-menu');
   pick.hidden = true;
@@ -62,8 +73,11 @@ function harness({ teleportable = true } = {}) {
     raffles: { x: 10, z: 20, heading: 1, name: 'Raffles Place', sub: 'CBD' },
     merlion: { x: -30, z: 40, heading: 2, name: 'Merlion Park', sub: 'Marina Bay' }
   };
+  // timers run when the test says so (flush)
+  let timers = [];
+  const flush = () => { const t = timers; timers = []; for (const fn of t) fn(); };
   const { setupNavigationUI } = loadModule(source, {
-    globals: { document, window, setTimeout: () => 0, clearTimeout: () => {}, Math, Object, String, Number },
+    globals: { document, window, setTimeout: (fn) => { timers.push(fn); return timers.length; }, clearTimeout: () => {}, Math, Object, String, Number },
     imports: { './city-config.js': { NYC_LANDMARKS: Object.values(places), TELEPORT_LOCATIONS: places, CITY: { units: 'metric' } } }
   });
   const calls = [];
@@ -90,11 +104,12 @@ function harness({ teleportable = true } = {}) {
     closePopovers: () => {},
     teleport: teleportable ? (x, z, h) => calls.push(['teleport', x, z, h]) : null
   });
-  return { ui, calls, navigator, mapSystem, controllerManager, popover, pick, byId, places, fullCanvas };
+  return { ui, calls, navigator, mapSystem, controllerManager, popover, pick, byId, places, fullCanvas, ways, track, flush };
 }
 
 const place = (h, name) => h.byId('nav-places').children.find((b) => b.children[0].textContent === name);
-const way = (h, d) => h.popover.querySelector(`[data-driver="${d}"]`);
+const way = (h, d) => h.track.querySelector(`[data-driver="${d}"]`);
+const arrow = (h, s) => h.ways.querySelector(`[data-step="${s}"]`);
 const pickWay = (h, g) => h.pick.querySelector(`[data-go="${g}"]`);
 
 test('the Navigate menu lists the places and goes there the way it is set to', () => {
@@ -160,4 +175,62 @@ test('a trip on the go carries on after a teleport, from the new spot', () => {
   h.calls.length = 0;
   place(h, 'Merlion Park').click();
   assert.deepEqual(h.calls, [['teleport', -30, 40, 2], ['reroute']]);
+});
+
+test('the ways strip: arrows and [ ] step along it, a tap on the chosen way asks where to', () => {
+  const h = harness();
+  assert.equal(h.ways.dataset.how, 'you');
+  assert.equal(arrow(h, '-1').disabled, true, 'nothing before You drive');
+  assert.equal(h.byId('nav-ways-sub').textContent, 'you sub');
+  assert.equal(h.byId('nav-where-title').textContent, 'Where to · You drive');
+  arrow(h, '1').click();
+  assert.equal(h.ways.dataset.how, 'self', 'shown at once');
+  assert.equal(h.ui.how, 'you', 'taken once the strip rests');
+  h.flush();
+  assert.equal(h.ui.how, 'self');
+  assert.deepEqual(h.calls, [['mode', 'car'], ['driver', 'self']]);
+  assert.equal(way(h, 'self').classList.contains('active'), true);
+  assert.equal(way(h, 'self')['aria-checked'], 'true');
+  assert.equal(way(h, 'self').tabindex, '0', 'the chosen way takes the focus stop');
+  assert.equal(way(h, 'you').tabindex, '-1');
+  assert.equal(h.byId('nav-ways-sub').textContent, 'self sub');
+  h.calls.length = 0;
+  h.ui.step(1);
+  h.ui.step(1);
+  assert.equal(arrow(h, '1').disabled, true, 'nothing after Teleport');
+  h.ui.step(1);
+  h.flush();
+  assert.equal(h.ui.how, 'teleport', 'stops at the end');
+  assert.deepEqual(h.calls, [], 'passing Crazy Taxi on the way picked up no fare');
+  assert.equal(h.popover.shown, undefined);
+  way(h, 'teleport').click();
+  assert.equal(h.popover.shown, 1, 'the chosen way, tapped again: where to');
+  way(h, 'you').click();
+  assert.equal(h.ui.how, 'you', 'another way, tapped: picked');
+});
+
+test('a swipe across the strip moves a way per 56 px; the click it ends with is not a tap', () => {
+  const h = harness();
+  h.ways.dispatch('pointerdown', { clientX: 300, pointerId: 1, button: 0, target: h.track });
+  h.ways.dispatch('pointermove', { clientX: 260, pointerId: 1 });
+  assert.equal(h.ui.how, 'you', 'under a way: nothing yet');
+  h.ways.dispatch('pointermove', { clientX: 240, pointerId: 1 });
+  assert.equal(h.ways.dataset.how, 'self', 'dragged left: the next way');
+  h.ways.dispatch('pointermove', { clientX: 120, pointerId: 1 });
+  assert.equal(h.ways.dataset.how, 'teleport');
+  h.ways.dispatch('pointermove', { clientX: 230, pointerId: 1 });
+  assert.equal(h.ways.dataset.how, 'self', 'and back');
+  assert.equal(h.ui.how, 'you', 'nothing taken mid-swipe');
+  h.ways.dispatch('pointerup', { pointerId: 1 });
+  assert.equal(h.ui.how, 'self', 'taken on letting go');
+  assert.deepEqual(h.calls, [['mode', 'car'], ['driver', 'self']]);
+  way(h, 'self').click();
+  assert.equal(h.popover.shown, undefined, 'the swipe\'s click opens nothing');
+});
+
+test('Crazy Taxi from the strip with no trip on picks up a fare', () => {
+  const h = harness();
+  way(h, 'crazy').click();
+  assert.deepEqual(h.calls.slice(0, 2), [['mode', 'car'], ['driver', 'crazy']]);
+  assert.equal(h.calls[2][0], 'destination', 'a fare across town');
 });

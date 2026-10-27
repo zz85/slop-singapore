@@ -1,8 +1,9 @@
 import { NYC_LANDMARKS, TELEPORT_LOCATIONS, CITY } from './city-config.js';
 
 // js/navigation-ui.js
-// The HUD for js/navigation.js: the Navigate menu (how to go: drive yourself, self-driving, Crazy Taxi or teleport;
-// and where to), the menu a tap on the full map opens (go there each of those ways), the turn-by-turn card, the Crazy
+// The HUD for js/navigation.js: the ways strip above the travel modes (how to go: drive yourself, self-driving, Crazy
+// Taxi or teleport; swiped, scrolled, stepped with [ and ], the one in the middle tapped for where to), the Navigate
+// menu (where to), the menu a tap on the full map opens (go there each of those ways), the turn-by-turn card, the Crazy
 // Taxi meter and its call-outs, and the route on the radar and the full map. All DOM text through textContent.
 
 // The ways to go: three drivers (navigation.js DRIVERS) and teleporting
@@ -15,7 +16,13 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
   const $ = (id) => document.getElementById(id);
   const panel = $('nav-panel');
   const popover = $('navigate-popover');
-  if (!panel || !popover) return { update() {}, toggleMenu() {} };
+  if (!panel || !popover) return { update() {}, toggleMenu() {}, step() {} };
+  // the ways to go: the strip at the bottom (or, without one, the menu)
+  const ways = $('nav-ways');
+  const track = $('nav-ways-track');
+  const waysSub = $('nav-ways-sub');
+  const whereTitle = $('nav-where-title');
+  const wayButtons = () => (track || ways || popover).querySelectorAll('[data-driver]');
   const metric = CITY.units === 'metric';
   const el = {
     arrow: $('nav-arrow')?.querySelector('use'), distance: $('nav-distance'), instruction: $('nav-instruction'),
@@ -94,18 +101,115 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
     if (lm) go(how === 'teleport' ? navigator.driver.id : how, lm.x, lm.z, lm.name);
   }
 
-  for (const btn of popover.querySelectorAll('[data-driver]')) {
+  /** Go the way `id` from now on: the autopilots take the car; a Crazy Taxi with nowhere to go yet picks up a fare */
+  function choose(id) {
+    if (!HOW.includes(id) || id === how) return;
+    how = id;
+    if (id !== 'teleport') {
+      if (id !== 'you' && controllerManager.activeMode !== 'car') selectMode('car');
+      navigator.setDriver(id);
+    }
+    syncDrivers();
+    if (id === 'crazy' && !navigator.active) randomTrip();
+  }
+  // Moving along the strip only shows a way (`shown`); it is taken once the strip comes to rest, so a swipe or a quick
+  // ]] past Crazy Taxi or Self-driving to Teleport neither picks up a fare nor puts you in the car on the way
+  let shown = null;
+  let settleTimer = 0;
+  function settle() {
+    clearTimeout(settleTimer);
+    const id = shown;
+    shown = null;
+    if (id && id !== how) choose(id);
+    else syncDrivers();
+  }
+  /** Show the way `n` along from the one shown (stopping at the ends); taken after `ms` of rest (or by settle()) */
+  function move(n, ms = 450) {
+    const i = Math.max(0, Math.min(HOW.length - 1, HOW.indexOf(shown || how) + n));
+    shown = HOW[i];
+    syncDrivers();
+    clearTimeout(settleTimer);
+    if (ms !== null) settleTimer = setTimeout(settle, ms);
+  }
+  /** The next (+1) or previous (-1) way along the strip */
+  const step = (dir) => move(Math.sign(dir));
+  // opened from the strip, the menu stands over it (and goes back under the toolbar once closed)
+  const menuHome = { anchor: popover.dataset.anchor, side: popover.dataset.side, align: popover.dataset.align };
+  popover.addEventListener('toggle', (e) => {
+    if (e.newState !== 'closed') return;
+    for (const [k, v] of Object.entries(menuHome)) {
+      if (v === undefined) delete popover.dataset[k];
+      else popover.dataset[k] = v;
+    }
+  });
+  const openMenu = () => {
+    if (typeof popover.showPopover !== 'function' || popover.matches?.(':popover-open')) return;
+    if (ways) Object.assign(popover.dataset, { anchor: 'nav-ways', side: 'above', align: 'nav-ways' });
+    popover.showPopover();
+  };
+
+  for (const btn of wayButtons()) {
+    // a tap on another way picks it; on the one already chosen, asks where to
     btn.addEventListener('click', () => {
-      const id = btn.dataset.driver;
-      if (!HOW.includes(id)) return;
-      how = id;
-      if (id !== 'teleport') {
-        if (id !== 'you' && controllerManager.activeMode !== 'car') selectMode('car');
-        navigator.setDriver(id);
+      if (swiped) return;
+      clearTimeout(settleTimer);
+      shown = null;
+      if (btn.dataset.driver === how) openMenu();
+      else choose(btn.dataset.driver);
+    });
+  }
+  // the strip: its arrows, a swipe or drag across it, a scroll over it, and the arrow keys while it has focus
+  let swiped = false;
+  if (ways) {
+    for (const b of ways.querySelectorAll('[data-step]')) b.addEventListener('click', () => step(Number(b.dataset.step)));
+    let drag = null;
+    ways.addEventListener('pointerdown', (e) => {
+      if (e.button > 0 || e.target?.closest?.('[data-step]')) return;
+      drag = { x: e.clientX, id: e.pointerId, moved: 0 };
+      swiped = false;
+    });
+    ways.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      // a way per 56 px dragged; dragging left brings the next one in
+      const n = Math.trunc((drag.x - e.clientX) / 56);
+      if (n !== drag.moved) {
+        move(n - drag.moved, null);
+        drag.moved = n;
+        swiped = true;
+        if (!ways.hasPointerCapture?.(e.pointerId)) ways.setPointerCapture?.(e.pointerId);
       }
-      syncDrivers();
-      // Crazy Taxi with nowhere to go yet: a fare
-      if (id === 'crazy' && !navigator.active) randomTrip();
+    });
+    const end = () => {
+      if (!drag) return;
+      drag = null;
+      if (swiped) settle();
+      // (the click after a swipe is not a tap)
+      setTimeout(() => { swiped = false; }, 0);
+    };
+    ways.addEventListener('pointerup', end);
+    ways.addEventListener('pointercancel', end);
+    let wheelAt = 0;
+    let wheelSum = 0;
+    ways.addEventListener('wheel', (e) => {
+      e.preventDefault?.();
+      const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      const now = e.timeStamp || 0;
+      if (now - wheelAt > 250) wheelSum = 0;
+      wheelAt = now;
+      wheelSum += d;
+      // one way per notch (or per 60 px of trackpad), not a whole fling
+      if (Math.abs(wheelSum) >= 40) {
+        step(wheelSum);
+        wheelSum = 0;
+        wheelAt = now + 200;
+      }
+    }, { passive: false });
+    ways.addEventListener('keydown', (e) => {
+      if (e.code !== 'ArrowLeft' && e.code !== 'ArrowRight') return;
+      e.preventDefault?.();
+      e.stopPropagation?.();
+      step(e.code === 'ArrowLeft' ? -1 : 1);
+      track?.querySelector(`[data-driver="${shown || how}"]`)?.focus?.();
     });
   }
   $('nav-random')?.addEventListener('click', randomTrip);
@@ -178,12 +282,34 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
   }
 
   function syncDrivers() {
-    for (const btn of popover.querySelectorAll('[data-driver]')) {
-      const on = btn.dataset.driver === how;
+    let active = null;
+    const at = shown || how;
+    for (const btn of wayButtons()) {
+      const on = btn.dataset.driver === at;
       btn.classList.toggle('active', on);
       btn.setAttribute('aria-checked', String(on));
+      btn.setAttribute('tabindex', on ? '0' : '-1');
+      if (on) active = btn;
     }
     document.body.dataset.driver = navigator.driver.id;
+    if (ways) ways.dataset.how = at;
+    if (waysSub && active) waysSub.textContent = active.dataset.sub || '';
+    if (whereTitle) whereTitle.textContent = active ? `Where to · ${active.textContent}` : 'Where to';
+    if (ways) {
+      for (const b of ways.querySelectorAll('[data-step]')) {
+        const i = HOW.indexOf(at) + Number(b.dataset.step);
+        b.disabled = i < 0 || i >= HOW.length;
+      }
+    }
+    centreWay(active);
+  }
+  // the chosen way slides to the middle of the strip
+  function centreWay(btn) {
+    if (!track || !btn || !btn.offsetWidth) return;
+    const view = track.parentElement?.clientWidth || 0;
+    if (!view) return;
+    const x = view / 2 - (btn.offsetLeft + btn.offsetWidth / 2);
+    track.style.transform = `translateX(${Math.round(x)}px)`;
   }
 
   // The card, the meter and the maps, from navigator.state()
@@ -249,6 +375,10 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
     toggleMenu() {
       if (typeof popover.togglePopover === 'function') popover.togglePopover();
     },
+    // [ and ]: along the ways strip
+    step,
+    // the strip re-centres after a resize or once its font has loaded
+    layout() { centreWay(track?.querySelector(`[data-driver="${shown || how}"]`)); },
     go,
     get how() { return how; }
   };

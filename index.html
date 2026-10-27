@@ -166,7 +166,7 @@
         <svg class="icon" aria-hidden="true"><use href="#i-storm"/></svg><span class="seg-label">Storm</span>
       </button>
       <span class="toolbar-divider" aria-hidden="true"></span>
-      <button id="btn-navigate" class="tool-btn" type="button" popovertarget="navigate-popover" title="Go somewhere: drive, self-drive, take a Crazy Taxi or teleport [G]">
+      <button id="btn-navigate" class="tool-btn" type="button" popovertarget="navigate-popover" title="Where to: places, a spot on the map or a surprise fare [G]">
         <svg class="icon" aria-hidden="true"><use href="#i-route"/></svg><span class="tool-label">Navigate</span><kbd>G</kbd>
       </button>
       <button id="btn-open-map" class="tool-btn" type="button" title="Full Singapore street map [M]">
@@ -184,14 +184,7 @@
 
   <!-- Navigation (js/navigation.js, js/navigation-ui.js): how to go, where to -->
   <div id="navigate-popover" class="popover" popover data-side="below" data-anchor="hud-toolbar" aria-label="Go somewhere">
-    <div class="pop-title">How</div>
-    <div class="nav-drivers" role="radiogroup" aria-label="How to go">
-      <button class="pop-item nav-driver active" data-driver="you" type="button" role="radio" aria-checked="true"><span class="pop-name">You drive</span><span class="pop-sub">Turn-by-turn directions</span></button>
-      <button class="pop-item nav-driver" data-driver="self" type="button" role="radio" aria-checked="false"><span class="pop-name">Self-driving</span><span class="pop-sub">Keeps its lane, up to 90 km/h, stops at reds</span></button>
-      <button class="pop-item nav-driver" data-driver="crazy" type="button" role="radio" aria-checked="false"><span class="pop-name">Crazy Taxi</span><span class="pop-sub">On the clock. Lights are suggestions · T: cockpit cam</span></button>
-      <button class="pop-item nav-driver" data-driver="teleport" type="button" role="radio" aria-checked="false"><span class="pop-name">Teleport</span><span class="pop-sub">Be there now</span></button>
-    </div>
-    <div class="pop-title">Where to</div>
+    <div id="nav-where-title" class="pop-title">Where to</div>
     <button id="nav-pick" class="pop-item" type="button"><span class="pop-name">Pick a spot on the map…</span></button>
     <button id="nav-random" class="pop-item" type="button"><span class="pop-name">Surprise me</span><span class="pop-sub">Somewhere across town</span></button>
     <button id="nav-stop" class="pop-item" type="button" hidden><span class="pop-name">End the trip</span></button>
@@ -231,6 +224,20 @@
   <!-- Bottom-Center: Third-Person Mode Switcher & Controls Guide -->
   <footer class="hud hud-bottom-center">
     <div id="hud-controls-hint" class="controls-hint"></div>
+    <!-- How to go (js/navigation-ui.js): swipe, scroll or [ ] through the ways; tap the one in the middle for where to -->
+    <div id="nav-ways" class="nav-ways" role="group" aria-label="How to go">
+      <button class="nav-ways-step" data-step="-1" type="button" tabindex="-1" aria-hidden="true" title="Previous way ([)"><svg class="icon"><use href="#i-chevron-left"/></svg></button>
+      <div class="nav-ways-view">
+      <div id="nav-ways-track" class="nav-ways-track" role="radiogroup" aria-label="How to go">
+        <button class="nav-way active" data-driver="you" data-sub="Turn-by-turn directions" type="button" role="radio" aria-checked="true">You drive</button>
+        <button class="nav-way" data-driver="self" data-sub="Keeps its lane, up to 90 km/h, stops at reds" type="button" role="radio" aria-checked="false" tabindex="-1">Self-driving</button>
+        <button class="nav-way" data-driver="crazy" data-sub="On the clock. Lights are suggestions · T: cockpit cam" type="button" role="radio" aria-checked="false" tabindex="-1">Crazy Taxi</button>
+        <button class="nav-way" data-driver="teleport" data-sub="Be there now" type="button" role="radio" aria-checked="false" tabindex="-1">Teleport</button>
+      </div>
+      </div>
+      <button class="nav-ways-step" data-step="1" type="button" tabindex="-1" aria-hidden="true" title="Next way (])"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
+      <div id="nav-ways-sub" class="nav-ways-sub" aria-live="polite">Turn-by-turn directions</div>
+    </div>
     <nav id="mode-switch" class="panel mode-switch" aria-label="Third-Person Navigation Mode">
       <span class="mode-indicator" aria-hidden="true"></span>
       <button id="mode-person" class="mode-btn" data-mode="person" type="button" title="Person [1]">

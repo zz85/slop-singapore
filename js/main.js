@@ -392,7 +392,7 @@ async function initApp() {
   // Keyboard guide for each mode: [keys, action]
   const controlHints = {
     person: [[['W', 'S'], 'Walk / Run'], [['A', 'D'], 'Turn'], [['Space'], 'Jump'], [['Drag'], 'Orbit']],
-    car: [[['W', 'S'], 'Drive / Reverse'], [['A', 'D'], 'Steer'], [['B'], 'Horn'], [['G'], 'Navigate'], [['Drag'], 'Orbit']],
+    car: [[['W', 'S'], 'Drive / Reverse'], [['A', 'D'], 'Steer'], [['B'], 'Horn'], [['[', ']'], 'How to go'], [['G'], 'Where to'], [['Drag'], 'Orbit']],
     cyclist: [[['W', 'S'], 'Pedal / Brake'], [['A', 'D'], 'Lean & Turn'], [['Drag'], 'Orbit']],
     helicopter: [[['W', 'S'], 'Pitch'], [['A', 'D'], 'Yaw'], [['Space', 'E'], 'Ascend'], [['Q', 'C'], 'Descend']]
   };
@@ -652,6 +652,8 @@ async function initApp() {
   const resolveNetwork = (a, b) => islandGraph.resolve(a, b);
   const routeNavigator = new Navigator({ network: trafficSystem.network, trafficSystem, islandTraffic, controllerManager, audioSystem, resolveNetwork });
   const navigationUI = setupNavigationUI({ navigator: routeNavigator, mapSystem, controllerManager, selectMode, closePopovers, teleport: teleportTo });
+  // (the ways strip centres its choice by measuring it: again once the HUD font is in)
+  document.fonts?.ready?.then(() => navigationUI.layout());
   // What the autopilot sees, over the view (js/perception-overlay.js): the Navigate menu's switch & [O], remembered
   const perceptionOverlay = new PerceptionOverlay(document.body, { metric: CITY.units === 'metric' });
   const overlaySwitch = document.getElementById('nav-overlay');
@@ -729,6 +731,10 @@ async function initApp() {
       case 'KeyG':
         if (!e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && !mapSystem.isFullMapOpen) navigationUI.toggleMenu();
         break;
+      case 'BracketLeft':
+      case 'BracketRight':
+        if (!e.metaKey && !e.ctrlKey && !e.altKey && !mapSystem.isFullMapOpen) navigationUI.step(e.code === 'BracketLeft' ? -1 : 1);
+        break;
       case 'KeyB':
         if (!e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && !mapSystem.isFullMapOpen) audioSystem.honk(controllerManager.getActiveEntity());
         break;
@@ -739,6 +745,7 @@ async function initApp() {
     cameraSystem.onResize(window.innerWidth, window.innerHeight);
     renderer.setSize(window.innerWidth, window.innerHeight);
     placeModeIndicator();
+    navigationUI.layout();
     if (mapSystem.isFullMapOpen) {
       mapSystem.resizeFullCanvas();
       mapSystem.renderFullMap();
