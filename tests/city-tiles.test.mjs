@@ -6,7 +6,7 @@ import test from 'node:test';
 import { buildTiles } from '../tools/city/tiles.mjs';
 import { islandQueries } from '../tools/city/fetch-island.mjs';
 import { decodePNG } from '../tools/city/png.mjs';
-import { decodeBuildings, decodeTrees, buildTileArrays, triangulate, transferables, islandGround, TREE_SPACING, REAL_ROOM } from '../js/city-tiles-build.js';
+import { decodeBuildings, decodeTrees, buildTileArrays, triangulate, transferables, islandGround, TREE_SPACING, REAL_ROOM, TREE_CHUNK } from '../js/city-tiles-build.js';
 
 const LAT0 = 1.3, LON0 = 103.8;
 const way = (id, coords, tags) => ({ type: 'way', id, nodes: coords.map((_, i) => (i === coords.length - 1 ? id * 100 : id * 100 + i)), geometry: coords.map(([lon, lat]) => ({ lon, lat })), tags });
@@ -306,21 +306,22 @@ test('NParks\' trees: each at its place and height, off buildings and carriagewa
   const real = [[250, 200, 12], [280, 200, 15], [310, 200, 9], [100, 300, 10], [300, 450, 8], [300, 459, 11], [340, 200, 0]];
   const flat = [];
   let px = 0, pz = 0;
-  for (const [x, z, h] of real) { flat.push(x * 10 - px, z * 10 - pz, h); px = x * 10; pz = z * 10; }
+  for (const [x, z, h] of real) { flat.push(x - px, z - pz, h); px = x; pz = z; }
   assert.deepEqual(decodeTrees(flat).map((t) => [t.x, t.z, t.h]), real);
   const withReal = { ...tile, trees: flat };
   const built = buildTileArrays(withReal, { ox, oz, size, landuse });
   assert.equal(built.trees.real, 5, 'less the one in the building and the one on the road');
   const all = treesOf(built.trees);
-  const nparks = all.slice(0, built.trees.real);
-  assert.deepEqual(nparks.map((t) => [t.x, t.z]), [[250, 200], [280, 200], [310, 200], [300, 459], [340, 200]]);
+  const kept = [[250, 200], [280, 200], [310, 200], [300, 459], [340, 200]];
+  const nparks = kept.map(([x, z]) => all.find((t) => Math.abs(t.x - x) < 1e-3 && Math.abs(t.z - z) < 1e-3));
+  assert.ok(nparks.every(Boolean), 'each at its place');
   for (const [k, t] of nparks.entries()) {
     const want = [12, 15, 9, 11, 8][k];
     assert.ok(Math.abs(t.h - want) <= want * 0.1 + 1e-6, `height ${t.h} for ${want}`);
     assert.ok(t.w >= 3.5 && t.w <= 15);
   }
   // none of the filled-in ones within the park's REAL_ROOM of them; in the woods only their crown's room
-  for (const t of all.slice(built.trees.real)) {
+  for (const t of all.filter((q) => !nparks.includes(q))) {
     for (const r of nparks) {
       const d = Math.hypot(t.x - r.x, t.z - r.z);
       if (t.x > 200 && t.x < 400) assert.ok(d > REAL_ROOM[1] - 4, `a park tree ${d.toFixed(1)} m from an NParks one`);
@@ -342,7 +343,7 @@ test('island tiles: NParks\' trees beyond the detailed area, by tile, and a tile
     fs.writeFileSync(path.join(data, 'coast.json'), JSON.stringify({ elements: [coast] }));
     fs.writeFileSync(path.join(data, 'water.json'), JSON.stringify({ elements: [] }));
     fs.writeFileSync(path.join(data, 'cell_a.json'), JSON.stringify({ elements: [square(11, 2000, 0, 15, { building: 'apartments' })] }));
-    const trees = [[2100, 50, 12], [2110.37, 61.2, 9], [-2600, -2600, 0], [10, 10, 15], [5000, 0, 9]]; // (in town; at sea)
+    const trees = [[2100, 50, 12], [2110.37, 61.2, 9], [-2600, -2600, 0], [10, 10, 15], [5000, 0, 9]]; // (in town; at sea; to the metre)
     fs.writeFileSync(path.join(data, 'trees.csv'), 'lng,lat,height,family\n' + trees.map(([x, z, h]) => `${ll(x, z).join(',')},${h},"Fabaceae"`).join('\n') + '\n');
     const city = {
       id: 'testisle', detail: [LAT0 - 0.003, LON0 - 0.003, LAT0 + 0.003, LON0 + 0.003], margin: 0.001,
@@ -355,10 +356,10 @@ test('island tiles: NParks\' trees beyond the detailed area, by tile, and a tile
       const tile = JSON.parse(fs.readFileSync(path.join(out, t.file), 'utf8'));
       const list = decodeTrees(tile.trees || []);
       assert.equal(list.length, t.trees, 'counted in the index');
-      for (const tr of list) got.push([+(tr.x + t.i * 1500).toFixed(1), +(tr.z + t.j * 1500).toFixed(1), tr.h]);
+      for (const tr of list) got.push([tr.x + t.i * 1500, tr.z + t.j * 1500, tr.h]);
     }
     got.sort((a, b) => a[0] - b[0]);
-    const near = (a, b) => Math.abs(a - b) < 0.11;
+    const near = (a, b) => Math.abs(a - b) <= 0.5 + 0.11; // (rounded to the metre: the frame's rounding as well)
     assert.equal(got.length, 3, 'not in town or at sea');
     for (const [x, z, h] of [[-2600, -2600, 0], [2100, 50, 12], [2110.4, 61.2, 9]]) assert.ok(got.some((g) => near(g[0], x) && near(g[1], z) && g[2] === h), `${x}, ${z}`);
     // the island is 8 km of land in 1.5 km tiles: every one with land outside town has a tile, buildings or not
@@ -367,4 +368,44 @@ test('island tiles: NParks\' trees beyond the detailed area, by tile, and a tile
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('a tile\'s trees come in 500 m squares, each its own run of the matrices in a seeded order', () => {
+  const { ox, oz, size, landuse, tile } = treeTile();
+  const built = buildTileArrays(tile, { ox, oz, size, landuse });
+  const t = built.trees;
+  assert.ok(t.chunks.length >= 2 && t.chunks.length <= 4, `${t.chunks.length} squares of a 600 m tile`);
+  assert.equal(t.chunks.reduce((n, c) => n + c.count, 0), t.count);
+  let at = 0;
+  for (const c of t.chunks) {
+    assert.equal(c.start, at, 'one after another');
+    at += c.count;
+    const [cx, , cz, r] = c.sphere;
+    for (let k = c.start; k < c.start + c.count; k++) {
+      const x = t.matrices[k * 16 + 12], z = t.matrices[k * 16 + 14];
+      assert.ok(Math.floor(x / TREE_CHUNK) === Math.floor(cx / TREE_CHUNK) && Math.floor(z / TREE_CHUNK) === Math.floor(cz / TREE_CHUNK), 'in its square');
+      assert.ok(Math.hypot(x - cx, z - cz) < r);
+    }
+  }
+  // the first half of a square spread across it, not bunched in one corner (what thinning it by count relies on)
+  const big = t.chunks.reduce((a, c) => (c.count > a.count ? c : a));
+  const half = Array.from({ length: Math.floor(big.count / 2) }, (_, k) => t.matrices[(big.start + k) * 16 + 14]);
+  const zs = Array.from({ length: big.count }, (_, k) => t.matrices[(big.start + k) * 16 + 14]);
+  const mean = (a) => a.reduce((p, q) => p + q, 0) / a.length;
+  assert.ok(Math.abs(mean(half) - mean(zs)) < 25, 'thinning keeps it even');
+});
+
+test('the trees\' detail and thinning by distance', async () => {
+  const src = fs.readFileSync(new URL('../js/city-tiles.js', import.meta.url), 'utf8');
+  // treeLod has no three.js in it: pull it out with its constants
+  const body = src.slice(src.indexOf('const TREE_RANGE ='), src.indexOf('// A unit tree 1 m tall'));
+  const { treeLod } = new Function(`${body}; return { treeLod };`)();
+  assert.deepEqual(treeLod(100), { lod: 0, share: 1 });
+  assert.deepEqual(treeLod(600), { lod: 1, share: 1 });
+  assert.deepEqual(treeLod(1200), { lod: 2, share: 1 });
+  const at = treeLod(2200);
+  assert.equal(at.lod, 2);
+  assert.ok(at.share < 0.6 && at.share > 0.45);
+  assert.deepEqual(treeLod(2400), { lod: -1, share: 0 });
+  assert.deepEqual(treeLod(500, 400), { lod: -1, share: 0 }, 'a shorter range');
 });

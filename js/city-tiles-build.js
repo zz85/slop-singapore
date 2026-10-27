@@ -265,7 +265,7 @@ function obstacleGrid(buildings, runs, size, clear = CLEAR, cell = 3) {
   return { at: (x, z) => { const i = Math.floor(x / cell), j = Math.floor(z / cell); return i >= 0 && j >= 0 && i < n && j < n && g[j * n + i] === 1; } };
 }
 
-// A tile's NParks trees ([dx, dz (dm), height (m)] flat, from its corner), less those on a building or a carriageway
+// A tile's NParks trees ([dx, dz (m), height (m)] flat, from its corner), less those on a building or a carriageway
 // (`blocked`): [{ x, z, h }] relative to the tile's corner
 function decodeTrees(flat, blocked = () => false) {
   const out = [];
@@ -273,7 +273,7 @@ function decodeTrees(flat, blocked = () => false) {
   for (let k = 0; k + 2 < flat.length; k += 3) {
     px += flat[k];
     pz += flat[k + 1];
-    const x = px / 10, z = pz / 10;
+    const x = px, z = pz;
     if (!blocked(x, z)) out.push({ x, z, h: flat[k + 2] });
   }
   return out;
@@ -391,6 +391,40 @@ function islandGround({ landuse, land, coreRing, tile }) {
   return (i, j) => ({ ox: i * tile, oz: j * tile, size: tile, landuse, onLand: mask.at, inCore });
 }
 
+/**
+ * A tile's trees in TREE_CHUNK m squares, for the renderer to choose each one's detail and how many of it to draw by its
+ * distance (js/city-tiles.js): the matrices regrouped by square, each square's in a seeded random order (so drawing the
+ * first n of them thins it evenly) -> { matrices, count, real, chunks: [{ start, count, sphere: [x, y, z, r] }] }
+ */
+const TREE_CHUNK = 500; // m
+function chunkTrees(trees, size) {
+  const per = Math.max(1, Math.ceil(size / TREE_CHUNK));
+  const M = trees.matrices;
+  const groups = Array.from({ length: per * per }, () => []);
+  for (let k = 0; k < trees.count; k++) {
+    const x = M[k * 16 + 12], z = M[k * 16 + 14];
+    const i = Math.min(per - 1, Math.max(0, Math.floor(x / TREE_CHUNK))), j = Math.min(per - 1, Math.max(0, Math.floor(z / TREE_CHUNK)));
+    groups[j * per + i].push([hash(x * 3.1 + 0.7, z * 2.3 - 1.9), k]);
+  }
+  const out = new Float32Array(M.length);
+  const chunks = [];
+  let at = 0;
+  groups.forEach((g, c) => {
+    if (!g.length) return;
+    g.sort((a, b) => a[0] - b[0]);
+    let top = 0;
+    for (const [, k] of g) {
+      out.set(M.subarray(k * 16, k * 16 + 16), at * 16);
+      top = Math.max(top, M[k * 16 + 5]);
+      at++;
+    }
+    const i = c % per, j = Math.floor(c / per);
+    const half = TREE_CHUNK / 2;
+    chunks.push({ start: at - g.length, count: g.length, sphere: [i * TREE_CHUNK + half, top / 2, j * TREE_CHUNK + half, Math.hypot(half, half, top / 2) + 8] });
+  });
+  return { ...trees, matrices: out, chunks };
+}
+
 function buildTileArrays(tile, ground = null) {
   const walls = { pos: [], nrm: [], uv: [], col: [] };
   const roofs = { pos: [], col: [] };
@@ -484,7 +518,7 @@ function buildTileArrays(tile, ground = null) {
     const strict = tile.trees ? obstacleGrid(buildings, runs, size, 0.5, 1).at : null;
     const real = tile.trees ? decodeTrees(tile.trees, strict) : [];
     const blocked = ground && ground.landuse ? obstacleGrid(buildings, runs, size).at : undefined;
-    trees = scatterTrees({ ox: 0, oz: 0, size, ...(ground || {}), real, blocked });
+    trees = chunkTrees(scatterTrees({ ox: 0, oz: 0, size, ...(ground || {}), real, blocked }), size);
   }
   return {
     trees,
@@ -510,4 +544,4 @@ function transferables(built) {
   return list;
 }
 
-export { buildTileArrays, decodeBuildings, decodeTrees, triangulate, transferables, createLandMask, scatterTrees, landuseAt, islandGround, TREE_SPACING, REAL_ROOM };
+export { buildTileArrays, chunkTrees, TREE_CHUNK, decodeBuildings, decodeTrees, triangulate, transferables, createLandMask, scatterTrees, landuseAt, islandGround, TREE_SPACING, REAL_ROOM };

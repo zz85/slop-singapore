@@ -9,7 +9,7 @@
 //   tiles/<city>/<i>_<j>.json {
 //     buildings: { types, data } as GEO.buildings (tools/city/build.mjs; outer rings only), relative to the tile's corner,
 //     roads: [class, width (dm), points..., dx dz (dm) from the point before (the first from the tile's corner)] runs
-//     trees?: NParks' (tools/city/fetch-island.mjs trees.csv) [dx, dz (dm) from the tree before, height (m)] flat
+//     trees?: NParks' (tools/city/fetch-island.mjs trees.csv) [dx, dz (m) from the tree before, height (m)] flat
 //   }
 // and tiles/<city>/roads.json, the island's main roads for the maps (js/nyc-map.js), the island's traffic and teleports
 // (js/island-roads.js), beyond the detail box (through its margin, up to where the city's own road graph takes over):
@@ -307,13 +307,14 @@ export async function buildTiles(cityOrId, { data, out, geo } = {}) {
       }
       return out;
     });
-    // trees: [dx, dz (dm, from the one before, the first from the tile's corner), height (m)], row by row
+    // trees: [dx, dz (m, from the one before, the first from the tile's corner), height (m)], in 50 m rows: to the metre,
+    // the inventory's own precision about, and a third smaller gzipped than to the decimetre
     const trees = [];
     {
       let px = 0, pz = 0;
       tile.trees.sort((a, b) => Math.floor(a[1] / 50) - Math.floor(b[1] / 50) || a[0] - b[0]);
       for (const [x, z, h] of tile.trees) {
-        const qx = Math.round((x - ox) * 10), qz = Math.round((z - oz) * 10);
+        const qx = Math.round(x - ox), qz = Math.round(z - oz);
         trees.push(qx - px, qz - pz, Math.round(h));
         px = qx; pz = qz;
       }

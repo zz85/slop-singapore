@@ -103,17 +103,31 @@ function landuseTexture(lu) {
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The island's trees (js/city-tiles-build.js scatterTrees: one instance matrix each, a unit tree scaled to its height
-// and crown): a rounded crown on a trunk, ~60 triangles, one instanced mesh per tile, drawn only within TREE_RANGE of
-// the camera (beyond, the ground's canopy shading carries the woods), in two levels of detail: ~90 triangles a tree in
-// the tiles nearest the camera, ~30 in the rest
+// and crown, in 500 m squares, chunkTrees): a rounded crown on a trunk, one instanced mesh per square, drawn only within
+// TREE_RANGE of the camera (beyond, the ground's canopy shading carries the woods). Each square by its distance (to its
+// nearest point): ~90 triangles a tree within TREE_NEAR, ~26 within TREE_MID, then a crown of 8 with every other tree
+// left out by TREE_RANGE (the first n of a square's trees, which are in a random order). Worst case, low over the
+// Central Catchment's woods: ~1.3M triangles in range, about a third of them in view.
 // ---------------------------------------------------------------------------------------------------------------------
 const TREE_RANGE = 2300; // m
-const TREE_NEAR = 500; // m (from the camera to a tile's nearest point)
+const TREE_NEAR = 300; // m
+const TREE_MID = 1000; // m
+const TREE_THIN = 1300; // m: from here to TREE_RANGE, fewer drawn
+const TREE_KEEP = 0.45; // of a square's trees drawn at TREE_RANGE
+
+/** How a square of trees `d` m away (over the ground, with the camera's height) is drawn: { lod 0-2, share 0-1 } */
+function treeLod(d, range = TREE_RANGE) {
+  if (d >= range) return { lod: -1, share: 0 };
+  const lod = d < TREE_NEAR ? 0 : d < TREE_MID ? 1 : 2;
+  const share = d <= TREE_THIN ? 1 : 1 - (1 - TREE_KEEP) * Math.min(1, (d - TREE_THIN) / Math.max(1, range - TREE_THIN));
+  return { lod, share };
+}
 
 // A unit tree 1 m tall and 1 m across: its crown (an icosphere, its normals pointing out from the crown's centre for soft
 // light) from 0.38 to 1, on a trunk up to 0.5; `crown` 1 on the crown's vertices, 0 on the trunk's
 function treeGeometry(detail = 1) {
-  const crown = new THREE.IcosahedronGeometry(0.5, detail); // (not indexed)
+  // the far crown an octahedron with no trunk
+  const crown = detail < 0 ? new THREE.OctahedronGeometry(0.5, 0) : new THREE.IcosahedronGeometry(0.5, detail); // (not indexed)
   const cp = crown.attributes.position;
   const pos = [], nrm = [], isCrown = [];
   for (let k = 0; k < cp.count; k++) {
@@ -128,7 +142,7 @@ function treeGeometry(detail = 1) {
   }
   const trunk = new THREE.CylinderGeometry(0.022, 0.035, 0.52, detail ? 5 : 3, 1, true).translate(0, 0.26, 0).toNonIndexed();
   const tp = trunk.attributes.position, tn = trunk.attributes.normal;
-  for (let k = 0; k < tp.count; k++) {
+  for (let k = 0; k < (detail < 0 ? 0 : tp.count); k++) {
     pos.push(tp.getX(k), tp.getY(k), tp.getZ(k));
     nrm.push(tn.getX(k), tn.getY(k), tn.getZ(k));
     isCrown.push(0);
@@ -161,12 +175,14 @@ function treeMaterial() {
   return m;
 }
 
-function treeMesh(trees, geometry, material) {
-  const mesh = new THREE.InstancedMesh(geometry, material, trees.count);
-  mesh.instanceMatrix = new THREE.InstancedBufferAttribute(trees.matrices, 16);
-  const [x, y, z, r] = trees.sphere;
+// One square of a tile's trees (chunkTrees) as an instanced mesh over its stretch of the tile's matrices
+function treeMesh(trees, chunk, geometry, material) {
+  const mesh = new THREE.InstancedMesh(geometry, material, chunk.count);
+  mesh.instanceMatrix = new THREE.InstancedBufferAttribute(trees.matrices.subarray(chunk.start * 16, (chunk.start + chunk.count) * 16), 16);
+  const [x, y, z, r] = chunk.sphere;
   mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(x, y, z), r);
   mesh.receiveShadow = true;
+  mesh.visible = false; // (shown from the next frame, if near enough)
   mesh.name = 'IslandTrees';
   return mesh;
 }
@@ -237,8 +253,7 @@ class CityTiles {
     this.group.name = 'CityTiles';
     scene.add(this.group);
     this.materials = { walls: wallMaterial(), roofs: roofMaterial(), roads: roadMaterial(), trees: treeMaterial() };
-    this.treeGeometry = treeGeometry(1);
-    this.treeGeometryFar = treeGeometry(0);
+    this.treeGeometries = [treeGeometry(1), treeGeometry(0), treeGeometry(-1)];
     this.treeRange = TREE_RANGE; // m (0: no trees)
     this.groundAt = null; // (i, j) => buildTileArrays's ground, for the main thread's builds
     this.loaded = new Map(); // key -> { group } | { pending: true }
@@ -262,7 +277,7 @@ class CityTiles {
       this.worker = null;
     }
     this.index = null;
-    this.stats = { tiles: 0, walls: 0, trees: 0, treesShown: 0 };
+    this.stats = { tiles: 0, walls: 0, trees: 0, treesShown: 0, treeTriangles: 0 };
     // called with (key, tile corner x, z, outlines) as each tile is added (the maps draw its buildings), with (key,
     // colliders) as it's added and (key, null) as it's dropped (the player bumps into its buildings)
     this.onTileOutlines = null;
@@ -275,7 +290,7 @@ class CityTiles {
     stand.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
     stand.setAttribute('color', new THREE.Float32BufferAttribute([1, 1, 1, 1, 1, 1, 1, 1, 1], 3));
     for (const [k, mat] of Object.entries(this.materials)) if (k !== 'trees') this.group.add(new THREE.Mesh(stand, mat));
-    const standTree = new THREE.InstancedMesh(this.treeGeometryFar, this.materials.trees, 1);
+    const standTree = new THREE.InstancedMesh(this.treeGeometries[2], this.materials.trees, 1);
     standTree.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, -60, 0));
     this.group.add(standTree);
   }
@@ -409,9 +424,11 @@ class CityTiles {
       group.name = `tile_${job.key}`;
       let trees = null;
       if (job.built.trees && job.built.trees.count) {
-        trees = treeMesh(job.built.trees, this.treeGeometry, this.materials.trees);
-        trees.visible = false; // (shown from the next frame, if near enough)
-        group.add(trees);
+        trees = job.built.trees.chunks.map((c) => {
+          const mesh = treeMesh(job.built.trees, c, this.treeGeometries[2], this.materials.trees);
+          group.add(mesh);
+          return { mesh, x0: job.t.i * T + c.sphere[0] - 250, z0: job.t.j * T + c.sphere[2] - 250, total: c.count, drawn: 0, tris: 0 };
+        });
         this.stats.trees += job.built.trees.count;
       }
       this.group.add(group);
@@ -426,24 +443,33 @@ class CityTiles {
       if (!entry.group) continue;
       const t = this.byKey.get(key);
       const d = Math.hypot(clamp(x, t.i * T, (t.i + 1) * T) - x, clamp(z, t.j * T, (t.j + 1) * T) - z);
-      // its trees only near enough to make out
+      // its trees by each square's distance: how detailed, and how many
+      const drop = d > R + T;
       if (entry.trees) {
-        const far = Math.hypot(d, y);
-        const show = far < this.treeRange;
-        if (show !== entry.trees.visible) this.stats.treesShown += show ? entry.trees.count : -entry.trees.count;
-        entry.trees.visible = show;
-        const geometry = far < TREE_NEAR ? this.treeGeometry : this.treeGeometryFar;
-        if (entry.trees.geometry !== geometry) entry.trees.geometry = geometry;
+        for (const sq of entry.trees) {
+          const far = drop ? Infinity : Math.hypot(clamp(x, sq.x0, sq.x0 + 500) - x, clamp(z, sq.z0, sq.z0 + 500) - z, y);
+          const { lod, share } = treeLod(far, this.treeRange);
+          const drawn = lod < 0 ? 0 : Math.max(1, Math.round(sq.total * share));
+          const geometry = lod < 0 ? sq.mesh.geometry : this.treeGeometries[lod];
+          const tris = drawn * (geometry.attributes.position.count / 3);
+          this.stats.treesShown += drawn - sq.drawn;
+          this.stats.treeTriangles += tris - sq.tris;
+          sq.drawn = drawn;
+          sq.tris = tris;
+          sq.mesh.visible = drawn > 0;
+          sq.mesh.count = drawn;
+          if (sq.mesh.geometry !== geometry) sq.mesh.geometry = geometry;
+        }
       }
-      if (d > R + T) {
+      if (drop) {
         this.group.remove(entry.group);
+        const treeMeshes = new Set((entry.trees || []).map((sq) => sq.mesh));
         if (entry.trees) {
-          this.stats.trees -= entry.trees.count;
-          if (entry.trees.visible) this.stats.treesShown -= entry.trees.count;
-          entry.trees.dispose();
+          this.stats.trees -= entry.trees.reduce((n, sq) => n + sq.total, 0);
+          for (const sq of entry.trees) sq.mesh.dispose();
         }
         if (this.onTileColliders) this.onTileColliders(key, null);
-        for (const mesh of entry.group.children) if (mesh !== entry.trees) mesh.geometry.dispose();
+        for (const mesh of entry.group.children) if (!treeMeshes.has(mesh)) mesh.geometry.dispose();
         this.loaded.delete(key);
         this.stats.tiles--;
         this.stats.walls -= entry.walls;
@@ -452,4 +478,4 @@ class CityTiles {
   }
 }
 
-export { CityTiles, tileMeshes, tileColliders };
+export { CityTiles, tileMeshes, tileColliders, treeLod, TREE_RANGE };
