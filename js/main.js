@@ -181,7 +181,7 @@ async function initApp() {
   const controllerManager = new ThirdPersonControllerManager(scene, allColliders);
   // Singapore's runways (js/airbases.js): the F-15SG starts on Paya Lebar's, where the RSAF's F-15SGs are based
   const airbases = CITY.open ? createAirbases(scene, CITY.id) : null;
-  if (airbases) controllerManager.setJetHome(airbases.home);
+  if (airbases) controllerManager.setJetHome(airbases.home, airbases.runways);
   // With the island's tiles, the player may go anywhere on its land: the detailed city's own (2 m) inside the area it
   // was built for, the island's (tools/city/tiles.mjs, 8 m) beyond; and bumps into the tiles' buildings as they load
   if (cityTiles?.landMask) {
@@ -201,6 +201,7 @@ async function initApp() {
   // Reuse teleport placement so saved players return at rest, close to their last positions. Each city keeps its own.
   const playerStateKey = CITY.open ? `${CITY.id}-player-state` : 'nyc-player-state';
   let restored = false;
+  let savedJet = false;
   try {
     const saved = JSON.parse(localStorage.getItem(playerStateKey));
     if (saved?.version === 1) {
@@ -209,6 +210,7 @@ async function initApp() {
         if (!p || ![p.x, p.y, p.z, p.heading].every(Number.isFinite)) continue;
         controllerManager.setMode(mode);
         controllerManager.teleportActiveTo(p.x, p.z, p.heading, p.y);
+        if (mode === 'jet') savedJet = true;
       }
       controllerManager.setMode(Object.hasOwn(controllerManager.entities, saved.activeMode) ? saved.activeMode : 'car');
       restored = true;
@@ -227,8 +229,8 @@ async function initApp() {
     }
     controllerManager.setMode('car');
   }
-  // a fresh start: the jet waits on its runway
-  if (!restored && airbases) controllerManager.parkJet();
+  // a fresh start, or a session saved before there was a jet: the jet waits on its runway
+  if (airbases && !savedJet) controllerManager.parkJet();
 
   function savePlayerState() {
     try {

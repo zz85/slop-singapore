@@ -712,3 +712,27 @@ test('island tiles\' colliders come and go with their tiles', () => {
   controller.resolveHorizontalCollision(ent.position, 0.48);
   assert.equal(ent.position.x, 1495);
 });
+
+test('switching to a jet left on the ground off a runway puts it back on its home runway', () => {
+  const { controller } = keyboardHarness();
+  let parked = 0;
+  controller.parkJet = () => { parked++; };
+  const jet = { flight: { onGround: true }, position: { x: 0, z: 0 } };
+  controller.entities = { jet, car: {} };
+  // a 3 km runway along +z centred at (0, 5000), 60 m wide
+  controller.setJetHome({ x: 0, z: 3580, heading: 0 }, [{ x: 0, z: 5000, heading: 0, length: 3000, width: 60 }]);
+  assert.equal(controller.onRunway(0, 5000), true);
+  assert.equal(controller.onRunway(25, 3520), true, 'on its threshold');
+  assert.equal(controller.onRunway(80, 5000), false, 'beside it');
+  assert.equal(controller.onRunway(0, 7000), false, 'past its end');
+  controller.setMode('jet'); // between buildings in the city
+  assert.equal(parked, 1);
+  controller.setMode('car');
+  jet.position.z = 5000; // on the runway: left where it is
+  controller.setMode('jet');
+  assert.equal(parked, 1);
+  jet.position.z = 0;
+  jet.flight.onGround = false; // flying: left where it is
+  controller.setMode('jet');
+  assert.equal(parked, 1);
+});

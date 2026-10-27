@@ -369,6 +369,12 @@ class ThirdPersonControllerManager {
   setMode(mode) {
     if (!this.entities[mode]) return;
     this.activeMode = mode;
+    // the jet on the ground anywhere but a runway (a street, a car park, between buildings) can't take off: back
+    // to its home runway
+    const jet = this.entities.jet;
+    if (mode === 'jet' && jet?.flight?.onGround && this.jetHome && !this.onRunway(jet.position.x, jet.position.z)) {
+      this.parkJet();
+    }
     const car = this.entities.car;
     if (mode !== 'car' && car?.carState) car.carState.value.x = car.carState.value.w = 0;
   }
@@ -933,9 +939,21 @@ class ThirdPersonControllerManager {
     };
   }
 
-  // Where the jet is parked (js/airbases.js home: Paya Lebar's runway 02), for a fresh start and after a reload
-  setJetHome(home) {
+  // Where the jet is parked (js/airbases.js home: Paya Lebar's runway 02), for a fresh start and after a reload; and
+  // the runways it may sit on (js/airbases.js runways), so it is never left on the ground among buildings
+  setJetHome(home, runways = []) {
     this.jetHome = home && [home.x, home.z, home.heading].every(Number.isFinite) ? home : null;
+    this.jetRunways = runways;
+  }
+
+  /** On one of the runways (or its overrun, 60 m past either end), within its width */
+  onRunway(x, z) {
+    return (this.jetRunways || []).some((r) => {
+      const dx = x - r.x, dz = z - r.z;
+      const along = dx * Math.sin(r.heading) + dz * Math.cos(r.heading);
+      const across = dx * Math.cos(r.heading) - dz * Math.sin(r.heading);
+      return Math.abs(along) <= r.length / 2 + 60 && Math.abs(across) <= r.width / 2 + 10;
+    });
   }
 
   /** Line the jet up on its home runway, stopped, engines at idle */
