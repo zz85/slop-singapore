@@ -40,6 +40,7 @@ const DRIVERS = {
     limits: true, // keeps to the island roads' speed limits (js/island-roads.js), up to its cruise
     cruise: 25, // 90 km/h, Singapore's expressway limit (slower where the curves, the lights or the traffic say so)
     aLat: 2.0, brake: 2.6, hardBrake: 7, gap0: 4.0, gapTime: 1.3, margin: 0.45,
+    cut: 0.6, // m: how far its smoothed line may stray from the lanes' polyline (smoothPath)
     signals: true, peds: true,
     // steering (drive(), step 3): tuned against controllers.js updateCar in tests/navigation.test.cjs
     steerLag: 0.1, steerPreview: 1.4, steerHeading: 1.4, steerCross: 1.6, curveWindow: [0], turnPenalty: 8, signalPenalty: 12,
@@ -53,6 +54,7 @@ const DRIVERS = {
     id: 'crazy', label: 'Crazy Taxi', auto: true, offRoute: 20,
     cruise: 34,
     aLat: 8.0, brake: 7.0, hardBrake: 9, gap0: 1.2, gapTime: 0.25, margin: 0.15,
+    cut: 1.0,
     signals: false, peds: false,
     steerLag: 0.1, steerPreview: 2.5, steerHeading: 1.4, steerCross: 0.8, curveWindow: [0], turnPenalty: 14, signalPenalty: 0,
     // a rule breaker: less look-ahead, a hand's breadth of room, swerving hard before braking, anywhere on the road
@@ -352,6 +354,11 @@ function buildPath(network, route, x, z, driver = DRIVERS.self) {
     entry = j;
   }
 
+  // The line it will actually drive: the lanes' polyline smoothed into one a car can follow at speed (island roads are
+  // short straights between mapped points, each joint a kink), never more than `cut` m off the lanes, so a corner is
+  // still taken in lane and only the kinks and wobbles go. The speed profile and the steering both work from it.
+  smoothPath(pts, driver.cut ?? 0.35);
+
   // arc length, tangents, normals, curvature
   for (let i = 1; i < pts.length; i++) pts[i].s = pts[i - 1].s + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z);
   for (let i = 0; i < pts.length; i++) {
@@ -384,6 +391,103 @@ function buildPath(network, route, x, z, driver = DRIVERS.self) {
   for (const st of stops) st.s = pts[st.i].s;
   speedProfile(path, driver);
   return path;
+}
+
+// Smooths the points into a line a car can follow at speed while keeping each within `cut` m of where it was: blurred
+// (which spreads a kink's turn over the points either side) at a ladder of lengths, from a few metres to ~40 m, and each point taking the most blurred
+// version that stays within `cut` of it (between two rungs, in proportion). So a mapped kink on an expressway is eased
+// over tens of metres, a junction's tight corner barely, and a corner is still taken in lane. The first point (where the
+// car stands) and the last (the destination) stay put.
+const SIGMAS = [2, 4, 8, 14, 22, 32, 44]; // m: smoothPath's blur lengths
+function smoothPath(pts, cut) {
+  const n = pts.length;
+  if (n < 3 || !(cut > 0)) return;
+  const gaps = [];
+  for (let i = 1; i < n; i++) gaps.push(Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
+  gaps.sort((a, b) => a - b);
+  const spacing = Math.max(0.5, gaps[gaps.length >> 1]);
+  const ox = Float64Array.from(pts, (p) => p.x);
+  const oz = Float64Array.from(pts, (p) => p.z);
+  // (relaxing each point towards the middle of the points h either side of it blurs them, adding h^2 / 2 to the blur's
+  // variance in points^2; h doubles as the blur grows, never past it, so a ~40 m blur takes a few dozen passes rather
+  // than hundreds. The ends are held. Each rung blurs on from the one before.)
+  let x = ox.slice();
+  let z = oz.slice();
+  let tx = x.slice();
+  let tz = z.slice();
+  const rungs = [];
+  let variance = 0;
+  for (const sigma of SIGMAS) {
+    const target = (sigma / spacing) ** 2;
+    while (variance < target - 1e-9) {
+      let h = 1;
+      while (0.5 * (2 * h) ** 2 <= Math.min(variance, target - variance)) h *= 2;
+      for (let i = 1; i < n - 1; i++) {
+        // (past an end, the line carried on straight through it: a straight stretch stays as it is)
+        let ax, az, bx, bz;
+        if (i - h >= 0) { ax = x[i - h]; az = z[i - h]; } else { const k = Math.min(n - 1, h - i); ax = 2 * x[0] - x[k]; az = 2 * z[0] - z[k]; }
+        if (i + h <= n - 1) { bx = x[i + h]; bz = z[i + h]; } else { const k = Math.max(0, 2 * (n - 1) - i - h); bx = 2 * x[n - 1] - x[k]; bz = 2 * z[n - 1] - z[k]; }
+        tx[i] = 0.5 * x[i] + 0.25 * (ax + bx);
+        tz[i] = 0.5 * z[i] + 0.25 * (az + bz);
+      }
+      [x, tx] = [tx, x];
+      [z, tz] = [tz, z];
+      variance += 0.5 * h * h;
+    }
+    rungs.push([x.slice(), z.slice()]);
+  }
+  // how blurred each point may be: a fractional rung (-1 the points as they are, 0 the first rung, ...), the most blurred
+  // that keeps within `cut` of it
+  // (across the line only: the blur also slides unevenly spaced points along it, which is harmless)
+  const R = rungs.length;
+  const level = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
+    const L = Math.hypot(ox[b] - ox[a], oz[b] - oz[a]) || 1;
+    const ux = (ox[b] - ox[a]) / L, uz = (oz[b] - oz[a]) / L;
+    let lv = -1, pd = 0;
+    for (let r = 0; r < R; r++) {
+      const d = Math.abs((rungs[r][0][i] - ox[i]) * uz - (rungs[r][1][i] - oz[i]) * ux);
+      if (d <= cut) { lv = r; pd = d; continue; }
+      lv += (cut - pd) / Math.max(1e-9, d - pd);
+      break;
+    }
+    level[i] = lv;
+  }
+  // ...varying only gently along the path: a point takes the least of its neighbours' over the length its own blur
+  // reaches, then that is averaged over the same length (a blend of two smooth lines by a slowly changing weight is
+  // smooth; one changing point to point puts a wiggle in)
+  const reachOf = (lv) => Math.max(1, Math.round((2 * (lv < 0 ? 1 : SIGMAS[Math.min(R - 1, Math.ceil(lv))])) / spacing));
+  const low = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const w = reachOf(level[i]);
+    let m = level[i];
+    for (let j = Math.max(0, i - w); j <= Math.min(n - 1, i + w); j++) m = Math.min(m, level[j]);
+    low[i] = m;
+  }
+  const even = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const w = reachOf(low[i]);
+    let sum = 0, cnt = 0;
+    for (let j = Math.max(0, i - w); j <= Math.min(n - 1, i + w); j++) { sum += Math.min(low[j], low[i] + 0.5); cnt++; }
+    even[i] = Math.min(low[i] + 0.25, sum / cnt);
+  }
+  const at = (r, i) => (r < 0 ? [ox[i], oz[i]] : [rungs[r][0][i], rungs[r][1][i]]);
+  const fx = new Float64Array(n);
+  const fz = new Float64Array(n);
+  for (let i = 1; i < n - 1; i++) {
+    const lv = clamp(even[i], -1, R - 1);
+    const r0 = Math.floor(lv);
+    const t = lv - r0;
+    const [ax, az] = at(r0, i);
+    const [bx, bz] = at(Math.min(R - 1, r0 + 1), i);
+    fx[i] = ax + (bx - ax) * t;
+    fz[i] = az + (bz - az) * t;
+  }
+  for (let i = 1; i < n - 1; i++) {
+    pts[i].x = fx[i];
+    pts[i].z = fz[i];
+  }
 }
 
 // The speed limit at each point: what the curve allows (lateral acceleration, and how fast the car can turn), and
@@ -1122,7 +1226,9 @@ class Navigator {
     // the curvature over the next couple of metres (an offset line turns tighter on the inside of a bend)
     let kRef = 0;
     const win = d.curveWindow ?? [-1.5, 0, 1.5, 3];
-    for (const ds of win) kRef += pointAt(path, clamp(sRef + ds, 0, path.length), 0, this._pk).ks;
+    // (looked for a little further on the faster it goes: a bend's curvature is fed in as the car reaches it, not after)
+    const kLead = Math.abs(v) * (d.curveLead ?? 0.15);
+    for (const ds of win) kRef += pointAt(path, clamp(sRef + ds + kLead, 0, path.length), 0, this._pk).ks;
     kRef /= win.length;
     kRef = kRef / Math.max(0.3, 1 + lineAhead.y * kRef);
     // and the turning the manoeuvre across itself takes (moving right turns right: lower curvature)

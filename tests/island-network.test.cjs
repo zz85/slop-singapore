@@ -86,12 +86,19 @@ function drive(network, car, driver, dest, { T = 120, each = null } = {}) {
   const n = new nav.Navigator({ network, trafficSystem: { cars: [], buses: [], peds: [] }, controllerManager: controllers });
   n.setDriver(driver);
   assert.ok(n.setDestination(dest[0], dest[1], 'x'), 'a route');
-  const stats = { maxErr: 0, top: 0, maxGap: 0, t: 0, arrived: false, navigator: n };
+  const stats = { maxErr: 0, top: 0, maxGap: 0, t: 0, arrived: false, navigator: n, reversals: 0 };
   let t = 0;
+  let lastSteer = 0;
   while (t < T && !n.arrived) {
     if (each) each(t, n, car);
     n.update(1 / 60, t);
     stepCar(car, keys, 1 / 60);
+    // steering reversals (left to right and back) once under way, clear of the start and the pull-up at the end
+    const steer = (keys.left || 0) - (keys.right || 0);
+    if (t > 3 && n.progress > 60 && n.progress < n.path.length - 120 && Math.abs(steer) > 0.06) {
+      if (lastSteer && Math.sign(steer) !== Math.sign(lastSteer)) stats.reversals++;
+      lastSteer = steer;
+    }
     const loc = nav.locate(n.path, car.position.x, car.position.z, n.index, 40);
     if (t > 3 && loc.s > 15 && n.progress < n.path.length - 8) stats.maxErr = Math.max(stats.maxErr, Math.abs(loc.across - n.offset));
     stats.top = Math.max(stats.top, car.speed);
@@ -444,4 +451,46 @@ test('the app\'s island graph falls back to the main thread when the worker fail
   assert.equal(none.state, 'main');
   const net = none.resolve(...outOfTown);
   assert.ok(net !== city && net.islandEdges.length > 0, 'built on demand');
+});
+
+// A mapped expressway: points every 8 m along a long, gentle bend, each a little off the true line (as traced from
+// imagery), so the stretches between them meet at small kinks, alternately one way and the other
+function kinkedExpressway({ R = 600, step = 8, jitter = 0.3, arc = 0.9 } = {}) {
+  const pts = [[0, 0], [0, 200]];
+  let k = 0;
+  for (let a = 0; a < arc; k++) {
+    a += step / R;
+    const j = (k % 2 ? 1 : -1) * jitter;
+    pts.push([R - (R + j) * Math.cos(a), 200 + (R + j) * Math.sin(a)]);
+  }
+  const L = pts[pts.length - 1];
+  pts.push([L[0] + 600 * Math.sin(arc), L[1] + 600 * Math.cos(arc)]);
+  return {
+    data: { classes: ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'], names: ['Kinked Expressway'], roads: [encode(0, 0, pts)], oneway: [1], lanes: [3], signals: [] },
+    end: [L[0] + 300 * Math.sin(arc), L[1] + 300 * Math.cos(arc)]
+  };
+}
+
+test('on a kinked mapped bend the autopilots drive a smooth line at speed, without weaving to every kink', () => {
+  const { data, end } = kinkedExpressway();
+  const roads = islandRoads.createIslandRoads(data);
+  const net = islandNet.createIslandNetwork(roads, { keepLeft: true });
+  const e0 = net.edges[0];
+  // (before the line was smoothed: self-driving slowed to 36 km/h on this bend and reversed its steering 70 times)
+  for (const [driver, minV, maxRev] of [['self', 19, 10], ['crazy', 26, 10]]) {
+    const car = makeCar(e0.sx + e0.rx * e0.lanes[1], e0.sz + e0.rz * e0.lanes[1] + 5, 0);
+    let slowest = Infinity;
+    const s = drive(net, car, driver, end, {
+      T: 90,
+      each: (t, n) => {
+        // along the bend, once up to speed
+        if (!n.path || n.progress < 240 || n.progress > n.path.length - 320) return;
+        slowest = Math.min(slowest, car.speed);
+      }
+    });
+    assert.ok(s.arrived, `${driver}: arrived`);
+    assert.ok(slowest > minV, `${driver}: keeps its speed round the bend (slowest ${(slowest * 3.6).toFixed(0)} km/h)`);
+    assert.ok(s.maxErr < (driver === 'self' ? 0.7 : 1.4), `${driver}: on its line (${s.maxErr.toFixed(2)} m)`);
+    assert.ok(s.reversals <= maxRev, `${driver}: no weaving (${s.reversals} steering reversals)`);
+  }
 });

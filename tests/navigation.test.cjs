@@ -37,7 +37,7 @@ const nav = loadModule(readFileSync(join(__dirname, '../js/navigation.js'), 'utf
       nearestRoads: () => []
     }
   },
-  globals: { Math, Number, Map, Set, WeakMap, Array, Infinity, Object },
+  globals: { Math, Number, Map, Set, WeakMap, Array, Infinity, Object, Float64Array },
   filename: 'navigation.js'
 });
 
@@ -186,7 +186,8 @@ test('the path keeps to its lanes, changes lane before a turn and slows for the 
   const before = path.pts[turn.i];
   const e = turn.from;
   const across = (before.x - e.sx) * e.rx + (before.z - e.sz) * e.rz;
-  assert.ok(Math.abs(across - e.lanes[0]) < 0.2, `in the left lane at the turn (${across})`);
+  // (its smoothed line may ease into the corner, within its cut of the lane's middle)
+  assert.ok(Math.abs(across - e.lanes[0]) < nav.DRIVERS.self.cut + 0.05, `in the left lane at the turn (${across})`);
 });
 
 test('pure pursuit steers toward the target with the right sign', () => {
