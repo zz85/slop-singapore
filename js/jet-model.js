@@ -14,8 +14,8 @@ import { Fn, attribute, positionLocal, normalLocal, vec3, float, mix, step, frac
 // - The gold-tinted canopy, the RSAF roundel (a red disc, the lion's head in white) on the intakes and wings, the
 //   serial on the fins, navigation lights and a white tail strobe.
 // Body frame: forward +z, up +y, left wing +x; the origin at the jet's centre, 2.3 m over the wheels (gear down).
-// createJetModel() returns { root, canopy, stabilators, gear, flames, nozzleGlow, strobe, setAfterburner(level),
-// setGear(deploy), setStabilators(pitch) }.
+// createJetModel() returns { root, canopy, cockpit, stabilators, gear, flames, nozzleGlow, strobe, setAfterburner(level),
+// setGear(deploy), setStabilators(pitch), setCockpitView(on) }.
 
 const PAINT = [1, 1, 1]; // painted (the shader's camouflage)
 const DARK = [0.035, 0.037, 0.04];
@@ -191,18 +191,17 @@ function box(parts, cx, cy, cz, hx, hy, hz, color) {
 const WING = { root: [[1.95, 0.7], [1.95, -5.3]], tip: [[6.0, -3.15], [6.52, -4.85]], y: 0.36, t0: 0.34, t1: 0.07 };
 const wingPlace = (side) => (s, ch, th) => [side * s, WING.y - (s - 1.95) * 0.018 + th, ch];
 
-function buildAirframe() {
-  const P = new Parts();
-
-  // 1. The fuselage: radome, cockpit, the spine between the engines, out to the tail cone between the nozzles
-  //    [z, width, top, bottom, centre y, squareness]
-  const body = [
+// 1. The fuselage: radome, cockpit, the spine between the engines, out to the tail cone between the nozzles
+//    [z, width, top, bottom, centre y, squareness]. Its forward part (the radome to behind the front seat, z >= 3.6) is
+//    a mesh of its own, swapped from the front seat for one with the cockpit cut into it (buildCockpit)
+const FWD = 3.6;
+const BODY = [
     [9.72, 0.03, 0.015, 0.015, -0.02, 2],
     [9.35, 0.34, 0.17, 0.17, -0.02, 2],
-    [8.5, 0.78, 0.38, 0.38, 0, 2],
-    [7.3, 1.1, 0.52, 0.5, 0.05, 2.1],
-    [6.3, 1.26, 0.6, 0.56, 0.08, 2.2],
-    [5.2, 1.34, 0.64, 0.6, 0.1, 2.5],
+    [8.5, 0.78, 0.32, 0.4, -0.04, 2],
+    [7.3, 1.1, 0.43, 0.52, 0.0, 2.1],
+    [6.3, 1.26, 0.5, 0.58, 0.04, 2.2],
+    [5.2, 1.34, 0.6, 0.6, 0.08, 2.5],
     [3.6, 1.4, 0.68, 0.64, 0.1, 2.8],
     [2.0, 1.46, 0.72, 0.68, 0.08, 3],
     [0.4, 1.62, 0.76, 0.72, 0.08, 3.4],
@@ -212,8 +211,32 @@ function buildAirframe() {
     [-8.2, 1.15, 0.34, 0.36, 0.02, 3],
     [-9.05, 0.5, 0.14, 0.16, 0.02, 2.4],
     [-9.25, 0.04, 0.02, 0.02, 0.02, 2]
-  ];
-  P.loft(body.map(([z, w, t, b, cy, e]) => section(z, 0, cy, w, t, b, e, 24)), body.map(() => PAINT));
+];
+const bodyRings = (rows) => rows.map(([z, w, t, b, cy, e]) => section(z, 0, cy, w, t, b, e, 24));
+
+/** The forward fuselage; `cut`: with the cockpit's opening cut down into its top, from the glareshield back */
+function buildForwardFuselage(cut = false) {
+  const P = new Parts();
+  let rows = BODY.filter(([z]) => z >= FWD);
+  if (cut) {
+    const at = (z) => {
+      // the full section at z, interpolated
+      const i = BODY.findIndex(([bz]) => bz < z);
+      const a = BODY[i - 1], b = BODY[i], f = (a[0] - z) / (a[0] - b[0]);
+      return a.map((v, k) => v + (b[k] - v) * f);
+    };
+    const lowered = (z) => { const r = at(z); r[2] = 0.34; r[0] = z; return r; };
+    rows = [...rows.filter(([z]) => z > 5.32), (() => { const r = at(5.32); r[0] = 5.32; return r; })(),
+      lowered(5.28), lowered(4.4), lowered(FWD)];
+  }
+  P.loft(bodyRings(rows), rows.map(() => PAINT));
+  return P.merge();
+}
+
+function buildAirframe() {
+  const P = new Parts();
+  const aft = BODY.filter(([z]) => z <= FWD);
+  P.loft(bodyRings(aft), aft.map(() => PAINT));
 
   // 2. Each side: the intake (its mouth dark inside a lip), along the cockpit's flank and back into the engine nacelle,
   //    and the F110's nozzle
@@ -445,21 +468,220 @@ function buildDecals() {
   return g;
 }
 
+// The canopy's bubble: [z, width, height above the sill, sill y], from the windscreen's point back over both seats,
+// faired into the spine (the pilot's eyes at y 1.14, z 4.15: well under it, as in the real jet)
+const CANOPY = [
+  [6.05, 0.26, 0.04, 0.57], [5.55, 0.8, 0.42, 0.62], [4.8, 1.0, 0.68, 0.62], [3.4, 1.04, 0.8, 0.62],
+  [2.0, 1.0, 0.76, 0.64], [1.0, 0.82, 0.56, 0.68], [0.25, 0.44, 0.26, 0.72], [-0.2, 0.08, 0.03, 0.74]
+];
+const CANOPY_SIDES = 16;
+/** The canopy's cross-section at z (interpolated between CANOPY's), scaled about its sill by k: an arch of points */
+function canopyArch(z, k = 1) {
+  let i = 0;
+  while (i < CANOPY.length - 2 && CANOPY[i + 1][0] > z) i++;
+  const a = CANOPY[i], b = CANOPY[i + 1];
+  const f = Math.max(0, Math.min(1, (a[0] - z) / (a[0] - b[0])));
+  const [w, h, y] = [1, 2, 3].map((j) => a[j] + (b[j] - a[j]) * f);
+  return Array.from({ length: CANOPY_SIDES + 1 }, (_, n) => {
+    const t = (n / CANOPY_SIDES) * Math.PI;
+    const c = Math.cos(t), sn = Math.sin(t);
+    return [(w / 2) * k * Math.sign(c) * Math.abs(c) ** (2 / 2.6), y + h * k * sn ** (2 / 2.6), z];
+  });
+}
+
 function buildCanopy() {
   const P = new Parts();
-  // [z, width, height above the sill, sill y]: the windscreen, the front and rear seats' bubble, faired into the spine
-  const s = [
-    [6.05, 0.26, 0.04, 0.6], [5.55, 0.78, 0.36, 0.6], [4.8, 0.98, 0.56, 0.6], [3.4, 1.02, 0.66, 0.62],
-    [2.0, 0.98, 0.64, 0.64], [1.0, 0.8, 0.5, 0.68], [0.25, 0.42, 0.24, 0.72], [-0.2, 0.08, 0.03, 0.74]
-  ];
-  const n = 16;
-  const rings = s.map(([z, w, h, y]) => Array.from({ length: n + 1 }, (_, k) => {
-    const t = (k / n) * Math.PI;
-    const c = Math.cos(t), sn = Math.sin(t);
-    return [(w / 2) * Math.sign(c) * Math.abs(c) ** (2 / 2.6), y + h * sn ** (2 / 2.6), z];
-  }));
+  const rings = CANOPY.map(([z]) => canopyArch(z));
   P.loft(rings, rings.map(() => [1, 1, 1]), { closed: false });
   return P.merge();
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The front cockpit, seen only from the front seat: the glareshield over the instrument panel (three multifunction
+// displays and the up-front controls, drawn once onto a texture, their screens glowing), the HUD's combiner glass on
+// its projector, the windscreen's frame arch, the walls and side consoles, the stick, the seat; the forward fuselage with
+// the cockpit cut into it. ~1,000 triangles, drawn only from the front seat.
+// ---------------------------------------------------------------------------------------------------------------------
+const COCKPIT_GREY = [0.075, 0.08, 0.085];
+const FRAME = [0.11, 0.12, 0.13];
+
+function buildCockpitShell() {
+  const P = new Parts();
+  // the glareshield: a hood over the panel, its edge rounded off towards the pilot
+  box(P, 0, 0.935, 5.14, 0.37, 0.03, 0.15, COCKPIT_GREY);
+  // (a rolled lip: a cylinder across the hood's back edge)
+  const n = 8;
+  const ring = (x) => Array.from({ length: n }, (_, j) => {
+    const t = (j / n) * Math.PI * 2;
+    return [x, 0.935 + Math.sin(t) * 0.03, 4.99 + Math.cos(t) * 0.03];
+  });
+  const r0 = ring(-0.37), r1 = ring(0.37);
+  P.loft([r0, r1], [COCKPIT_GREY, COCKPIT_GREY]);
+  // the HUD's projector on the glareshield and the combiner's two posts
+  box(P, 0, 0.985, 5.1, 0.1, 0.02, 0.07, FRAME);
+  for (const x of [-0.105, 0.105]) box(P, x, 1.08, 5.1, 0.008, 0.09, 0.008, FRAME);
+  box(P, 0, 1.172, 5.1, 0.113, 0.006, 0.008, FRAME);
+  // the windscreen's frame: an arch of rectangular section where the windscreen meets the canopy
+  const z0 = 5.36, z1 = 5.31;
+  const outer0 = canopyArch(z0, 1.002), outer1 = canopyArch(z1, 1.002);
+  const inner1 = canopyArch(z1, 0.95), inner0 = canopyArch(z0, 0.95);
+  P.loft([outer0, outer1, inner1, inner0, outer0], [FRAME, FRAME, FRAME, FRAME, FRAME], { closed: false });
+  // the cockpit's walls from the cut fuselage up to the canopy's sill rails, and the side consoles along them
+  for (const side of [1, -1]) {
+    box(P, side * 0.58, 0.58, 4.44, 0.13, 0.28, 0.84, COCKPIT_GREY);
+    box(P, side * 0.49, 0.865, 4.44, 0.05, 0.02, 0.84, FRAME);
+    // side consoles: the throttle quadrant on the left, the right one's panels
+    box(P, side * 0.36, 0.66, 4.3, 0.09, 0.06, 0.7, COCKPIT_GREY);
+  }
+  // the two throttle levers on the left console, their grips
+  for (const dx of [-0.018, 0.018]) {
+    box(P, 0.36 + dx, 0.76, 4.5, 0.008, 0.045, 0.008, FRAME);
+    box(P, 0.36 + dx, 0.81, 4.5, 0.012, 0.012, 0.022, [0.04, 0.04, 0.04]);
+  }
+  // the tub's floor, the bulkhead under the panel, the ejection seat behind the pilot
+  box(P, 0, 0.46, 4.44, 0.45, 0.01, 0.84, [0.05, 0.05, 0.055]);
+  box(P, 0, 0.5, 5.24, 0.45, 0.05, 0.04, COCKPIT_GREY);
+  box(P, 0, 0.82, 3.78, 0.26, 0.38, 0.07, [0.06, 0.06, 0.065]);
+  // the stick, between the knees
+  box(P, 0, 0.58, 4.62, 0.013, 0.12, 0.013, FRAME);
+  box(P, 0, 0.72, 4.62, 0.022, 0.04, 0.025, [0.04, 0.04, 0.04]);
+  return P.merge();
+}
+
+// The instrument panel's face: three MFDs (engines and fuel; the tactical situation with Singapore's coast; the
+// radar), the up-front control panel between the upper two, bezels and their buttons
+function panelTexture() {
+  const c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = 512;
+  const g = c.getContext('2d');
+  g.fillStyle = '#1a1c1f';
+  g.fillRect(0, 0, 1024, 512);
+  // panel seams
+  g.strokeStyle = '#0c0d0e';
+  g.lineWidth = 3;
+  g.strokeRect(8, 8, 1008, 496);
+  const screen = (x, y, s, draw) => {
+    // bezel with 5 buttons a side
+    g.fillStyle = '#26292d';
+    g.fillRect(x - 26, y - 26, s + 52, s + 52);
+    g.fillStyle = '#3a3e43';
+    for (let k = 0; k < 5; k++) {
+      const t = y + (k + 0.5) * (s / 5) - 7;
+      g.fillRect(x - 21, t, 14, 14); g.fillRect(x + s + 7, t, 14, 14);
+      const u = x + (k + 0.5) * (s / 5) - 7;
+      g.fillRect(u, y - 21, 14, 14); g.fillRect(u, y + s + 7, 14, 14);
+    }
+    g.fillStyle = '#020403';
+    g.fillRect(x, y, s, s);
+    g.save();
+    g.beginPath(); g.rect(x, y, s, s); g.clip();
+    g.translate(x, y);
+    draw(s);
+    g.restore();
+  };
+  g.lineCap = 'round';
+  const green = '#5dff8f', amber = '#ffb84d', white = '#e8f0f5', cyan = '#59d6ff';
+  // left: the engines (two RPM dials, nozzle bars) and fuel
+  screen(60, 210, 230, (s) => {
+    g.lineWidth = 4;
+    for (const [cx, label] of [[s * 0.28, 'L'], [s * 0.72, 'R']]) {
+      g.strokeStyle = white;
+      g.beginPath(); g.arc(cx, s * 0.32, 44, Math.PI * 0.75, Math.PI * 2.25); g.stroke();
+      g.strokeStyle = green;
+      g.beginPath(); g.moveTo(cx, s * 0.32); g.lineTo(cx + Math.cos(Math.PI * 1.9) * 40, s * 0.32 + Math.sin(Math.PI * 1.9) * 40); g.stroke();
+      g.fillStyle = white;
+      g.font = '700 22px monospace';
+      g.textAlign = 'center';
+      g.fillText(label, cx, s * 0.32 + 34);
+      g.fillText('92', cx, s * 0.32 + 70);
+    }
+    g.fillStyle = green;
+    g.font = '700 24px monospace';
+    g.fillText('FUEL 18.2', s / 2, s * 0.86);
+  });
+  // centre: the tactical situation, Singapore's coast and the jet at the centre
+  screen(397, 178, 230, (s) => {
+    g.strokeStyle = cyan;
+    g.lineWidth = 3;
+    g.beginPath();
+    const pts = [[0.05, 0.42], [0.18, 0.36], [0.33, 0.33], [0.48, 0.3], [0.62, 0.34], [0.78, 0.31], [0.95, 0.37], [0.9, 0.55], [0.76, 0.6], [0.58, 0.66], [0.42, 0.68], [0.28, 0.63], [0.12, 0.6], [0.05, 0.5]];
+    pts.forEach(([u, v], k) => (k ? g.lineTo(u * s, v * s) : g.moveTo(u * s, v * s)));
+    g.closePath();
+    g.stroke();
+    g.strokeStyle = 'rgba(93,255,143,0.5)';
+    g.lineWidth = 2;
+    for (const r of [0.2, 0.38]) { g.beginPath(); g.arc(s / 2, s / 2, r * s, 0, Math.PI * 2); g.stroke(); }
+    g.fillStyle = white;
+    g.beginPath(); g.moveTo(s / 2, s / 2 - 12); g.lineTo(s / 2 + 9, s / 2 + 10); g.lineTo(s / 2 - 9, s / 2 + 10); g.closePath(); g.fill();
+    g.font = '700 18px monospace';
+    g.textAlign = 'left';
+    g.fillText('TSD', 10, 24);
+  });
+  // right: the radar's B-scope, a few contacts
+  screen(734, 210, 230, (s) => {
+    g.strokeStyle = 'rgba(93,255,143,0.35)';
+    g.lineWidth = 2;
+    for (let k = 1; k < 4; k++) {
+      g.beginPath(); g.moveTo(0, (k * s) / 4); g.lineTo(s, (k * s) / 4); g.stroke();
+      g.beginPath(); g.moveTo((k * s) / 4, 0); g.lineTo((k * s) / 4, s); g.stroke();
+    }
+    g.fillStyle = green;
+    for (const [u, v] of [[0.32, 0.28], [0.66, 0.42], [0.55, 0.18]]) g.fillRect(u * s - 7, v * s - 4, 14, 8);
+    g.strokeStyle = green;
+    g.lineWidth = 3;
+    g.beginPath(); g.moveTo(s * 0.62, 0); g.lineTo(s * 0.62, s); g.stroke();
+    g.fillStyle = amber;
+    g.font = '700 18px monospace';
+    g.fillText('RWS 40', 10, s - 12);
+  });
+  // the up-front controls: a two-line display and a keypad
+  g.fillStyle = '#26292d';
+  g.fillRect(397, 24, 230, 120);
+  g.fillStyle = '#071a0e';
+  g.fillRect(410, 34, 204, 34);
+  g.fillStyle = green;
+  g.font = '700 20px monospace';
+  g.textAlign = 'center';
+  g.fillText('UHF 243.0  TCN 12X', 512, 58);
+  g.fillStyle = '#3a3e43';
+  for (let r = 0; r < 2; r++) for (let k = 0; k < 6; k++) g.fillRect(414 + k * 34, 80 + r * 30, 26, 22);
+  // warning lights either side of it
+  for (const [x, col] of [[300, '#ff3b2b'], [340, '#ffb84d'], [684, '#ffb84d'], [724, '#4dff7a']]) {
+    g.fillStyle = col;
+    g.fillRect(x, 60, 30, 18);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+function buildCockpit(paint) {
+  const group = new THREE.Group();
+  group.name = 'F15SG_cockpit';
+  const matte = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.1 });
+  group.add(new THREE.Mesh(buildCockpitShell(), matte));
+  // the forward fuselage with the cockpit cut into it (the airframe's own is hidden from the front seat)
+  group.add(new THREE.Mesh(buildForwardFuselage(true), paint));
+  // the panel's face, leaning back from under the glareshield
+  const tex = panelTexture();
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.74, 0.42), new THREE.MeshStandardNodeMaterial({
+    map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.55, roughness: 0.7, metalness: 0.05
+  }));
+  panel.position.set(0, 0.71, 5.1);
+  panel.rotation.set(-0.2, Math.PI, 0);
+  group.add(panel);
+  // the combiner: a faint green pane
+  const combiner = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.17), new THREE.MeshBasicNodeMaterial({
+    color: 0x3dff9a, transparent: true, opacity: 0.07, depthWrite: false, side: THREE.DoubleSide
+  }));
+  combiner.position.set(0, 1.085, 5.1);
+  combiner.rotation.x = 0.35;
+  group.add(combiner);
+  group.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = o !== combiner; } });
+  group.visible = false;
+  return { group };
 }
 
 function buildFlame() {
@@ -483,10 +705,16 @@ function createJetModel() {
   const airframe = new THREE.Mesh(buildAirframe(), paint);
   airframe.name = 'F15SG_airframe';
   root.add(airframe);
+  const forward = new THREE.Mesh(buildForwardFuselage(), paint);
+  forward.name = 'F15SG_forward';
+  root.add(forward);
 
   const canopy = new THREE.Mesh(buildCanopy(), canopyMaterial());
   canopy.name = 'F15SG_canopy';
   root.add(canopy);
+
+  const cockpit = buildCockpit(paint);
+  root.add(cockpit.group);
 
   const decals = new THREE.Mesh(buildDecals(), new THREE.MeshStandardNodeMaterial({
     map: decalTexture(), alphaTest: 0.5, roughness: 0.55, metalness: 0.15, side: THREE.DoubleSide
@@ -544,6 +772,7 @@ function createJetModel() {
   return {
     root,
     canopy,
+    cockpit: cockpit.group,
     stabilators,
     gear,
     flames,
@@ -562,6 +791,11 @@ function createJetModel() {
     // the stabilators follow the stick (back: leading edges down, the nose comes up)
     setStabilators(pitch) {
       stabilators.rotation.x = Math.max(-0.35, Math.min(0.35, pitch * 0.3));
+    },
+    /** From the front seat: the cockpit in; the canopy's outside (opaque glass) and the uncut nose out */
+    setCockpitView(on) {
+      cockpit.group.visible = on;
+      canopy.visible = forward.visible = !on;
     }
   };
 }

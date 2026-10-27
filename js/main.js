@@ -942,8 +942,8 @@ async function initApp() {
       const preset = cameraSystem.activePresetId;
       const jet = controllerManager.entities.jet;
       const cockpit = controllerManager.activeMode === 'jet' && (preset === 'pov' || preset === 'taxi');
-      // from the front seat, the view out through the canopy (its glass is drawn opaque, as seen from outside)
-      jet.model.canopy.visible = !cockpit;
+      // from the front seat: the cockpit around you, out through the canopy (drawn opaque from outside)
+      jet.model.setCockpitView(cockpit);
       if (controllerManager.activeMode === 'jet') jetHud.update(dt, jet, cameraSystem.camera, cockpit);
     }
 

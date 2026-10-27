@@ -1508,6 +1508,8 @@ body[data-driver='crazy'] .nav-driver-badge { background: var(--taxi); color: va
   pointer-events: none;
 }
 .jet-hud[hidden], body.hud-minimized .jet-hud { display: none; }
+/* (how to go is for the car: not over the jet's cockpit) */
+body[data-mode='jet'] .nav-ways { display: none; }
 .nav-toggle { flex-direction: column; align-items: flex-start; gap: 1px; }
 .nav-toggle::after {
   content: 'Off';

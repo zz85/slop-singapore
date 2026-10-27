@@ -479,12 +479,12 @@ class CameraSystem {
 
     let fov = this.getActivePreset().fov;
     if (preset === 'pov' || preset === 'taxi') {
-      // the front seat, eyes level with the canopy rail's top
-      this.currentPos.set(0, 1.12, 4.25).applyQuaternion(q).add(p);
+      // the front seat, the eyes over the glareshield and level with the HUD's combiner
+      this.currentPos.set(0, 1.14, 4.15).applyQuaternion(q).add(p);
       cam.position.copy(this.currentPos);
       // the camera looks down its -z: turned round to the jet's +z, then the user's look about
       cam.quaternion.copy(q).multiply(look).multiply(this._jflip ??= new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI));
-      this.currentLookAt.set(0, 1.12, 60).applyQuaternion(q).add(p);
+      this.currentLookAt.set(0, 1.14, 60).applyQuaternion(q).add(p);
       fov = 74;
     } else {
       const frame = this._jframe ??= new THREE.Quaternion();
