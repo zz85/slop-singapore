@@ -328,9 +328,14 @@ function buildPath(network, route, x, z, driver = DRIVERS.self) {
     const oA = e.lanes[entry] ?? 0;
     const oB = e.lanes[exit] ?? 0;
     const span = Math.max(0, sB - sA);
-    // lane change: 10 m per metre across (36 m a lane, a gentle 1.4 m/s² at 50 km/h), over at most three quarters of what
-    // is left of the edge, starting soon
-    const lc = Math.abs(oB - oA) < 0.1 ? 0 : Math.min(span * 0.75, 10 * Math.abs(oB - oA));
+    // lane change: as long as it takes at the speed the car will be doing here to move across at no more than the
+    // driver's lane-change sideways acceleration (a sine-shaped move of dy over L m at v m/s peaks at
+    // pi^2 dy v^2 / 2 L^2), and at least 10 m per metre across; over at most three quarters of what is left of the edge,
+    // starting soon. (The speed: its cruise, the road's limit for a driver who keeps to it, and no more than it can
+    // reach and brake from again along the edge.)
+    const dy = Math.abs(oB - oA);
+    const vHere = Math.min(driver.cruise ?? 13.9, driver.limits ? e.speedLimit ?? Infinity : Infinity, Math.sqrt((driver.brake ?? 3) * span));
+    const lc = dy < 0.1 ? 0 : Math.min(span * 0.75, Math.max(10 * dy, Math.PI * vHere * Math.sqrt(dy / (2 * (driver.laneAcc ?? 0.9)))));
     const c0 = sA + Math.min(first ? 6 : 2, span * 0.15);
     const c1 = c0 + lc;
     const lane = (s) => (lc <= 0 || s <= c0 ? (s <= c0 ? oA : oB) : s >= c1 ? oB : oA + (oB - oA) * smooth((s - c0) / lc));

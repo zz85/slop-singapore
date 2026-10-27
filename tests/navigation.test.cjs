@@ -384,8 +384,9 @@ function track(driver, dest, { dt = 1 / 60, T = 240, cars = [], peds = [], each 
       const err = Math.abs(loc.across - r.navigator.offset);
       // (not while it holds its lane against the path's own lane change: its line is then the lane, not the path)
       if (r.navigator.holdLane == null) stats.maxErr = Math.max(stats.maxErr, err);
-      // straight road: no curvature within 25 m either side
-      const quiet = p.pts.every((q) => Math.abs(q.s - loc.s) > 25 || q.k < 0.004);
+      // straight road: no curvature within 25 m either side, and no lane change of the path's (a long, gentle one at
+      // speed curves too little to count as a bend)
+      const quiet = p.pts.every((q, i) => Math.abs(q.s - loc.s) > 25 || (q.k < 0.004 && !(p.pts[i + 1] && Math.abs(p.pts[i + 1].lane - q.lane) > 0.005)));
       if (quiet && Math.abs(r.navigator.offsetTarget - r.navigator.offset) < 0.05 && !r.navigator.holdLane) {
         stats.straightErr = Math.max(stats.straightErr, err);
         const s = (r.keys.left || 0) - (r.keys.right || 0);
@@ -817,4 +818,36 @@ test('inactive island cars are not seen, and a recycled one is not mistaken for 
   const tr = s.navigator.tracker.get(s.navigator.islandProxy(ic));
   assert.ok(tr && tr.speed < 12, `the recycled car's speed is its own (${tr && tr.speed.toFixed(1)} m/s)`);
   assert.ok(s.car.speed > 15, 'and the taxi drives on (the inactive car in its lane does not stop it)');
+});
+
+test('lane changes at speed are long and gentle: the sideways acceleration stays low at 90 km/h', () => {
+  // long blocks, so the car is at its cruise when it moves over for the next turn
+  phase = 'green';
+  for (const [driver, limit] of [['self', 0.8], ['crazy', 1.5]]) {
+    const net = grid(4, 300);
+    const car = makeCar(1.8, 20, 0);
+    const r = rig(net, car);
+    r.navigator.setDriver(driver);
+    assert.ok(r.navigator.setDestination(1200, 1200, 'x'));
+    const p = r.navigator.path;
+    let t = 0, peak = 0, fastest = 0;
+    while (t < 200 && !r.navigator.arrived) {
+      r.navigator.update(1 / 60, t);
+      stepCar(car, r.keys, 1 / 60);
+      const loc = nav.locate(p, car.position.x, car.position.z, r.navigator.index, 40);
+      const P = p.pts, i = loc.i;
+      // inside one of the path's lane changes, clear of the junctions' curves
+      const inChange = P[i]?.edge && P[i + 1]?.edge === P[i].edge && Math.abs(P[i + 1].lane - P[i].lane) > 0.005
+        && P.every((q) => q.edge || Math.abs(q.s - loc.s) > 12);
+      if (t > 2 && inChange) {
+        peak = Math.max(peak, Math.abs(car.speed * car.angularVel));
+        fastest = Math.max(fastest, car.speed);
+      }
+      t += 1 / 60;
+    }
+    assert.ok(r.navigator.arrived, `${driver}: arrived`);
+    assert.ok(fastest > 20, `${driver}: changing lanes at speed (${(fastest * 3.6).toFixed(0)} km/h)`);
+    // (squeezed into 36 m as they were: 2.2 m/s² self-driving, 1.6 Crazy Taxi)
+    assert.ok(peak < limit, `${driver}: at most ${limit} m/s² across (${peak.toFixed(2)})`);
+  }
 });
