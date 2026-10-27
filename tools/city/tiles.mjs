@@ -4,7 +4,8 @@
 // usage: node --max-old-space-size=8192 tools/city/tiles.mjs <city>
 //
 // Output: tiles/<city>/index.json { version, tile (m), frame, core: [x0, z0, x1, z1] (the detailed area the tiles leave
-//   out), land: [[outer, ...holes] flat x, z (m)], tiles: [{ i, j, file, buildings, roads, top }] } and per tile
+//   out), land: [[outer, ...holes] flat x, z (m)], landuse?: { file, x0, z0, res, w, h, channels } (tools/city/landuse.mjs's
+//   image of what the ground is, tiles/<city>/landuse.png), tiles: [{ i, j, file, buildings, roads, top }] } and per tile
 //   tiles/<city>/<i>_<j>.json {
 //     buildings: { types, data } as GEO.buildings (tools/city/build.mjs; outer rings only), relative to the tile's corner,
 //     roads: [class, width (dm), points..., dx dz (dm) from the point before (the first from the tile's corner)] runs
@@ -22,6 +23,8 @@ import { loadCity, dataDir } from './config.mjs';
 import { makeFrame } from './frame.mjs';
 import { bbox, centroid, pointInRing, rdp, rdpRing, ringArea } from './geom.mjs';
 import { areaPolygons, areaRings, coastLand, num, traceRegions, yes as yesTag } from './osm.mjs';
+import { LANDUSE, landuseImage } from './landuse.mjs';
+import { encodePNG } from './png.mjs';
 
 const log = (...a) => console.log('[tiles]', ...a);
 export const ROAD_CLASSES = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'];
@@ -94,6 +97,21 @@ export async function buildTiles(cityOrId, { data, out, geo } = {}) {
   const q = (v) => Math.round(v);
   const flat = (pts) => pts.flatMap(([x, z]) => [q(x), q(z)]);
   log(`land: ${regions.length} outlines (${regions.reduce((n, r) => n + r.outer.length, 0)} points), ${regions.reduce((n, r) => n + r.holes.length, 0)} lakes & reservoirs`);
+
+  // --- What the ground is (parks, woods, industry...): an image over the land, if its land use was fetched -------------
+  let landuse = null;
+  const luFiles = fs.readdirSync(dir).filter((f) => /^landuse_.*\.json$/.test(f));
+  if (luFiles.length) {
+    const lb = regions.reduce((b, r) => {
+      for (const [x, z] of r.outer) { b[0] = Math.min(b[0], x); b[1] = Math.min(b[1], z); b[2] = Math.max(b[2], x); b[3] = Math.max(b[3], z); }
+      return b;
+    }, [Infinity, Infinity, -Infinity, -Infinity]);
+    const elements = luFiles.flatMap((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')).elements);
+    const img = landuseImage(elements, toWorld, lb, { res: city.island.landuseRes || 20 });
+    const png = encodePNG(img.rgb, img.w, img.h, 3);
+    landuse = { png, file: 'landuse.png', x0: img.x0, z0: img.z0, res: img.res, w: img.w, h: img.h, channels: LANDUSE };
+    log(`land use: ${img.counts.map((n, c) => `${n} ${LANDUSE[c]}`).join(', ')} areas, as a ${img.w} × ${img.h} image of ${img.res} m (${(png.length / 1024).toFixed(0)} KB)`);
+  }
 
   // --- Buildings ---------------------------------------------------------------------------------------------------------
   const tiles = new Map(); // "i,j" -> { buildings: [], roads: [] }
@@ -228,6 +246,7 @@ export async function buildTiles(cityOrId, { data, out, geo } = {}) {
   // --- Write ---------------------------------------------------------------------------------------------------------
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(outDir, { recursive: true });
+  if (landuse) fs.writeFileSync(path.join(outDir, landuse.file), landuse.png);
   const index = [];
   let bytes = 0;
   for (const tile of [...tiles.values()].sort((a, b) => a.j - b.j || a.i - b.i)) {
@@ -273,6 +292,7 @@ export async function buildTiles(cityOrId, { data, out, geo } = {}) {
     core: [q(cb.x0), q(cb.z0), q(cb.x1), q(cb.z1)],
     coreRing: flat(coreRing),
     land: regions.map((r) => [r.outer, ...r.holes].map(flat)),
+    ...(landuse ? { landuse: { file: landuse.file, x0: landuse.x0, z0: landuse.z0, res: landuse.res, w: landuse.w, h: landuse.h, channels: landuse.channels } } : {}),
     tiles: index
   };
   fs.writeFileSync(path.join(outDir, 'index.json'), JSON.stringify(indexJson));

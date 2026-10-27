@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { buildTiles } from '../tools/city/tiles.mjs';
 import { islandQueries } from '../tools/city/fetch-island.mjs';
+import { decodePNG } from '../tools/city/png.mjs';
 import { decodeBuildings, buildTileArrays, triangulate } from '../js/city-tiles-build.js';
 
 const LAT0 = 1.3, LON0 = 103.8;
@@ -149,4 +150,41 @@ test('a tile\'s colliders: one turned box for a building that nearly fills it, a
   assert.equal(c.length / 8, 1 + 6, 'the square as one box, the L by its six walls');
   assert.deepEqual([...c.slice(0, 4)].map((v) => Math.round(Math.abs(v) * 10) / 10), [5, 5, 5, 5]);
   assert.deepEqual([c[6], c[7]], [0, 20]);
+});
+
+test('island tiles: the land use, as an image over the land', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'city landuse '));
+  try {
+    const data = path.join(dir, 'island');
+    fs.mkdirSync(data);
+    const D = 4000;
+    const coast = way(1, [[-D, -D], [-D, D], [D, D], [D, -D], [-D, -D]].map(([x, z]) => ll(x, z)), { natural: 'coastline' });
+    fs.writeFileSync(path.join(data, 'coast.json'), JSON.stringify({ elements: [coast] }));
+    fs.writeFileSync(path.join(data, 'water.json'), JSON.stringify({ elements: [] }));
+    fs.writeFileSync(path.join(data, 'cell_a.json'), JSON.stringify({ elements: [] }));
+    fs.writeFileSync(path.join(data, 'landuse_a.json'), JSON.stringify({ elements: [square(30, 2000, 1000, 300, { leisure: 'park' }), square(31, -2000, -1000, 200, { landuse: 'forest' })] }));
+    const city = {
+      id: 'testisle', detail: [LAT0 - 0.003, LON0 - 0.003, LAT0 + 0.003, LON0 + 0.003], margin: 0.001,
+      island: { box: [LAT0 - 0.045, LON0 - 0.045, LAT0 + 0.045, LON0 + 0.045], tile: 1500 }
+    };
+    const out = path.join(dir, 'tiles');
+    const index = await buildTiles(city, { data, out, geo: { frame: { lat0: LAT0, lon0: LON0, bearingDeg: 0 } } });
+    const lu = index.landuse;
+    assert.ok(lu, 'in the index');
+    assert.equal(lu.file, 'landuse.png');
+    assert.deepEqual(lu.channels, ['wood', 'grass', 'paved']);
+    assert.ok(lu.x0 <= -3900 && lu.x0 + lu.w * lu.res >= 3900, 'over the land');
+    const img = decodePNG(fs.readFileSync(path.join(out, 'landuse.png')));
+    assert.equal(img.w, lu.w);
+    assert.equal(img.h, lu.h);
+    const at = (x, z) => {
+      const i = Math.floor((x - lu.x0) / lu.res), j = Math.floor((z - lu.z0) / lu.res);
+      return Array.from(img.pixels.subarray((j * img.w + i) * 3, (j * img.w + i) * 3 + 3));
+    };
+    assert.deepEqual(at(2000, 1000), [0, 255, 0], 'the park');
+    assert.deepEqual(at(-2000, -1000), [255, 0, 0], 'the woods');
+    assert.deepEqual(at(0, 2500), [0, 0, 0], 'the rest');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
