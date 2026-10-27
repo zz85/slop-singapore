@@ -218,7 +218,7 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
     document.body.classList.add('nav-picking');
     mapSystem.pickHandler = (x, z, name) => {
       document.body.classList.remove('nav-picking');
-      if (how !== 'teleport') mapSystem.toggleFullMap(false);
+      mapSystem.toggleFullMap(false);
       go(how, x, z, name);
     };
     mapSystem.toggleFullMap(true);
@@ -264,9 +264,9 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
         const { x, z, name } = picked;
         const way = b.dataset.go;
         closePick();
-        if (way !== 'teleport') mapSystem.toggleFullMap(false);
+        // whichever way, the map steps aside to show you going (or arriving)
+        mapSystem.toggleFullMap(false);
         go(way, x, z, name);
-        mapSystem.renderFullMap?.();
       });
     }
     $('map-pick-cancel')?.addEventListener('click', closePick);

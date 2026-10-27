@@ -135,12 +135,12 @@ test('Teleport is one of the ways to go: the places teleport to their arrival po
   assert.equal(h.navigator.active, false, 'and starts no trip');
 });
 
-test('a tap on the map opens a menu there; each item goes that way', () => {
+test('a tap on the map opens a menu there; each item closes the map and goes that way', () => {
   for (const [g, expected] of [
     ['you', [['map', false], ['destination', 5, 6, 'Somewhere']]],
     ['self', [['map', false], ['mode', 'car'], ['driver', 'self'], ['destination', 5, 6, 'Somewhere']]],
     ['crazy', [['map', false], ['mode', 'car'], ['driver', 'crazy'], ['destination', 5, 6, 'Somewhere']]],
-    ['teleport', [['teleport', 5, 6, undefined]]]
+    ['teleport', [['map', false], ['teleport', 5, 6, undefined]]]
   ]) {
     const h = harness();
     assert.equal(typeof h.mapSystem.onPick, 'function', 'the UI takes the map\'s taps');
@@ -233,4 +233,18 @@ test('Crazy Taxi from the strip with no trip on picks up a fare', () => {
   way(h, 'crazy').click();
   assert.deepEqual(h.calls.slice(0, 2), [['mode', 'car'], ['driver', 'crazy']]);
   assert.equal(h.calls[2][0], 'destination', 'a fare across town');
+});
+
+test('Pick a spot on the map: the map closes once the spot is picked, teleporting too', () => {
+  for (const d of ['you', 'teleport']) {
+    const h = harness();
+    if (d !== 'you') way(h, d).click();
+    h.flush();
+    h.calls.length = 0;
+    h.byId('nav-pick').click();
+    assert.deepEqual(h.calls, [['map', true]], `${d}: the map opens to pick`);
+    h.mapSystem.pickHandler(7, 8, 'There');
+    assert.deepEqual(h.calls[1], ['map', false], `${d}: and closes`);
+    assert.equal(h.mapSystem.open, false);
+  }
 });
