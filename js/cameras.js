@@ -20,7 +20,7 @@ const CAMERA_PRESETS = [
   { id: 'drone',       name: 'Auto-Director Aerial',     short: 'Director',    category: 'scenic', fov: 50 }
 ];
 
-// The pilot's head in the jet's cockpit, aimed by where the mouse is (no click): the middle of the screen is straight
+// The head in the jet's cockpit and the Crazy Taxi cam, aimed by where the mouse is (no click): the middle of the screen is straight
 // ahead, a quiet zone around it, then further out the head turns further, to 130° either side at the screen's edges
 // (over the shoulder, down the wing) and 60° up / 32° down at its top and bottom. Returns { yaw (+ left), pitch (+ up) }
 // for a pointer at (nx, ny), each -1..1 from the screen's centre (ny down).
@@ -71,7 +71,7 @@ class CameraSystem {
     this.taxi = { heading: null, yawRate: 0, speed: 0, accel: 0, jolt: 0, roll: 0, look: 0, pitch: 0, fov: 72, time: 0 };
 
     // The pilot's head (updateJetView): where it's aimed (headTarget, from the mouse), where it is, how fast it turns
-    this.head = { yaw: 0, pitch: 0, vyaw: 0, vpitch: 0, target: { yaw: 0, pitch: 0 }, active: false };
+    this.head = { yaw: 0, pitch: 0, vyaw: 0, vpitch: 0, target: { yaw: 0, pitch: 0 }, active: false, fresh: true };
 
     this.bindPointerControls();
   }
@@ -80,6 +80,21 @@ class CameraSystem {
   aimHead(x, y) {
     const w = window.innerWidth || 1, h = window.innerHeight || 1;
     headTarget((x / w) * 2 - 1, (y / h) * 2 - 1, this.head.target);
+  }
+
+  // the head turning towards where it's aimed as a head does: speeding up, then easing into place (a critically
+  // damped spring); `snap`: there at once
+  stepHead(dt, snap = false) {
+    const head = this.head;
+    if (snap) {
+      head.yaw = head.target.yaw; head.pitch = head.target.pitch; head.vyaw = head.vpitch = 0;
+      return;
+    }
+    const h = Math.min(dt, 0.05), w = HEAD.omega;
+    head.vyaw += (w * w * (head.target.yaw - head.yaw) - 2 * w * head.vyaw) * h;
+    head.vpitch += (w * w * (head.target.pitch - head.pitch) - 2 * w * head.vpitch) * h;
+    head.yaw += head.vyaw * h;
+    head.pitch += head.vpitch * h;
   }
 
   /** Eyes front: the mouse left the window, or the view changed */
@@ -245,11 +260,21 @@ class CameraSystem {
       this._jetView = false;
       this.head.active = false;
       this.centreHead();
+      this.head.yaw = this.head.pitch = 0;
       this.camera.up.set(0, 1, 0);
       this.camera.fov = this.getActivePreset().fov;
       this.camera.updateProjectionMatrix();
       this.initialized = false;
     }
+    // the Crazy Taxi cam is a head too: the mouse turns it as in the jet's cockpit
+    const taxiHead = this.activePresetId === 'taxi';
+    if (taxiHead !== this.head.active) {
+      this.head.active = taxiHead;
+      this.centreHead();
+      this.head.fresh = true;
+    }
+    if (taxiHead) this.stepHead(dt, this.head.fresh || !(dt > 0));
+    this.head.fresh = false;
 
     switch (this.activePresetId) {
       case 'chase': {
@@ -352,7 +377,9 @@ class CameraSystem {
           this.camera.updateProjectionMatrix();
         }
 
-        const side = car ? 0.36 * this.driverSide : 0;
+        // the driver's head, turned about the neck: leaning a little out the way it looks
+        const head = this.head;
+        const side = (car ? 0.36 * this.driverSide : 0) - Math.sin(head.yaw) * 0.09;
         const fwd = car ? 0.05 : 0.35;
         const eyeY = car ? 1.32 : 1.6;
         const fx = Math.sin(entity.heading);
@@ -371,11 +398,13 @@ class CameraSystem {
           entity.position.y + eyeY + ny,
           entity.position.z + fz * (fwd + surge) + rz * side + rz * nx
         );
-        const yaw = totalYaw + t.look;
+        // (looking well round, the turn into the bend fades: the head is busy elsewhere)
+        const yaw = totalYaw + head.yaw + t.look * Math.max(0, 1 - Math.abs(head.yaw));
+        const reach = 40.0 * Math.cos(head.pitch);
         desiredLook.set(
-          desiredPos.x + Math.sin(yaw) * 40.0,
-          desiredPos.y - 0.6 + Math.sin(-this.orbitPitchOffset + 0.09 + t.pitch) * 40.0,
-          desiredPos.z + Math.cos(yaw) * 40.0
+          desiredPos.x + Math.sin(yaw) * reach,
+          desiredPos.y - 0.6 + Math.sin(-this.orbitPitchOffset + 0.09 + t.pitch + head.pitch) * 40.0,
+          desiredPos.z + Math.cos(yaw) * reach
         );
         break;
       }
@@ -519,19 +548,10 @@ class CameraSystem {
       head.active = cockpit;
       if (!cockpit) this.centreHead();
     }
-    // the pilot's head, turning towards where it's aimed as a head does: speeding up, then easing into place (a
-    // critically damped spring), a little faster for small glances
+    // the pilot's head, turning towards where it's aimed (stepHead)
     let yaw = 0, pitch = 0;
     if (cockpit) {
-      if (fresh) {
-        head.yaw = head.target.yaw; head.pitch = head.target.pitch; head.vyaw = head.vpitch = 0;
-      } else {
-        const h = Math.min(dt, 0.05), w = HEAD.omega;
-        head.vyaw += (w * w * (head.target.yaw - head.yaw) - 2 * w * head.vyaw) * h;
-        head.vpitch += (w * w * (head.target.pitch - head.pitch) - 2 * w * head.vpitch) * h;
-        head.yaw += head.vyaw * h;
-        head.pitch += head.vpitch * h;
-      }
+      this.stepHead(dt, fresh);
       // pulling g sags the head a little
       yaw = head.yaw;
       pitch = head.pitch - Math.max(-0.03, Math.min(0.06, ((s.g || 1) - 1) * 0.008));

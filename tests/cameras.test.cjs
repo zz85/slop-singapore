@@ -314,3 +314,38 @@ test('in the cockpit the mouse aims the pilot\'s head without a click: eyes fron
   h.document.dispatch('mouseout', { relatedTarget: null });
   close(h.camera.head.target.yaw, 0);
 });
+
+test('the Crazy Taxi cam turns its head with the mouse, no click, and only while it is the camera', () => {
+  const h = cameraHarness();
+  const { camera: sys, HEAD } = h;
+  sys.camera.rotateZ = () => {};
+  sys.driverSide = 1;
+  const dt = 1 / 60;
+  const lookYaw = () => Math.atan2(sys.camera.target.x - sys.camera.position.x, sys.camera.target.z - sys.camera.position.z);
+  // on the chase camera the mouse does nothing
+  sys.update(dt, 0);
+  h.pointer(h.canvas, 'pointermove', 1, 0, 450, 'mouse');
+  close(sys.head.target.yaw, 0);
+  sys.setCameraPreset('taxi', true);
+  sys.update(dt, 0);
+  assert.equal(sys.head.active, true);
+  close(lookYaw(), 0);
+  // the mouse to the left edge: the head turns left (+), easing round, out of the driver's window
+  h.pointer(h.canvas, 'pointermove', 1, 0, 450, 'mouse');
+  sys.update(dt, dt);
+  assert.ok(sys.head.yaw > 0 && sys.head.yaw < 0.3, `starts turning (${sys.head.yaw.toFixed(2)})`);
+  for (let i = 0; i < 90; i++) sys.update(dt, i * dt);
+  assert.ok(Math.abs(sys.head.yaw - HEAD.yaw) < 0.02, `turned (${sys.head.yaw.toFixed(2)})`);
+  assert.ok(Math.abs(lookYaw() - HEAD.yaw) < 0.05, `looking ${lookYaw().toFixed(2)} rad round`);
+  // up the screen: the head tilts up
+  h.pointer(h.canvas, 'pointermove', 1, 800, 0, 'mouse');
+  for (let i = 0; i < 90; i++) sys.update(dt, i * dt);
+  assert.ok(sys.camera.target.y - sys.camera.position.y > 20, 'looking up');
+  // back to the chase camera: eyes front, the mouse no longer turning it
+  sys.setCameraPreset('chase', true);
+  sys.update(dt, 0);
+  assert.equal(sys.head.active, false);
+  close(sys.head.target.yaw, 0);
+  h.pointer(h.canvas, 'pointermove', 1, 0, 450, 'mouse');
+  close(sys.head.target.yaw, 0);
+});
