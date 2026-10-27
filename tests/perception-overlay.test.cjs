@@ -36,6 +36,7 @@ function navigatorWith(cars, extra = {}) {
   return {
     tracker, autopilot: true, threat: null, leadObj: null, status: '',
     planPreview: () => [{ x: 0, z: 0 }, { x: 0, z: 10 }, { x: 0.5, z: 20 }],
+    mappedPreview: () => [{ x: 0, z: 0 }, { x: 0.4, z: 10 }, { x: 0.2, z: 20 }],
     ...extra
   };
 }
@@ -111,6 +112,10 @@ test('drawing projects to the screen, skips what is behind the camera, and colou
   assert.ok(strokes.includes(overlay.COLORS.lead), 'lead colour used');
   assert.ok(strokes.includes(overlay.COLORS.threat), 'threat colour used');
   assert.ok(strokes.includes(overlay.COLORS.plan), 'plan drawn');
+  // the mapped line faintly, before (under) the planned one
+  assert.equal(view.mapped.length, 3);
+  assert.ok(strokes.includes(overlay.COLORS.mapped), 'mapped line drawn');
+  assert.ok(strokes.indexOf(overlay.COLORS.mapped) < strokes.indexOf(overlay.COLORS.plan), 'under the plan');
   // labels: the picked-out ones get their speed
   const texts = calls.filter((c) => c[0] === 'fillText').map((c) => c[1]);
   assert.ok(texts.some((t) => /29 km\/h/.test(t)), `lead labelled with its speed (${texts.join(' | ')})`);

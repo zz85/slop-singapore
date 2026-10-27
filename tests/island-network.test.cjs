@@ -494,3 +494,35 @@ test('on a kinked mapped bend the autopilots drive a smooth line at speed, witho
     assert.ok(s.reversals <= maxRev, `${driver}: no weaving (${s.reversals} steering reversals)`);
   }
 });
+
+test('the overlay\'s mapped line is the lanes\' own, kinks and all; the planned line keeps within the cut of it', () => {
+  const { data, end } = kinkedExpressway();
+  const roads = islandRoads.createIslandRoads(data);
+  const net = islandNet.createIslandNetwork(roads, { keepLeft: true });
+  const e0 = net.edges[0];
+  const car = makeCar(e0.sx + e0.rx * e0.lanes[1], e0.sz + e0.rz * e0.lanes[1] + 5, 0);
+  const controllers = { activeMode: 'car', getActiveEntity: () => car, userDriveInput: () => 0, setAutopilotInput() {} };
+  const n = new nav.Navigator({ network: net, trafficSystem: { cars: [], buses: [], peds: [] }, controllerManager: controllers });
+  n.setDriver('self');
+  assert.ok(n.setDestination(end[0], end[1], 'x'));
+  const { pts, mapped } = n.path;
+  // (how far each point of the planned line is from the mapped line: points also slide along it, which is no matter)
+  const toMapped = (x, z, i) => {
+    let d = Infinity;
+    for (let j = Math.max(0, i - 8); j < Math.min(pts.length - 1, i + 8); j++) {
+      const ax = mapped[j * 2], az = mapped[j * 2 + 1], ex = mapped[j * 2 + 2] - ax, ez = mapped[j * 2 + 3] - az;
+      const t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez || 1)));
+      d = Math.min(d, Math.hypot(x - ax - ex * t, z - az - ez * t));
+    }
+    return d;
+  };
+  let most = 0;
+  for (let i = 0; i < pts.length; i++) most = Math.max(most, toMapped(pts[i].x, pts[i].z, i));
+  assert.ok(most > 0.1, `smoothed away from the mapped line on the bend (${most.toFixed(2)} m)`);
+  assert.ok(most <= nav.DRIVERS.self.cut + 1e-3, `within the cut (${most.toFixed(2)} m)`);
+  const preview = n.mappedPreview(60);
+  assert.ok(preview.length > 10, 'the next 60 m of it');
+  assert.ok(Math.hypot(preview[0].x - car.position.x, preview[0].z - car.position.z) < 6, 'starting at the car');
+  n.setDriver('you');
+  assert.equal(n.mappedPreview().length, 0, 'only while an autopilot drives');
+});

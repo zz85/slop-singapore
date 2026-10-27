@@ -4,7 +4,8 @@ import { predict } from './perception.js';
 // What the autopilot sees (js/perception.js, js/navigation.js), drawn over the 3D view on a 2D canvas: every vehicle
 // and person it is tracking as a box on the ground, coloured by what it means to the drive (the car it follows, the
 // one it is getting out of the way of, the rest), each moving one's predicted course over the autopilot's look-ahead,
-// the estimated speed of the ones that matter, and the line it plans to drive. Off by default (the Navigate menu, O).
+// the estimated speed of the ones that matter, and the line it plans to drive (with, faintly, the lanes' line as mapped,
+// which it smoothed that line from). Off by default (the Navigate menu, O).
 //
 // buildOverlay() turns the navigator's state into world-space shapes; drawOverlay() projects and draws them with a
 // project(x, y, z) -> { x, y } | null (null: behind the camera) in canvas pixels.
@@ -15,15 +16,16 @@ const COLORS = {
   lead: 'rgba(80, 170, 255, 0.95)',
   threat: 'rgba(255, 82, 70, 0.98)',
   plan: 'rgba(80, 230, 160, 0.85)',
+  mapped: 'rgba(255, 255, 255, 0.38)',
   trail: 'rgba(170, 196, 224, 0.45)'
 };
 
 const TRAIL_STEP = 0.5; // s between the points of a predicted course
 const RANGE = 70; // m: farther tracks are left off (the autopilot keeps them, the view would only clutter)
 
-/** The shapes to draw for `navigator` driving `ego`: { objects, plan, conflict, horizon } in world metres */
+/** The shapes to draw for `navigator` driving `ego`: { objects, plan, mapped, conflict, horizon } in world metres */
 function buildOverlay(navigator, ego) {
-  const out = { objects: [], plan: [], conflict: null, horizon: 0 };
+  const out = { objects: [], plan: [], mapped: [], conflict: null, horizon: 0 };
   if (!navigator || !navigator.autopilot || !navigator.tracker) return out;
   const horizon = navigator.driver?.safety?.horizon ?? 4;
   out.horizon = horizon;
@@ -53,6 +55,7 @@ function buildOverlay(navigator, ego) {
     out.objects.push({ obj: tr.obj, role, box, trail, x: tr.x, z: tr.z, speed: tr.speed, ped: tr.ped });
   }
   out.plan = navigator.planPreview ? navigator.planPreview() : [];
+  out.mapped = navigator.mappedPreview ? navigator.mappedPreview() : [];
   if (navigator.threat) out.conflict = { t: navigator.threat.t, gap: navigator.threat.gap };
   return out;
 }
@@ -81,6 +84,21 @@ function drawOverlay(ctx, view, project, { y = 0, dpr = 1, metric = true } = {})
   };
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
+
+  // the lanes' line as mapped: thin and faint, under the planned line smoothed from it
+  if (view.mapped && view.mapped.length > 1) {
+    const pts = [];
+    for (const q of view.mapped) {
+      const s = project(q.x, lift, q.z);
+      if (s) pts.push(s);
+    }
+    if (pts.length > 1) {
+      ctx.strokeStyle = COLORS.mapped;
+      ctx.lineWidth = 1.25 * dpr;
+      polyline(ctx, pts);
+      ctx.stroke();
+    }
+  }
 
   // the planned line: a ribbon of dots fading out with distance
   if (view.plan.length > 1) {

@@ -362,6 +362,9 @@ function buildPath(network, route, x, z, driver = DRIVERS.self) {
   // The line it will actually drive: the lanes' polyline smoothed into one a car can follow at speed (island roads are
   // short straights between mapped points, each joint a kink), never more than `cut` m off the lanes, so a corner is
   // still taken in lane and only the kinks and wobbles go. The speed profile and the steering both work from it.
+  // (the lanes' own line, point for point, kept for the overlay to show beside the smoothed one)
+  const mapped = new Float32Array(pts.length * 2);
+  pts.forEach((p, i) => { mapped[i * 2] = p.x; mapped[i * 2 + 1] = p.z; });
   smoothPath(pts, driver.cut ?? 0.35);
 
   // arc length, tangents, normals, curvature
@@ -388,7 +391,7 @@ function buildPath(network, route, x, z, driver = DRIVERS.self) {
     pts[i].ks = ds > 0.5 ? turn / ds : 0;
     pts[i].k = Math.abs(pts[i].ks);
   }
-  const path = { pts, maneuvers, stops, length: pts.length ? pts[pts.length - 1].s : 0, route };
+  const path = { pts, mapped, maneuvers, stops, length: pts.length ? pts[pts.length - 1].s : 0, route };
   for (const mv of maneuvers) {
     mv.s = pts[mv.i].s;
     mv.name = edgeName(mv.edge);
@@ -869,6 +872,22 @@ class Navigator {
     for (let d = step; d <= ahead && this.progress + d <= this.path.length; d += step) {
       pointAt(this.path, this.progress + d, this.lineAt(d / speed).y, q);
       out.push({ x: q.x, z: q.z });
+    }
+    return out;
+  }
+
+  /**
+   * The lanes' line as mapped, before it was smoothed into the one the car drives (buildPath), over the next `ahead`
+   * metres: for the overlay to draw faintly beside planPreview()
+   */
+  mappedPreview(ahead = 60) {
+    const path = this.path;
+    if (!path || !this.autopilot || !path.mapped) return [];
+    const out = [];
+    const { pts, mapped } = path;
+    for (let i = Math.max(0, this.index); i < pts.length && pts[i].s <= this.progress + ahead; i++) {
+      if (pts[i].s < this.progress - 3) continue;
+      out.push({ x: mapped[i * 2], z: mapped[i * 2 + 1] });
     }
     return out;
   }
