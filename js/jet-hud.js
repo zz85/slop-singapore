@@ -7,7 +7,10 @@
 
 const GREEN = '#7dffa8';
 const WARN = '#ffb347';
-const KT = 1.943844, FT = 3.28084, SOUND = 340.3;
+const KT = 1.943844, FT = 3.28084, SOUND = 340.3, LB = 2.20462;
+// fuel in thousands of pounds, as the jet's own gauges; FUEL LOW under 2,000 lb
+const fuelText = (s) => (s.unlimitedFuel ? 'FUEL ∞' : `FUEL ${((s.fuel ?? 0) * LB / 1000).toFixed(1)}`);
+const FUEL_LOW = 2000 / LB;
 
 class JetHUD {
   constructor(parent, { bearingDeg = 0 } = {}) {
@@ -35,7 +38,9 @@ class JetHUD {
     return ((deg % 360) + 360) % 360;
   }
 
-  update(dt, jet, camera, cockpit) {
+  // `bore`, from the cockpit: where the jet's boresight is on screen ({ x, y } CSS pixels) and how much of the HUD the
+  // pilot's head still sees through the combiner (0..1): the symbology is fixed to the jet, not the head
+  update(dt, jet, camera, cockpit, bore = null) {
     if (!this.visible || !jet || !this.ctx) return;
     this.time += dt;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -50,7 +55,9 @@ class JetHUD {
     g.scale(dpr, dpr);
     const w = W / dpr, h = H / dpr;
     const s = jet.flight;
-    const cx = w / 2, cy = h / 2;
+    const cx = cockpit && bore ? bore.x : w / 2, cy = cockpit && bore ? bore.y : h / 2;
+    if (cockpit && bore && bore.alpha < 0.02) return;
+    g.globalAlpha = cockpit && bore ? bore.alpha : 1;
     const unit = Math.max(0.75, Math.min(1.25, Math.min(w, h) / 760));
     g.lineWidth = 1.5 * unit;
     g.strokeStyle = GREEN;
@@ -177,6 +184,7 @@ class JetHUD {
     g.textAlign = 'left';
     g.fillText(`M ${mach.toFixed(2)}`, cx - bx - 40 * unit, by + 30 * unit);
     g.fillText(`G ${s.g.toFixed(1)}`, cx - bx - 40 * unit, by + 48 * unit);
+    g.fillText(fuelText(s), cx - bx - 40 * unit, by + 66 * unit);
     g.fillText(`${vsi >= 0 ? '+' : '−'}${Math.abs(Math.round(vsi / 100) * 100).toLocaleString('en-US')} FPM`, cx + bx - 40 * unit, by + 30 * unit);
 
     this.drawThrottle(g, s, cx, cy + 175 * unit, unit, font, blink, jet, cy + 90 * unit);
@@ -193,7 +201,9 @@ class JetHUD {
     g.font = font(12, 700);
     g.textAlign = 'center';
     const thrust = s.throttle > 0.8 ? `AB ${Math.min(5, 1 + Math.floor(((s.throttle - 0.8) / 0.2) * 5))}` : s.throttle <= 0 ? (s.speedBrake ? (s.onGround ? 'BRAKES' : 'SPD BRK') : 'IDLE') : `${Math.round((s.throttle / 0.8) * 100)}%`;
-    g.fillText(thrust, cx, tyy + 22 * unit);
+    g.fillText(s.flameout ? 'FLAMEOUT' : thrust, cx, tyy + 22 * unit);
+    g.font = font(11, 600);
+    g.fillText(jet.refuelling ? `REFUELLING ${fuelText(s).slice(5)}` : fuelText(s), cx, tyy + 38 * unit);
 
     // warnings
     const warnings = [];
@@ -204,12 +214,14 @@ class JetHUD {
       const agl = jet.position.y - 2.3;
       if (!s.onGround && s.climbRate < -15 && agl / -s.climbRate < 5) warnings.push('PULL UP');
       if (s.gear > 0.05 && !s.onGround) warnings.push(s.gear < 0.95 ? 'GEAR TRANSIT' : 'GEAR DOWN');
+      if (s.flameout) warnings.push('NO FUEL');
+      else if (!s.unlimitedFuel && s.fuel < FUEL_LOW) warnings.push('FUEL LOW');
     }
     if (warnings.length) {
       g.font = font(16, 800);
       g.textAlign = 'center';
       warnings.forEach((text, i) => {
-        const urgent = text === 'PULL UP' || text === 'STALL' || text === 'CRASHED';
+        const urgent = text === 'PULL UP' || text === 'STALL' || text === 'CRASHED' || text === 'NO FUEL' || text === 'FUEL LOW';
         if (urgent && !blink) return;
         g.fillStyle = urgent ? WARN : GREEN;
         g.fillText(text, cx, wy + i * 22 * unit);

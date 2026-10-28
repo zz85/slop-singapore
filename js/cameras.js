@@ -20,6 +20,19 @@ const CAMERA_PRESETS = [
   { id: 'drone',       name: 'Auto-Director Aerial',     short: 'Director',    category: 'scenic', fov: 50 }
 ];
 
+// The head in the jet's cockpit and the Crazy Taxi cam, aimed by where the mouse is (no click): the middle of the screen is straight
+// ahead, a quiet zone around it, then further out the head turns further, to 130° either side at the screen's edges
+// (over the shoulder, down the wing) and 60° up / 32° down at its top and bottom. Returns { yaw (+ left), pitch (+ up) }
+// for a pointer at (nx, ny), each -1..1 from the screen's centre (ny down).
+const HEAD = { quiet: 0.14, yaw: 2.27, up: 1.05, down: 0.56, curve: 1.35, omega: 8.5 };
+function headTarget(nx, ny, out = { yaw: 0, pitch: 0 }) {
+  const shape = (t) => Math.sign(t) * Math.min(1, Math.max(0, (Math.abs(t) - HEAD.quiet) / (1 - HEAD.quiet - 0.04))) ** HEAD.curve;
+  out.yaw = -shape(nx) * HEAD.yaw;
+  const v = shape(ny);
+  out.pitch = -v * (v < 0 ? HEAD.up : HEAD.down);
+  return out;
+}
+
 class CameraSystem {
   constructor(domElement, controllerManager) {
     this.domElement = domElement;
@@ -57,7 +70,36 @@ class CameraSystem {
     this.driverSide = 1;
     this.taxi = { heading: null, yawRate: 0, speed: 0, accel: 0, jolt: 0, roll: 0, look: 0, pitch: 0, fov: 72, time: 0 };
 
+    // The pilot's head (updateJetView): where it's aimed (headTarget, from the mouse), where it is, how fast it turns
+    this.head = { yaw: 0, pitch: 0, vyaw: 0, vpitch: 0, target: { yaw: 0, pitch: 0 }, active: false, fresh: true };
+
     this.bindPointerControls();
+  }
+
+  /** Aim the pilot's head at the mouse at client (x, y) (only while looking from the cockpit: see updateJetView) */
+  aimHead(x, y) {
+    const w = window.innerWidth || 1, h = window.innerHeight || 1;
+    headTarget((x / w) * 2 - 1, (y / h) * 2 - 1, this.head.target);
+  }
+
+  // the head turning towards where it's aimed as a head does: speeding up, then easing into place (a critically
+  // damped spring); `snap`: there at once
+  stepHead(dt, snap = false) {
+    const head = this.head;
+    if (snap) {
+      head.yaw = head.target.yaw; head.pitch = head.target.pitch; head.vyaw = head.vpitch = 0;
+      return;
+    }
+    const h = Math.min(dt, 0.05), w = HEAD.omega;
+    head.vyaw += (w * w * (head.target.yaw - head.yaw) - 2 * w * head.vyaw) * h;
+    head.vpitch += (w * w * (head.target.pitch - head.pitch) - 2 * w * head.vpitch) * h;
+    head.yaw += head.vyaw * h;
+    head.pitch += head.vpitch * h;
+  }
+
+  /** Eyes front: the mouse left the window, or the view changed */
+  centreHead() {
+    this.head.target.yaw = this.head.target.pitch = 0;
   }
 
   bindPointerControls() {
@@ -77,9 +119,17 @@ class CameraSystem {
     });
 
     canvas.addEventListener('pointermove', (e) => {
+      // in the cockpit the mouse aims the pilot's head just by moving (dragging too, rather than orbiting)
+      const headLook = this.head.active && e.pointerType === 'mouse';
+      if (headLook) this.aimHead(e.clientX, e.clientY);
       const pointer = pointers.get(e.pointerId);
       if (!pointer) return;
       e.preventDefault();
+      if (headLook) {
+        pointer.x = e.clientX;
+        pointer.y = e.clientY;
+        return;
+      }
       const dx = e.clientX - pointer.x;
       const dy = e.clientY - pointer.y;
       const pair = pointers.size === 2 ? [...pointers.values()] : null;
@@ -112,6 +162,9 @@ class CameraSystem {
     };
     this._clearPointers = clearPointers;
     window.addEventListener('blur', clearPointers);
+    // the mouse off the page (or the page in the background): the head comes back to eyes front
+    document.addEventListener('mouseout', (e) => { if (!e.relatedTarget) this.centreHead(); });
+    window.addEventListener('blur', () => this.centreHead());
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) clearPointers();
     });
@@ -203,13 +256,25 @@ class CameraSystem {
       return;
     }
     if (this._jetView) {
-      // back from the jet: upright again, at the preset's lens
+      // back from the jet: upright again, at the preset's lens, the head no longer following the mouse
       this._jetView = false;
+      this.head.active = false;
+      this.centreHead();
+      this.head.yaw = this.head.pitch = 0;
       this.camera.up.set(0, 1, 0);
       this.camera.fov = this.getActivePreset().fov;
       this.camera.updateProjectionMatrix();
       this.initialized = false;
     }
+    // the Crazy Taxi cam is a head too: the mouse turns it as in the jet's cockpit
+    const taxiHead = this.activePresetId === 'taxi';
+    if (taxiHead !== this.head.active) {
+      this.head.active = taxiHead;
+      this.centreHead();
+      this.head.fresh = true;
+    }
+    if (taxiHead) this.stepHead(dt, this.head.fresh || !(dt > 0));
+    this.head.fresh = false;
 
     switch (this.activePresetId) {
       case 'chase': {
@@ -312,7 +377,9 @@ class CameraSystem {
           this.camera.updateProjectionMatrix();
         }
 
-        const side = car ? 0.36 * this.driverSide : 0;
+        // the driver's head, turned about the neck: leaning a little out the way it looks
+        const head = this.head;
+        const side = (car ? 0.36 * this.driverSide : 0) - Math.sin(head.yaw) * 0.09;
         const fwd = car ? 0.05 : 0.35;
         const eyeY = car ? 1.32 : 1.6;
         const fx = Math.sin(entity.heading);
@@ -331,11 +398,13 @@ class CameraSystem {
           entity.position.y + eyeY + ny,
           entity.position.z + fz * (fwd + surge) + rz * side + rz * nx
         );
-        const yaw = totalYaw + t.look;
+        // (looking well round, the turn into the bend fades: the head is busy elsewhere)
+        const yaw = totalYaw + head.yaw + t.look * Math.max(0, 1 - Math.abs(head.yaw));
+        const reach = 40.0 * Math.cos(head.pitch);
         desiredLook.set(
-          desiredPos.x + Math.sin(yaw) * 40.0,
-          desiredPos.y - 0.6 + Math.sin(-this.orbitPitchOffset + 0.09 + t.pitch) * 40.0,
-          desiredPos.z + Math.cos(yaw) * 40.0
+          desiredPos.x + Math.sin(yaw) * reach,
+          desiredPos.y - 0.6 + Math.sin(-this.orbitPitchOffset + 0.09 + t.pitch + head.pitch) * 40.0,
+          desiredPos.z + Math.cos(yaw) * reach
         );
         break;
       }
@@ -473,16 +542,38 @@ class CameraSystem {
     else qs.slerp(q, 1 - Math.exp(-dt * 3.2));
     const p = entity.position;
     const preset = this.activePresetId;
-    // the user's orbit (drag, right stick): about the jet's up, then its wings
-    look.setFromAxisAngle(axis.set(0, 1, 0), this.orbitYawOffset);
-    look.multiply((this._jpitch ??= new THREE.Quaternion()).setFromAxisAngle(axis.set(1, 0, 0), this.orbitPitchOffset - 0.09));
+    const cockpit = preset === 'pov' || preset === 'taxi';
+    const head = this.head;
+    if (cockpit !== head.active) {
+      head.active = cockpit;
+      if (!cockpit) this.centreHead();
+    }
+    // the pilot's head, turning towards where it's aimed (stepHead)
+    let yaw = 0, pitch = 0;
+    if (cockpit) {
+      this.stepHead(dt, fresh);
+      // pulling g sags the head a little
+      yaw = head.yaw;
+      pitch = head.pitch - Math.max(-0.03, Math.min(0.06, ((s.g || 1) - 1) * 0.008));
+    }
+    // the look: the head (cockpit), and the user's orbit (drag, right stick) on top: about the jet's up, then across
+    look.setFromAxisAngle(axis.set(0, 1, 0), this.orbitYawOffset + yaw);
+    look.multiply((this._jpitch ??= new THREE.Quaternion()).setFromAxisAngle(axis.set(1, 0, 0), this.orbitPitchOffset - 0.09 - pitch));
 
     let fov = this.getActivePreset().fov;
-    if (preset === 'pov' || preset === 'taxi') {
-      // the front seat, the eyes over the glareshield and level with the HUD's combiner
-      this.currentPos.set(0, 1.14, 4.15).applyQuaternion(q).add(p);
+    if (cockpit) {
+      // the front seat: the eyes turn about the neck (8 cm under and 9 cm behind them), over the glareshield and
+      // level with the HUD's combiner looking ahead; looking well round, the shoulders turn and lean that way too
+      const neck = this._jneck ??= new THREE.Vector3();
+      neck.set(0, 1.06, 4.06);
+      const sy = Math.sin(yaw);
+      neck.x += sy * 0.11 * Math.min(1, Math.abs(yaw) / 1.2);
+      neck.z -= Math.abs(sy) * 0.04;
+      neck.y -= Math.max(0, Math.min(0.05, ((s.g || 1) - 1) * 0.006));
+      v.set(0, 0.08, 0.09).applyQuaternion(look).add(neck);
+      this.currentPos.copy(v).applyQuaternion(q).add(p);
       cam.position.copy(this.currentPos);
-      // the camera looks down its -z: turned round to the jet's +z, then the user's look about
+      // the camera looks down its -z: turned round to the jet's +z, then the look about
       cam.quaternion.copy(q).multiply(look).multiply(this._jflip ??= new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI));
       this.currentLookAt.set(0, 1.14, 60).applyQuaternion(q).add(p);
       fov = 74;
@@ -514,4 +605,4 @@ class CameraSystem {
   }
 }
 
-export { CAMERA_PRESETS, CameraSystem };
+export { CAMERA_PRESETS, CameraSystem, headTarget, HEAD };

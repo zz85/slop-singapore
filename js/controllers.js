@@ -956,7 +956,14 @@ class ThirdPersonControllerManager {
     });
   }
 
-  /** Line the jet up on its home runway, stopped, engines at idle */
+  // The flight options (the Air Force menu): { unlimitedFuel, assist (Bank assist) }
+  setJetOptions({ unlimitedFuel, assist } = {}) {
+    const s = this.entities.jet.flight;
+    if (unlimitedFuel !== undefined) s.unlimitedFuel = !!unlimitedFuel;
+    if (assist !== undefined) s.assist = !!assist;
+  }
+
+  /** Line the jet up on its home runway, stopped, engines at idle, tanks full */
   parkJet() {
     const j = this.entities.jet;
     const home = this.jetHome;
@@ -965,13 +972,16 @@ class ThirdPersonControllerManager {
       j.position.z = home.z;
       j.heading = home.heading;
     }
-    this.resetJet(j, { flying: false });
+    this.resetJet(j, { flying: false, refuel: true });
     return { x: j.position.x, z: j.position.z };
   }
 
   // Reset the jet's flight to straight and level (flying at `speed`) or parked on the ground at its position
-  resetJet(j, { flying = false, speed = 0, throttle = 0 } = {}) {
+  resetJet(j, { flying = false, speed = 0, throttle = 0, refuel = false } = {}) {
     const s = j.flight;
+    if (refuel) s.fuel = JET.fuelCapacity;
+    s.flameout = s.fuel <= 0;
+    j.refuelling = false;
     s.onGround = !flying;
     s.speed = flying ? speed : 0;
     s.throttle = throttle;
@@ -1001,7 +1011,7 @@ class ThirdPersonControllerManager {
       j.crashed -= dt;
       if (j.crashed <= 0) {
         j.position.y = this.getGroundHeight(j.position.x, j.position.z, 'jet') + 450;
-        this.resetJet(j, { flying: true, speed: 170, throttle: 0.75 });
+        this.resetJet(j, { flying: true, speed: 170, throttle: 0.75, refuel: true });
       }
       return;
     }
@@ -1036,6 +1046,9 @@ class ThirdPersonControllerManager {
     }
     j.heading = s.heading;
     j.speed = s.speed;
+    // stopped on a runway: the bowser fills it up (in about 20 s from empty)
+    j.refuelling = s.onGround && s.speed < 0.5 && s.fuel < JET.fuelCapacity && this.onRunway(p.x, p.z);
+    if (j.refuelling) s.fuel = Math.min(JET.fuelCapacity, s.fuel + 520 * dt);
     const a = jetAxes(s.q);
     j.attitude.pitch = a.pitch;
     j.attitude.bank = a.bank;

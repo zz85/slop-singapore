@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { JET, createJetState, stepJet, axes, attitude, thrustAt } from '../js/jet-flight.js';
+import { JET, createJetState, stepJet, axes, attitude, thrustAt, fuelFlow } from '../js/jet-flight.js';
 
 const land = { groundAt: () => 0 };
 const sea = { groundAt: () => null };
@@ -43,33 +43,103 @@ test('hands off, it flies straight and level', () => {
   assert.ok(Math.abs(axes(s.q).bank) < 0.01);
 });
 
-test('a bank turns it the way it banks; a small bank with the stick centred levels out', () => {
+test('banked with the stick centred it turns, but the nose drops and it descends: as the real jet', () => {
   const s = airborne(1500, 200, 0.8, 0);
-  fly(s, { roll: 1 }, 0.35); // ~60° right
+  fly(s, { roll: 1 }, 0.3); // ~60° right
   const bank = axes(s.q).bank;
   assert.ok(bank > 0.8 && bank < 1.3, `bank ${bank}`);
   const before = s.heading;
   fly(s, {}, 5);
   // right turn: the heading decreases (forward (sin h, cos h), right of it is -x at h = 0)
-  assert.ok(s.heading < before - 0.15, `heading ${before} -> ${s.heading}`);
-  assert.ok(Math.abs(s.position.y - 1500) < 60, `held its height: ${s.position.y.toFixed(0)}`);
-  assert.ok(Math.abs(s.g - 1 / Math.cos(axes(s.q).bank)) < 0.25, `pulling ${s.g.toFixed(2)} g at ${axes(s.q).bank.toFixed(2)} rad`);
+  assert.ok(s.heading < before - 0.1, `heading ${before} -> ${s.heading}`);
+  assert.ok(s.position.y < 1500 - 40, `sinks: ${s.position.y.toFixed(0)} m`);
+  assert.ok(axes(s.q).pitch < -0.05, `nose down ${axes(s.q).pitch.toFixed(2)}`);
+  assert.ok(Math.abs(s.g - 1) < 0.05, 'still at 1 g');
+});
 
+test('pulling 1 / cos(bank) g holds the height in the turn, and turns it harder', () => {
+  const s = airborne(1500, 200, 0.8, 0);
+  fly(s, { roll: 1 }, 0.3);
+  const need = 1 / Math.cos(axes(s.q).bank);
+  const before = s.heading;
+  // the stick's travel from 1 g (centred, level) to 9 g (full back)
+  fly(s, (st) => ({ pitch: (need - Math.cos(axes(st.q).pitch)) / (JET.maxG - 1) }), 5);
+  assert.ok(Math.abs(s.position.y - 1500) < 15, `held: ${s.position.y.toFixed(0)} m`);
+  assert.ok(Math.abs(s.g - need) < 0.1, `${s.g.toFixed(2)} g for ${need.toFixed(2)}`);
+  assert.ok(s.heading < before - 0.35);
+});
+
+test('Bank assist pulls it for you, and levels a small bank', () => {
+  const s = airborne(1500, 200, 0.8, 0);
+  s.assist = true;
+  fly(s, { roll: 1 }, 0.3);
+  const need = 1 / Math.cos(axes(s.q).bank);
+  fly(s, {}, 5);
+  assert.ok(Math.abs(s.position.y - 1500) < 15, `held: ${s.position.y.toFixed(0)} m`);
+  assert.ok(Math.abs(s.g - need) < 0.1);
   const shallow = airborne(1500, 200, 0.8, 0);
+  shallow.assist = true;
   fly(shallow, { roll: 1 }, 0.08);
   fly(shallow, {}, 6);
   assert.ok(Math.abs(axes(shallow.q).bank) < 0.02, `levelled to ${axes(shallow.q).bank}`);
+  // without it, a small bank stays
+  const off = airborne(1500, 200, 0.8, 0);
+  fly(off, { roll: 1 }, 0.08);
+  fly(off, {}, 3);
+  assert.ok(Math.abs(axes(off.q).bank) > 0.15);
 });
 
-test('the stick pitches the nose, never past 9 g', () => {
+test('a climb or a dive holds its angle with the stick centred', () => {
+  const s = airborne(1500, 220, 0.75);
+  s.q = attitude(0, 0.5, 0);
+  fly(s, {}, 4);
+  assert.ok(Math.abs(axes(s.q).pitch - 0.5) < 0.005);
+});
+
+test('the stick pulls up to 9 g at speed, and only what the wing gives when slow', () => {
   const s = airborne(3000, 250, 1);
   let peak = 0;
   fly(s, (st) => { peak = Math.max(peak, st.g); return { pitch: 1 }; }, 1.5);
   assert.ok(axes(s.q).pitch > 0.3, `nose up ${axes(s.q).pitch}`);
-  assert.ok(peak <= JET.maxG + 1.2, `peak ${peak.toFixed(1)} g`);
+  assert.ok(peak <= JET.maxG + 0.01 && peak > JET.maxG - 0.2, `peak ${peak.toFixed(2)} g`);
+  // at 100 m/s the wing gives (100 / 62)² ≈ 2.6 g: not 9
+  const slow = airborne(3000, 100, 1);
+  fly(slow, { pitch: 1 }, 0.3);
+  assert.ok(slow.g < 2.8 && slow.g > 2.3, `${slow.g.toFixed(2)} g at 100 m/s`);
+  assert.ok(slow.stalled, 'on the stall');
+  // pushing: to -3 g
   const d = airborne(3000, 250, 1);
   fly(d, { pitch: -1 }, 1);
-  assert.ok(axes(d.q).pitch < -0.2);
+  assert.ok(d.g < -2.8, `${d.g.toFixed(2)} g`);
+  assert.ok(axes(d.q).pitch < -0.1);
+});
+
+test('fuel: about 12 minutes of full afterburner from full tanks, an hour at military power; out of it, a glide', () => {
+  assert.ok(Math.abs(fuelFlow(1) - JET.fuelMax) < 1e-9 && Math.abs(fuelFlow(JET.afterburner) - JET.fuelMil) < 1e-9);
+  assert.ok(fuelFlow(0) === JET.fuelIdle && fuelFlow(1, 6000) < fuelFlow(1, 0));
+  const minutes = JET.fuelCapacity / fuelFlow(1) / 60;
+  assert.ok(minutes > 11 && minutes < 13.5, `${minutes.toFixed(1)} min`);
+  const s = airborne(800, 250, 1);
+  fly(s, { throttle: 1 }, 60);
+  assert.ok(Math.abs(JET.fuelCapacity - s.fuel - 60 * JET.fuelMax) < 60, `burnt ${(JET.fuelCapacity - s.fuel).toFixed(0)} kg in a minute`);
+  // lighter, it accelerates harder
+  const light = airborne(800, 150, 1);
+  light.fuel = 1000;
+  const heavy = airborne(800, 150, 1);
+  fly(light, {}, 5);
+  fly(heavy, {}, 5);
+  assert.ok(light.speed > heavy.speed + 3, `${light.speed.toFixed(0)} vs ${heavy.speed.toFixed(0)} m/s`);
+  // empty: the engines flame out, no afterburner, and it slows
+  const dry = airborne(3000, 250, 1);
+  dry.fuel = 5;
+  fly(dry, {}, 10);
+  assert.ok(dry.flameout && dry.fuel === 0 && dry.afterburner < 0.01);
+  assert.ok(dry.speed < 230);
+  // unlimited fuel: always full
+  const free = airborne(3000, 250, 1);
+  free.unlimitedFuel = true;
+  fly(free, {}, 30);
+  assert.equal(free.fuel, JET.fuelCapacity);
 });
 
 test('a zoom climb trades speed for height; at the top it stalls and the nose falls through', () => {

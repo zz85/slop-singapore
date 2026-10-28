@@ -84,7 +84,9 @@ class NearestSources {
 // Read at audio's control rate (10 Hz), after simulation updates. Snapshots remain valid until the next collect().
 // IDs are the simulation objects, independent of pooled record order, so voices survive ranking changes/recycling.
 class CityAudioSources {
-  constructor({ controllerManager, trafficSystem, highwayTraffic, streetDetails, islandTraffic = null }) {
+  constructor({ controllerManager, trafficSystem, highwayTraffic, streetDetails, islandTraffic = null, aircraft = [] }) {
+    // the other F-15SGs (js/air-force.js: the wingman, a flypast): { active, x, y, z, speed, throttle, heading, gain }
+    this.aircraft = aircraft;
     // the island's traffic beyond the detailed city (js/island-traffic.js), heard like the highways'
     this.islandCars = islandTraffic ? islandTraffic.cars : [];
     this.controllers = controllerManager;
@@ -210,7 +212,7 @@ class CityAudioSources {
         const verticalSpeed = player && helicopter ? helicopterVerticalSpeed(entity) : 0;
         const jet = kind === 'jet';
         // (the jet's load is its throttle: above 0.8 the afterburner's stage)
-        const load = player ? jet ? entity.flight.throttle : helicopter ? helicopterLoad(entity, keys, verticalSpeed) : driveLoad(keys, entity.speed, kind === 'cyclist') : 0;
+        const load = player ? jet ? (entity.flight.flameout ? 0 : entity.flight.throttle) : helicopter ? helicopterLoad(entity, keys, verticalSpeed) : driveLoad(keys, entity.speed, kind === 'cyclist') : 0;
         const gain = player ? 1 : helicopter ? 0.22 : 0.5;
         const range = jet ? 1500 : helicopter ? (player ? 500 : 200) : 160;
         this.motor(entity, kind, x, y + (helicopter ? 2.66 : 0.7), z, player ? entity.speed : 0, load, entity.heading,
@@ -219,6 +221,11 @@ class CityAudioSources {
     }
 
     const holdingUp = this.playerHoldingUp(active);
+    for (let i = 0; i < this.aircraft.length; i++) {
+      const a = this.aircraft[i];
+      if (!a.active) continue;
+      this.motor(a, 'jet', a.x, a.y, a.z, a.speed, a.throttle, a.heading, false, false, seedAt(4000 + i), false, a.gain ?? 1, 3000);
+    }
     this.streetVehicles(this.cars, elapsed, 100, holdingUp);
     this.streetVehicles(this.buses, elapsed, 1000, holdingUp);
     for (let i = 0; i < this.highwayCars.length; i++) {

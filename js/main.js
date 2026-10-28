@@ -35,6 +35,7 @@ import { PerceptionOverlay } from './perception-overlay.js';
 import { createIslandGraph } from './island-network.js';
 import { createAirbases } from './airbases.js';
 import { JetHUD } from './jet-hud.js';
+import { createAirForce } from './air-force.js';
 import { GEO } from './geodata.js';
 
 // js/main.js
@@ -249,7 +250,9 @@ async function initApp() {
   const soundButton = document.getElementById('btn-sound');
   // A tropical city (Singapore) has its koels, cicadas and thunderstorms
   const tropical = CITY.open && CITY.id === 'singapore';
-  const audioSystem = new CityAudioSystem({ controllerManager, trafficSystem, highwayTraffic, streetDetails, islandTraffic }, {
+  // The RSAF's other F-15SGs (js/air-force.js): a wingman for the jet, a flypast to order, from the Air Force menu
+  const airForce = airbases ? createAirForce(scene, controllerManager) : null;
+  const audioSystem = new CityAudioSystem({ controllerManager, trafficSystem, highwayTraffic, streetDetails, islandTraffic, aircraft: airForce?.aircraft }, {
     onStateChange: updateSoundButton,
     tropics: tropical
   });
@@ -312,6 +315,7 @@ async function initApp() {
     controllerManager.entities.jet.trails.mesh,
     controllerManager.entities.jet.explosion.fireball,
     controllerManager.entities.jet.explosion.smoke,
+    airForce?.group,
     airbases?.group,
     // Singapore's: the Flyer's wheel & capsules, Spectra's beams; the island tiles streamed in around the camera; rain
     cityLandmarks?.group,
@@ -403,6 +407,8 @@ async function initApp() {
   const elControlsHint = document.getElementById('hud-controls-hint');
   // The jet's head-up display (js/jet-hud.js): in the cockpit the full HUD, behind the jet its numbers
   const jetHud = new JetHUD(document.body, { bearingDeg: GEO.frame?.bearingDeg || 0 });
+  const hudForward = new THREE.Vector3(), hudView = new THREE.Vector3(), hudPoint = new THREE.Vector3();
+  const hudQuat = new THREE.Quaternion();
   const gamepadControls = new GamepadControls(controllerManager, cameraSystem, {
     onCycleMode: (step) => {
       const modes = ['person', 'car', 'cyclist', 'helicopter', 'jet'];
@@ -419,7 +425,7 @@ async function initApp() {
     car: [[['W', 'S'], 'Drive / Reverse'], [['A', 'D'], 'Steer'], [['B'], 'Horn'], [['[', ']'], 'How to go'], [['G'], 'Where to'], [['Drag'], 'Orbit']],
     cyclist: [[['W', 'S'], 'Pedal / Brake'], [['A', 'D'], 'Lean & Turn'], [['Drag'], 'Orbit']],
     helicopter: [[['W', 'S'], 'Pitch'], [['A', 'D'], 'Yaw'], [['Space', 'E'], 'Ascend'], [['Q', 'C'], 'Descend']],
-    jet: [[['W', 'S'], 'Nose down / up'], [['A', 'D'], 'Roll'], [['Space', 'E'], 'Throttle'], [['Q', 'C'], 'Idle / Brake'], [['T'], 'Cockpit']]
+    jet: [[['W', 'S'], 'Nose down / up'], [['A', 'D'], 'Roll'], [['Space', 'E'], 'Throttle'], [['Q', 'C'], 'Idle / Brake'], [['T'], 'Cockpit · mouse looks']]
   };
   // Top speeds in mph (controllers.js caps them at 8.2, 36, 19 & 52 m/s; the jet Mach 1.1, jet-flight.js): full scale
   // of the speed meter
@@ -700,6 +706,66 @@ async function initApp() {
   }
   if (openMapBtn) openMapBtn.addEventListener('click', () => mapSystem.toggleFullMap(true));
 
+  // The Air Force menu: the wingman and the runways on the map (both remembered), and a flypast to order
+  const afButton = document.getElementById('btn-airforce');
+  const afPopover = document.getElementById('airforce-popover');
+  const afWingman = document.getElementById('af-wingman');
+  const afFlypast = document.getElementById('af-flypast');
+  const afFlypastSub = document.getElementById('af-flypast-sub');
+  const afRunways = document.getElementById('af-runways');
+  const afFuel = document.getElementById('af-fuel');
+  const afAssist = document.getElementById('af-assist');
+  const afFlypastText = afFlypastSub?.textContent || '';
+  const remember = (key, on) => { try { localStorage.setItem(key, on ? '1' : '0'); } catch { /* storage unavailable */ } };
+  const recalled = (key) => { try { return localStorage.getItem(key) === '1'; } catch { return false; } };
+  function setWingman(on) {
+    airForce?.setWingman(on);
+    afWingman?.setAttribute('aria-checked', String(on));
+    remember('airforce-wingman', on);
+  }
+  function setRunwaysOnMap(on) {
+    mapSystem.setRunways(airbases?.runways || [], on);
+    afRunways?.setAttribute('aria-checked', String(on));
+    remember('map-runways', on);
+  }
+  // the flight options: unlimited fuel and Bank assist (both off, as the real jet, unless chosen; remembered)
+  function setJetOption(button, key, option, on) {
+    controllerManager.setJetOptions({ [option]: on });
+    button?.setAttribute('aria-checked', String(on));
+    remember(key, on);
+  }
+  for (const [button, key, option] of [[afFuel, 'jet-unlimited-fuel', 'unlimitedFuel'], [afAssist, 'jet-bank-assist', 'assist']]) {
+    button?.addEventListener('click', () => setJetOption(button, key, option, button.getAttribute('aria-checked') !== 'true'));
+    setJetOption(button, key, option, recalled(key));
+  }
+  if (airForce) {
+    mapSystem.setAircraft(airForce.contacts);
+    afWingman?.addEventListener('click', () => setWingman(afWingman.getAttribute('aria-checked') !== 'true'));
+    afRunways?.addEventListener('click', () => setRunwaysOnMap(!mapSystem.runwaysShown));
+    afFlypast?.addEventListener('click', () => {
+      if (airForce.flypast.active) return;
+      const eta = airForce.orderFlypast(cameraSystem.camera);
+      closePopovers();
+      streetDetails.notice?.('RSAF FLYPAST', `Four F-15SGs inbound, dead ahead: bomb burst in ${Math.round(eta)} s`, false, 'erp');
+    });
+    setWingman(recalled('airforce-wingman'));
+    setRunwaysOnMap(recalled('map-runways'));
+  } else {
+    afButton?.remove();
+    afPopover?.remove();
+  }
+  // the flypast's countdown in the menu, while it's on its way
+  let afShown = '';
+  function updateAirForceMenu() {
+    if (!airForce || !afFlypast) return;
+    const f = airForce.flypast;
+    const text = !f.active ? afFlypastText : f.eta > 0 ? `Inbound dead ahead: bomb burst in ${Math.ceil(f.eta)} s` : 'Bomb burst: look up';
+    if (text === afShown) return;
+    afShown = text;
+    afFlypastSub.textContent = text;
+    afFlypast.disabled = f.active;
+  }
+
   // Drive to a destination (js/navigation.js): turn-by-turn for you, or the self-driving or Crazy Taxi autopilot driving
   // the car over the traffic's own road graph
   // Beyond the detailed city, over the island's main roads: their graph joined to the city's, built in a worker once the
@@ -909,7 +975,7 @@ async function initApp() {
   }
 
   // For poking at from the console (and the browser checks): the simulation's main systems
-  globalThis.slop = { scene, autoTrees, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
+  globalThis.slop = { scene, autoTrees, airForce, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
 
   await precompileShaders();
   markInit('compile');
@@ -935,6 +1001,7 @@ async function initApp() {
     routeNavigator.update(dt, elapsed); // (the autopilot's inputs, for this frame's car update)
     navigationUI.update(dt);
     controllerManager.update(dt, elapsed);
+    if (airForce) airForce.update(dt, elapsed); // (the wingman follows where the jet went this frame)
     cameraSystem.update(dt, elapsed);
     streetDetails.signalClock.value = elapsed;
     trafficSystem.update(
@@ -979,7 +1046,26 @@ async function initApp() {
       const cockpit = controllerManager.activeMode === 'jet' && (preset === 'pov' || preset === 'taxi');
       // from the front seat: the cockpit around you, out through the canopy (drawn opaque from outside)
       jet.model.setCockpitView(cockpit);
-      if (controllerManager.activeMode === 'jet') jetHud.update(dt, jet, cameraSystem.camera, cockpit);
+      if (controllerManager.activeMode === 'jet') {
+        // the HUD stays on the jet's boresight as the pilot's head turns, seen through its combiner within ~12°
+        let bore = null;
+        if (cockpit) {
+          const cam = cameraSystem.camera;
+          const q = jet.flight.q;
+          const fwd = hudForward.set(0, 0, 1).applyQuaternion(hudQuat.set(q[0], q[1], q[2], q[3]));
+          const off = fwd.angleTo(cam.getWorldDirection(hudView));
+          cam.updateMatrixWorld();
+          const ndc = hudPoint.copy(cam.position).addScaledVector(fwd, 5000).project(cam);
+          bore = {
+            x: (ndc.x * 0.5 + 0.5) * window.innerWidth, y: (0.5 - ndc.y * 0.5) * window.innerHeight,
+            alpha: ndc.z < 1 ? 1 - THREE.MathUtils.smoothstep(off, 0.12, 0.3) : 0
+          };
+        }
+        jetHud.update(dt, jet, cameraSystem.camera, cockpit, bore);
+      }
+    }
+    if (airForce) {
+      updateAirForceMenu();
     }
 
     // Render frame via TSL RenderPipeline (SSR + Bloom)
