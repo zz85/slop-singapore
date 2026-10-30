@@ -23,12 +23,12 @@ import { ThirdPersonControllerManager } from './controllers.js';
 import { TouchControls } from './touch-controls.js';
 import { GamepadControls } from './gamepad-controls.js';
 import { CameraSystem, CAMERA_PRESETS } from './cameras.js';
-import { LightingSystem } from './lighting.js';
+import { LightingSystem, TIME_PRESETS } from './lighting.js';
 import { NYCMapSystem } from './nyc-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { CityAudioSystem } from './audio-system.js';
 import { Weather } from './weather.js';
-import { initialTreeDetail, bindTreeDetail, createAutoTreeDetail } from './graphics-settings.js';
+import { initialTreeDetail, bindTreeDetail, createAutoTreeDetail, initialLook } from './graphics-settings.js';
 import { Navigator } from './navigation.js';
 import { setupNavigationUI } from './navigation-ui.js';
 import { PerceptionOverlay } from './perception-overlay.js';
@@ -503,7 +503,8 @@ async function initApp() {
 
   function selectTime(timeId) {
     lightingSystem.applyPreset(timeId);
-    colorGrade.applyPreset(lightingSystem.activePresetId);
+    const look = colorGrade.applyPreset(lightingSystem.activePresetId);
+    ssrPass.intensity.value = look.reflections; // (0 in the flat tiny look)
     timeButtons.forEach((btn) => {
       btn.classList.toggle('active', btn.getAttribute('data-time') === timeId);
     });
@@ -885,7 +886,8 @@ async function initApp() {
   // Initialize the UI and chase camera around the restored player, or the default taxi on a first visit.
   selectMode(controllerManager.activeMode);
   selectCamera('chase', true);
-  selectTime('golden');
+  // the golden hour, or the look ?look=<id> names (?look=tiny: the flat miniature look, js/graphics-settings.js)
+  selectTime(initialLook({ search: location.search, looks: Object.keys(TIME_PRESETS) }));
   // the web fonts change the buttons' widths once they arrive
   if (document.fonts) document.fonts.ready.then(placeModeIndicator);
   markInit('ui');

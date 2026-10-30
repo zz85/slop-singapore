@@ -15,7 +15,8 @@ import {
   max,
   exp,
   abs,
-  select
+  select,
+  smoothstep
 } from 'three/tsl';
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { SunLight } from 'three/addons/lights/SunLight.js';
@@ -25,7 +26,9 @@ import { cityUniforms } from './tsl-materials.js';
 // js/lighting.js
 // Physically-Based Atmospheric Sky (Preetham SkyMesh + Beer-Powder Clouds),
 // Live PMREMGenerator IBL Cubemap, Three.js r186 SunLight (2-Cascade CSM),
-// and Occlusion-Aware Urban Canyon Global Illumination for Three.js r186 WebGPURenderer
+// and Occlusion-Aware Urban Canyon Global Illumination for Three.js r186 WebGPURenderer.
+// TIME_PRESETS.tiny (flat: true) is the exception: the tinywarsaw.app look, a painted two-colour sky, no IBL and a
+// hemisphere light as strong as the sun (its post-processing half is LOOKS.tiny in js/post-processing.js).
 
 const TIME_PRESETS = {
   golden: {
@@ -132,6 +135,37 @@ const TIME_PRESETS = {
     cloudDensity: 0.25,
     skyExposure: 0.022,
     nightFactor: 0.86
+  },
+  tiny: {
+    id: 'tiny',
+    name: 'Tiny · Flat Afternoon',
+    // The tinywarsaw.app look (?look=tiny): a painted two-colour sky instead of the physical one, no image-based
+    // lighting, and a hemisphere light as strong as the sun so lit and shadowed faces differ by about 2:1 (not 10:1)
+    // and nothing goes dark. Colours are Tiny Warsaw's own afternoon: sun #fff3e0 at 1.9, hemisphere #eef4ff / #b8ad9c
+    // at 1.95, sky #8fb8da to #dde6ea, haze #d6e0e6. Dry matte roads, no lit rooms, no canyon glow.
+    flat: true,
+    sunDir: new THREE.Vector3(-0.42, 0.70, -0.58).normalize(),
+    sunColor: 0xfff3e0,
+    sunIntensity: 2.0,
+    hemiSky: 0xeef4ff,
+    hemiGround: 0xb8ad9c,
+    hemiIntensity: 2.0,
+    skyTop: 0x8fb8da,
+    skyHorizon: 0xdde6ea,
+    fogColor: 0xd6e0e6,
+    fogDensity: 0.00014,
+    interiorGlow: 0.0,
+    roadWetness: 0.0,
+    envIntensity: 0.0,
+    canyonBounce: 0.0,
+    turbidity: 4.0,
+    rayleigh: 1.5,
+    mieCoefficient: 0.004,
+    mieDirectionalG: 0.80,
+    cloudCoverage: 0.0,
+    cloudDensity: 0.0,
+    skyExposure: 0.142,
+    nightFactor: 0.0
   }
 };
 
@@ -173,11 +207,19 @@ class LightingSystem {
     this.uSkyExposure = uniform(0.148);
     this.uNightFactor = uniform(0.0);
     this.uNightSkyColor = uniform(new THREE.Color(0x0b1528));
+    // The tiny look's painted sky (TIME_PRESETS flat: true): a two-colour gradient by view direction, horizon to zenith,
+    // in place of the Preetham radiance, its clouds and solar disc
+    this.uFlatSky = uniform(0.0);
+    this.uFlatSkyTop = uniform(new THREE.Color(0x8fb8da));
+    this.uFlatSkyHorizon = uniform(new THREE.Color(0xdde6ea));
     const rawSkyNode = this.sky.material.colorNode;
     this.sky.material.colorNode = Fn(() => {
       const raw = rawSkyNode;
       const dayCol = raw.rgb.mul(this.uSkyExposure);
-      const finalSky = mix(dayCol, this.uNightSkyColor, this.uNightFactor);
+      const physicalSky = mix(dayCol, this.uNightSkyColor, this.uNightFactor);
+      const viewDir = normalize(positionWorld.sub(cameraPosition));
+      const paintedSky = mix(this.uFlatSkyHorizon, this.uFlatSkyTop, smoothstep(0.0, 0.55, viewDir.y));
+      const finalSky = mix(physicalSky, paintedSky, this.uFlatSky);
       return vec4(finalSky, float(1.0));
     })();
 
@@ -293,6 +335,10 @@ class LightingSystem {
     this.sky.sunPosition.value.copy(p.sunDir);
     this.uSkyExposure.value = p.skyExposure;
     this.uNightFactor.value = p.nightFactor;
+    // flat: the painted gradient (also what bakeEnvironmentMap bakes, so the aerial haze takes its horizon colour)
+    this.uFlatSky.value = p.flat ? 1.0 : 0.0;
+    this.uFlatSkyTop.value.setHex(p.skyTop);
+    this.uFlatSkyHorizon.value.setHex(p.skyHorizon);
 
     cityUniforms.uSunColor.value.setHex(p.sunColor);
     cityUniforms.uSkyTopColor.value.setHex(p.skyTop);
@@ -304,6 +350,7 @@ class LightingSystem {
       cityUniforms.uCanyonBounce.value = p.canyonBounce;
     }
 
+    // (0 for the flat look: the environment map stays bound, so no material recompiles on a switch, but lights nothing)
     this.scene.environmentIntensity = p.envIntensity;
     this.bakeEnvironmentMap();
   }
@@ -318,4 +365,4 @@ class LightingSystem {
   }
 }
 
-export { LightingSystem };
+export { LightingSystem, TIME_PRESETS };
