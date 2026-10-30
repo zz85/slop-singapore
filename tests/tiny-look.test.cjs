@@ -30,7 +30,12 @@ const lighting = loadModule(source('js/lighting.js'), {
   filename: 'lighting.js'
 });
 const post = loadModule(source('js/post-processing.js'), {
-  imports: { 'three/webgpu': THREE, 'three/tsl': tsl, 'three/addons/tsl/display/BloomNode.js': { bloom: () => ({}) } },
+  imports: {
+    'three/webgpu': THREE,
+    'three/tsl': tsl,
+    'three/addons/tsl/display/BloomNode.js': { bloom: () => ({}) },
+    'three/addons/tsl/display/GaussianBlurNode.js': { gaussianBlur: () => ({}) }
+  },
   filename: 'post-processing.js'
 });
 
@@ -69,7 +74,9 @@ test('the tiny look: no tone mapping, no bloom, no split toning; the others keep
   }
 });
 
-test('the Tiny look is offered in the time-of-day switch', () => {
+test('the Tiny look is offered in the time-of-day switch, the map view among the cameras', () => {
   const html = source('index.html');
   assert.match(html, /<button id="time-tiny" class="time-btn" data-time="tiny"/);
+  const cameras = html.slice(html.indexOf('id="camera-popover"'), html.indexOf('<!-- Full-Screen'));
+  assert.match(cameras, /<div class="pop-title">Free<\/div>\s*<button id="cam-map" class="pop-item cam-btn" data-camera="map"/);
 });

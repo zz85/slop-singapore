@@ -17,8 +17,12 @@ import {
   screenSize
 } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+import { gaussianBlur } from 'three/addons/tsl/display/GaussianBlurNode.js';
 
-// Scene-linear color grading and lens bloom, composed in the existing final render pass.
+// Scene-linear color grading and lens bloom, composed in the existing final render pass. A second output graph,
+// `tiltShiftNode`, adds the miniature's tilt-shift (tinywarsaw.app's "band" mode: sharp across the middle of the
+// screen, blurred towards its top and bottom) for the tiny look's map view; main.js swaps the RenderPipeline's
+// outputNode between the two, so the blur passes only run while it is on.
 
 // Exposure and white balance belong to the camera, independently of the physical lighting presets.
 // Keep exposure restrained for ACES; stronger bloom stays selective so midtones retain their contrast.
@@ -58,8 +62,18 @@ function createPostProcessing(renderer, sceneColor, reflections) {
   bloomPass.smoothWidth.value = 0.30;
   bloomPass.setResolutionScale(0.5);
 
-  const outputNode = Fn(() => {
-    const color = exposed.add(bloomPass.rgb).toVar();
+  // The tilt-shift: the scene blurred at half resolution, mixed in by how far a pixel is from the band across the
+  // middle of the screen (sharp within `tiltBand` of the centre, fully blurred by `tiltBand` + `tiltRamp`)
+  const tiltBand = uniform(0.12);
+  const tiltRamp = uniform(0.30);
+  const tiltBlur = gaussianBlur(sceneColor, vec2(1.0), 4, { resolutionScale: 0.5 });
+  const tiltMask = smoothstep(tiltBand, tiltBand.add(tiltRamp), screenUV.y.sub(0.5).abs());
+  const tiltColor = mix(sceneColor.rgb, tiltBlur.rgb, tiltMask);
+  const exposedTilt = max(tiltColor.add(reflections.rgb), vec3(0)).mul(exposure).mul(balance);
+
+  // The grade, over the exposed scene (with the bloom from the sharp image on top)
+  const grade = (exposedNode) => Fn(() => {
+    const color = exposedNode.add(bloomPass.rgb).toVar();
     const luma = dot(color, vec3(0.2126, 0.7152, 0.0722)).toVar();
 
     // Gentle cool shadow / warm highlight separation; multiply rather than lifting the black level.
@@ -80,6 +94,8 @@ function createPostProcessing(renderer, sceneColor, reflections) {
     const vignette = float(1).sub(smoothstep(0.35, 1.0, radius).mul(vignetteAmount));
     return vec4(color.mul(vignette), 1.0);
   })();
+  const outputNode = grade(exposed);
+  const tiltShiftNode = grade(exposedTilt);
 
   /** Grades for the look `id` (LOOKS, with LOOK_DEFAULTS filled in) and returns it: `reflections` is the SSR strength the
    *  caller sets on its pass */
@@ -100,7 +116,7 @@ function createPostProcessing(renderer, sceneColor, reflections) {
   }
 
   applyPreset('golden');
-  return { outputNode, applyPreset };
+  return { outputNode, tiltShiftNode, applyPreset };
 }
 
 export { createPostProcessing, LOOKS };

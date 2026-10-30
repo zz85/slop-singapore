@@ -385,9 +385,9 @@ async function initApp() {
 
   // 6. Wire UI Controls (Strictly using safe DOM APIs: textContent, classList, addEventListener)
   // The Navigate menu (navigation-ui.js) lists the city's destinations and teleports there too. A city built from
-  // OpenStreetMap offers only the cameras following the player and the auto-director (the scenic ones look at New
-  // York's landmarks).
-  const CAMERAS = CITY.open ? CAMERA_PRESETS.filter((p) => p.category === 'follow' || p.id === 'drone') : CAMERA_PRESETS;
+  // OpenStreetMap offers only the cameras following the player, the free map view and the auto-director (the scenic
+  // ones look at New York's landmarks).
+  const CAMERAS = CITY.open ? CAMERA_PRESETS.filter((p) => p.category === 'follow' || p.category === 'free' || p.id === 'drone') : CAMERA_PRESETS;
   const cameraOffered = (id) => CAMERAS.some((p) => p.id === id);
   for (const btn of document.querySelectorAll('[data-camera]')) if (!cameraOffered(btn.dataset.camera)) btn.remove();
   const modeButtons = document.querySelectorAll('[data-mode]');
@@ -425,7 +425,9 @@ async function initApp() {
     car: [[['W', 'S'], 'Drive / Reverse'], [['A', 'D'], 'Steer'], [['B'], 'Horn'], [['[', ']'], 'How to go'], [['G'], 'Where to'], [['Drag'], 'Orbit']],
     cyclist: [[['W', 'S'], 'Pedal / Brake'], [['A', 'D'], 'Lean & Turn'], [['Drag'], 'Orbit']],
     helicopter: [[['W', 'S'], 'Pitch'], [['A', 'D'], 'Yaw'], [['Space', 'E'], 'Ascend'], [['Q', 'C'], 'Descend']],
-    jet: [[['W', 'S'], 'Nose down / up'], [['A', 'D'], 'Roll'], [['Space', 'E'], 'Throttle'], [['Q', 'C'], 'Idle / Brake'], [['T'], 'Cockpit · mouse looks']]
+    jet: [[['W', 'S'], 'Nose down / up'], [['A', 'D'], 'Roll'], [['Space', 'E'], 'Throttle'], [['Q', 'C'], 'Idle / Brake'], [['T'], 'Cockpit · mouse looks']],
+    // (the map view's, while it is the camera: js/cameras.js moveMapView)
+    map: [[['Drag'], 'Pan'], [['Right-drag'], 'Orbit'], [['Wheel'], 'Zoom'], [['V'], 'Cameras']]
   };
   // Top speeds in mph (controllers.js caps them at 8.2, 36, 19 & 52 m/s; the jet Mach 1.1, jet-flight.js): full scale
   // of the speed meter
@@ -492,6 +494,18 @@ async function initApp() {
     });
     const preset = cameraSystem.getActivePreset();
     if (elCamera) elCamera.textContent = preset.name;
+    renderControlHints(camId === 'map' ? 'map' : controllerManager.activeMode);
+    applyTiltShift();
+  }
+
+  // The miniature's tilt-shift (post-processing.js tiltShiftNode): on in the tiny look's map view, off otherwise, so
+  // its blur passes only run then (the pipeline rebuilds its output pass on the swap)
+  function applyTiltShift() {
+    const on = lightingSystem.activePresetId === 'tiny' && cameraSystem.activePresetId === 'map';
+    const node = on ? colorGrade.tiltShiftNode : colorGrade.outputNode;
+    if (renderPipeline.outputNode === node) return;
+    renderPipeline.outputNode = node;
+    renderPipeline.needsUpdate = true;
   }
 
   // Steps through the cameras offered (V / Shift+V, and the arrows either side of the camera name)
@@ -508,6 +522,7 @@ async function initApp() {
     timeButtons.forEach((btn) => {
       btn.classList.toggle('active', btn.getAttribute('data-time') === timeId);
     });
+    applyTiltShift();
   }
 
   // Graphics: the island's tree detail (js/graphics-settings.js), saved; the menu hidden where there are no island tiles
@@ -885,9 +900,12 @@ async function initApp() {
 
   // Initialize the UI and chase camera around the restored player, or the default taxi on a first visit.
   selectMode(controllerManager.activeMode);
-  selectCamera('chase', true);
-  // the golden hour, or the look ?look=<id> names (?look=tiny: the flat miniature look, js/graphics-settings.js)
-  selectTime(initialLook({ search: location.search, looks: Object.keys(TIME_PRESETS) }));
+  // The golden hour, or the look ?look=<id> names (?look=tiny: the flat miniature look, js/graphics-settings.js); the
+  // chase camera, or ?camera=<id>'s. The tiny look lands in its map view unless a camera is named.
+  const startLook = initialLook({ search: location.search, looks: Object.keys(TIME_PRESETS) });
+  const startCamera = new URLSearchParams(location.search).get('camera');
+  selectCamera(cameraOffered(startCamera) ? startCamera : (startLook === 'tiny' ? 'map' : 'chase'), true);
+  selectTime(startLook);
   // the web fonts change the buttons' widths once they arrive
   if (document.fonts) document.fonts.ready.then(placeModeIndicator);
   markInit('ui');
@@ -1024,7 +1042,8 @@ async function initApp() {
     cityBlocks.update(cameraSystem.currentPos.x, cameraSystem.currentPos.z);
     if (cityBlocks.updateLights) cityBlocks.updateLights(cameraSystem.camera);
     if (streetDetails.update) streetDetails.update(cameraSystem.camera, controllerManager.getActiveEntity());
-    lightingSystem.update(cameraSystem.currentPos);
+    // (the map view looks across the city from high up: its shadows reach much further)
+    lightingSystem.update(cameraSystem.currentPos, cameraSystem.activePresetId === 'map' ? 2600 : 720);
     mapSystem.update();
     if (weather) weather.update(dt, cameraSystem.camera);
     if (cityTiles) cityTiles.update(cameraSystem.camera);

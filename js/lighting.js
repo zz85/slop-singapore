@@ -355,13 +355,14 @@ class LightingSystem {
     this.bakeEnvironmentMap();
   }
 
-  update(focusPos) {
+  update(focusPos, farthest = 720) {
     // SunLightShadow automatically fits & texel-snaps its 2 cascades to the view camera frustum
     // every frame inside SunShadowNode.renderShadow(), splitting [near, far] halfway between a uniform and a
     // logarithmic split (the near cascade ends at ~far / 4). Keep far at 300 m at street level so the near cascade
-    // stays sharp, and expand it with altitude (helicopter / observatory) so shadows reach all the way down to street level.
+    // stays sharp, and expand it with altitude (helicopter / observatory) so shadows reach all the way down to street
+    // level, up to `farthest` (720 m; the map view, looking across the city from high up, allows more)
     const altitude = focusPos && Number.isFinite(focusPos.y) ? Math.max(0, focusPos.y) : 0;
-    this.sunLight.shadow.camera.far = Math.max(300, Math.min(720, 260 + altitude * 1.6));
+    this.sunLight.shadow.camera.far = Math.max(300, Math.min(farthest, 260 + altitude * 1.6));
   }
 }
 

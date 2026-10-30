@@ -3,13 +3,16 @@ import { bryantParkLawn } from './landmarks.js';
 
 // js/cameras.js
 // Multi-camera system supporting Third-Person Chase (with mouse/touch orbit + zoom),
-// Low-Angle Action Cam, POV/Cockpit Cam, 7 Iconic NYC Architectural Cameras, and Auto-Director Drone.
+// Low-Angle Action Cam, POV/Cockpit Cam, 7 Iconic NYC Architectural Cameras, and Auto-Director Drone,
+// and the free Map View: the tiny look's miniature camera over the city (drag to pan, right-drag to orbit, wheel or
+// pinch to zoom), following no one.
 
 const CAMERA_PRESETS = [
   { id: 'chase',       name: '3rd-Person Chase',         short: 'Chase',       category: 'follow', fov: 56 },
   { id: 'action',      name: 'Low-Angle Action',         short: 'Action',      category: 'follow', fov: 60 },
   { id: 'pov',         name: 'First-Person / Cockpit',   short: 'POV / Dash',  category: 'follow', fov: 68 },
   { id: 'taxi',        name: 'Crazy Taxi Cam',           short: 'Taxi Cam',    category: 'follow', fov: 72 },
+  { id: 'map',         name: 'Tiny Map View',            short: 'Map',         category: 'free',   fov: 38 },
   { id: 'centralPark', name: 'Central Park Oasis',       short: 'Central Pk',  category: 'scenic', fov: 52 },
   { id: 'fifthAve',    name: '5th Ave & Empire State',   short: '5th Ave',     category: 'scenic', fov: 48 },
   { id: 'timesSquare', name: 'Times Square Crossroads',  short: 'Times Sq',    category: 'scenic', fov: 58 },
@@ -25,6 +28,9 @@ const CAMERA_PRESETS = [
 // (over the shoulder, down the wing) and 60° up / 32° down at its top and bottom. Returns { yaw (+ left), pitch (+ up) }
 // for a pointer at (nx, ny), each -1..1 from the screen's centre (ny down).
 const HEAD = { quiet: 0.14, yaw: 2.27, up: 1.05, down: 0.56, curve: 1.35, omega: 8.5 };
+
+// The Map View's bounds: how close and how far from the spot it looks at (m), how flat and how steep (rad above the ground)
+const MAP = { minDistance: 30, maxDistance: 5000, minPitch: 0.3, maxPitch: 1.5 };
 function headTarget(nx, ny, out = { yaw: 0, pitch: 0 }) {
   const shape = (t) => Math.sign(t) * Math.min(1, Math.max(0, (Math.abs(t) - HEAD.quiet) / (1 - HEAD.quiet - 0.04))) ** HEAD.curve;
   out.yaw = -shape(nx) * HEAD.yaw;
@@ -73,6 +79,10 @@ class CameraSystem {
     // The pilot's head (updateJetView): where it's aimed (headTarget, from the mouse), where it is, how fast it turns
     this.head = { yaw: 0, pitch: 0, vyaw: 0, vpitch: 0, target: { yaw: 0, pitch: 0 }, active: false, fresh: true };
 
+    // The Map View (map preset): the spot on the ground it looks at, how far from it, and from which way (yaw about
+    // it, pitch above the ground). Picked (fresh), it starts over the player, and then follows no one.
+    this.map = { target: new THREE.Vector3(), distance: 700, yaw: 0.65, pitch: 0.95, fresh: true };
+
     this.bindPointerControls();
   }
 
@@ -108,11 +118,13 @@ class CameraSystem {
     canvas.style.touchAction = 'none';
 
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || pointers.size >= 2) return;
+      // (the map view orbits with the right button too)
+      const orbitButton = e.button === 2 && this.activePresetId === 'map';
+      if ((e.button !== 0 && !orbitButton) || pointers.size >= 2) return;
       // Only two touch pointers may share a gesture; mouse and pen drags stay independent.
       if (pointers.size && (e.pointerType !== 'touch' || pointers.values().next().value.type !== 'touch')) return;
       e.preventDefault();
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType, button: e.button });
       canvas.setPointerCapture(e.pointerId);
       this.isDragging = true;
       this.userOrbitTimer = 4.0;
@@ -137,6 +149,11 @@ class CameraSystem {
       pointer.x = e.clientX;
       pointer.y = e.clientY;
 
+      if (this.activePresetId === 'map') {
+        this.moveMapView(dx, dy, pointer, pair, previousDistance, e);
+        this.userOrbitTimer = 4.0;
+        return;
+      }
       if (pair) {
         const distance = Math.hypot(pair[0].x - pair[1].x, pair[0].y - pair[1].y);
         if (previousDistance > 1 && distance > 1) {
@@ -171,8 +188,44 @@ class CameraSystem {
 
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
+      if (this.activePresetId === 'map') return this.zoomMapView(Math.exp(e.deltaY * 0.0012));
       this.zoomMultiplier = Math.max(0.45, Math.min(2.4, this.zoomMultiplier + e.deltaY * 0.001));
     }, { passive: false });
+    // (no context menu on a right-drag orbit)
+    canvas.addEventListener('contextmenu', (e) => { if (this.activePresetId === 'map') e.preventDefault(); });
+  }
+
+  /** The map view's gestures: two fingers pinch the distance; the right button (or Shift / Ctrl with the left) orbits
+   *  about the spot looked at; a plain drag pans, the ground under the pointer staying under it */
+  moveMapView(dx, dy, pointer, pair, previousDistance, e) {
+    const m = this.map;
+    if (pair) {
+      const distance = Math.hypot(pair[0].x - pair[1].x, pair[0].y - pair[1].y);
+      if (previousDistance > 1 && distance > 1) this.zoomMapView(previousDistance / distance);
+      return;
+    }
+    if (pointer.button === 2 || e.shiftKey || e.ctrlKey) {
+      m.yaw -= dx * 0.005;
+      m.pitch = Math.max(MAP.minPitch, Math.min(MAP.maxPitch, m.pitch + dy * 0.004));
+      return;
+    }
+    // metres per pixel on the ground at the spot looked at (the view is 2 d tan(fov / 2) tall there), a pixel up the
+    // screen further along the ground the flatter the view
+    const perPixel = 2 * m.distance * Math.tan(this.camera.fov * Math.PI / 360) / (window.innerHeight || 1);
+    const across = dx * perPixel;
+    const along = dy * perPixel / Math.max(0.2, Math.sin(m.pitch));
+    // the camera's forward (f) and right (r) along the ground: the ground follows the pointer, so the spot looked at
+    // moves the other way
+    const fx = -Math.sin(m.yaw), fz = -Math.cos(m.yaw);
+    const rx = Math.cos(m.yaw), rz = -Math.sin(m.yaw);
+    m.target.x -= rx * across + fx * along;
+    m.target.z -= rz * across + fz * along;
+  }
+
+  /** Closer (factor < 1) or further from the spot the map view looks at, within MAP's bounds */
+  zoomMapView(factor) {
+    const m = this.map;
+    m.distance = Math.max(MAP.minDistance, Math.min(MAP.maxDistance, m.distance * factor));
   }
 
   setCameraPreset(presetId, snapImmediately = false) {
@@ -181,6 +234,7 @@ class CameraSystem {
     this.activePresetId = preset.id;
     this.camera.fov = preset.fov;
     if (preset.id === 'taxi') this.taxi.heading = null;
+    if (preset.id === 'map') this.map.fresh = true;
     this.camera.updateProjectionMatrix();
     if (snapImmediately) {
       this.initialized = false;
@@ -464,6 +518,24 @@ class CameraSystem {
         const drift = Math.sin(elapsed * 0.15) * 40.0;
         desiredPos.set(1640.0, 60.0, 60.0 + drift);
         desiredLook.set(150.0, 150.0, -150.0);
+        break;
+      }
+
+      case 'map': {
+        // Over the spot it looks at, at its distance and angles (the gestures: moveMapView, zoomMapView); eased from
+        // wherever the camera was (the generic easing below), so picking it swoops up out of the chase view
+        const m = this.map;
+        if (m.fresh) {
+          m.target.set(entity.position.x, 0, entity.position.z);
+          m.fresh = false;
+        }
+        const cp = Math.cos(m.pitch), sp = Math.sin(m.pitch);
+        desiredPos.set(
+          m.target.x + Math.sin(m.yaw) * cp * m.distance,
+          m.target.y + sp * m.distance,
+          m.target.z + Math.cos(m.yaw) * cp * m.distance
+        );
+        desiredLook.copy(m.target);
         break;
       }
 

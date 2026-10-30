@@ -12,6 +12,10 @@ Go somewhere: pick how on the strip above the travel modes (swipe, scroll or `[`
 
 Slop Singapore grew out of mrdoob's [Slop New York](https://github.com/mrdoob/slop-newyork), and New York still runs here: open the page with `?city=nyc`.
 
+## The tiny look
+
+Besides its golden hour, midday, blue hour and night, the city has a **Tiny** look after [Tiny Warsaw](https://tinywarsaw.app/): a flat, painted miniature, with a two-colour sky instead of the physical one, no image-based lighting, a hemisphere light as strong as the sun, no tone mapping and no bloom (`tiny` in `js/lighting.js` TIME_PRESETS and `js/post-processing.js` LOOKS). Pick it in the time-of-day switch, or open the page with `?look=tiny`, which also lands in its **Tiny Map View**: a free camera over the city that follows no one. Drag to pan, right-drag (or Shift-drag) to orbit, wheel or pinch to zoom; the miniature's tilt-shift blur is on while the tiny look is in the map view. `?camera=map` (or any camera id) picks the starting camera on its own.
+
 ## Run it
 
 Serve the folder and open it in a browser with WebGPU (or WebGL 2):
