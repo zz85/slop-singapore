@@ -215,11 +215,11 @@ class CameraSystem {
     const across = dx * perPixel;
     const along = dy * perPixel / Math.max(0.2, Math.sin(m.pitch));
     // the camera's forward (f) and right (r) along the ground: the ground follows the pointer, so the spot looked at
-    // moves the other way
+    // moves the other way sideways, and forward on a drag down (as driving forward slides the ground down the screen)
     const fx = -Math.sin(m.yaw), fz = -Math.cos(m.yaw);
     const rx = Math.cos(m.yaw), rz = -Math.sin(m.yaw);
-    m.target.x -= rx * across + fx * along;
-    m.target.z -= rz * across + fz * along;
+    m.target.x += fx * along - rx * across;
+    m.target.z += fz * along - rz * across;
   }
 
   /** Closer (factor < 1) or further from the spot the map view looks at, within MAP's bounds */

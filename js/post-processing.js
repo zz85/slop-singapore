@@ -119,4 +119,4 @@ function createPostProcessing(renderer, sceneColor, reflections) {
   return { outputNode, tiltShiftNode, applyPreset };
 }
 
-export { createPostProcessing, LOOKS };
+export { createPostProcessing, LOOKS, LOOK_DEFAULTS };

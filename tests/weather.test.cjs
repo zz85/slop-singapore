@@ -74,3 +74,24 @@ test('when it clears the time of day\'s own light comes back, also when cleared 
     assert.equal(weather.rain.visible, false);
   }
 });
+
+test("under the tiny look's painted sky a storm shows the physical sky and its clouds, and the painting comes back after", () => {
+  const { lighting, weather, camera } = harness();
+  lighting.activePresetId = 'tiny';
+  lighting.uFlatSky = { value: 1 };
+  weather.setStorm(true);
+  for (let i = 0; i < 20 * 30; i++) weather.update(1 / 30, camera);
+  assert.equal(weather.storm, 1);
+  assert.ok(lighting.uFlatSky.value < 0.05, `painted sky at ${lighting.uFlatSky.value}: the clouds would be hidden behind it`);
+  assert.ok(lighting.sky.cloudCoverage.value > 0.9, 'overcast');
+  weather.setStorm(false);
+  for (let i = 0; i < 30 * 30; i++) weather.update(1 / 30, camera);
+  assert.equal(weather.storm, 0);
+  assert.equal(lighting.uFlatSky.value, 1, 'the painting back');
+  // a time of day without the painting is left without it
+  const day = harness();
+  day.lighting.uFlatSky = { value: 0 };
+  day.weather.setStorm(true);
+  for (let i = 0; i < 20 * 30; i++) day.weather.update(1 / 30, day.camera);
+  assert.equal(day.lighting.uFlatSky.value, 0);
+});

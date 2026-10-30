@@ -374,6 +374,15 @@ test('the map view: a free camera over the city that the mouse pans, orbits and 
   assert.ok(camera.currentLookAt.x > 5, `looks ${camera.currentLookAt.x} m east`);
   close(camera.currentLookAt.y, 0);
   close(camera.map.distance, distance0);
+  // dragged 100 px down, the ground slides down the screen: the camera moves forward, the way it faces along the
+  // ground (-sin yaw, -cos yaw), as driving forward does
+  const ax = camera.map.target.x, az = camera.map.target.z;
+  h.pointer(canvas, 'pointerdown', 1, 800, 450, 'mouse', 0);
+  h.pointer(canvas, 'pointermove', 1, 800, 550, 'mouse', 0);
+  h.pointer(canvas, 'pointerup', 1, 800, 550, 'mouse', 0);
+  const mx = camera.map.target.x - ax, mz = camera.map.target.z - az;
+  assert.ok(mx * -Math.sin(camera.map.yaw) + mz * -Math.cos(camera.map.yaw) > 5, `moved (${mx}, ${mz}) for yaw ${camera.map.yaw}`);
+  assert.ok(Math.abs(mx * Math.cos(camera.map.yaw) - mz * Math.sin(camera.map.yaw)) < 1e-9, 'straight ahead, not sideways');
   close(camera.orbitYawOffset, 0, 'the chase orbit left alone');
   // a right drag orbits about the same spot: round with a sideways drag, up and over or down to the ground with a
   // vertical one, within bounds
