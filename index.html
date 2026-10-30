@@ -79,6 +79,7 @@
   <link rel="modulepreload" href="./js/airbases.js" />
   <link rel="modulepreload" href="./js/jet-hud.js" />
   <link rel="modulepreload" href="./js/air-force.js" />
+  <link rel="modulepreload" href="./js/binoculars.js" />
   <link rel="modulepreload" href="./js/main.js" />
   <script type="module" src="./js/main.js"></script>
   <!-- Inter (UI) & Overpass (street-name signs: modelled on Highway Gothic, the US road sign typeface) -->
@@ -225,12 +226,16 @@
   <div id="airforce-popover" class="popover" popover data-side="below" data-anchor="hud-toolbar" data-align="btn-airforce" aria-label="Air Force">
     <div class="pop-title">Republic of Singapore Air Force</div>
     <button id="af-wingman" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">F-15 wingman</span><span class="pop-sub">Flies in echelon off your jet's right wing</span></button>
-    <button id="af-flypast" class="pop-item" type="button"><span class="pop-name">Order a flypast</span><span id="af-flypast-sub" class="pop-sub">Four F-15SGs run in low towards you, then a bomb burst</span></button>
+    <button id="af-flypast" class="pop-item" type="button"><span class="pop-name">Order a flypast</span><span id="af-flypast-sub" class="pop-sub">Four F-15SGs run in low, right over you, then a bomb burst</span></button>
+    <button id="af-binoculars" class="pop-item nav-toggle" type="button" role="switch" aria-checked="true"><span class="pop-name">Binoculars on a flypast <kbd>Z</kbd></span><span class="pop-sub">Follow it zoomed in from where you are</span></button>
     <button id="af-runways" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">Runways on the map</span><span class="pop-sub">Paya Lebar, Tengah, Changi and Seletar</span></button>
     <div class="pop-title">Flying the F-15SG</div>
     <button id="af-fuel" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">Unlimited fuel</span><span class="pop-sub">Off: 22,900 lb, ~12 min in afterburner; refuel stopped on a runway</span></button>
     <button id="af-assist" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">Bank assist</span><span class="pop-sub">Holds your height in turns; off, pull back as you bank</span></button>
   </div>
+
+  <!-- Binoculars (js/binoculars.js): two eyepieces over the zoomed-in view, and their reading -->
+  <div id="binoculars" class="binoculars" hidden aria-hidden="true"><span id="binoculars-label" class="binoculars-label"></span></div>
 
   <!-- Turn-by-turn guidance & the Crazy Taxi meter -->
   <div id="nav-panel" class="hud hud-top-center" hidden>

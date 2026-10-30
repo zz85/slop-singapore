@@ -70,24 +70,29 @@ const run = (af, seconds, dt = 1 / 60, each = () => {}) => {
   for (let t = 0; t < seconds; t += dt) { each(t); af.update(dt, t); }
 };
 
-test('a flypast runs in from straight ahead of the view, in a diamond, and bursts in front of the camera', () => {
+test('a flypast runs in from 2.5 km ahead of the view, in a diamond, low, and right over the camera', () => {
   const { af } = airForce();
-  const eta = af.orderFlypast(camera(100, 2, 200, 0, 1)); // looking along +z: its right is -x
-  assert.ok(Math.abs(eta - (FLYPAST.approach - FLYPAST.short) / FLYPAST.speed) < 1e-9);
+  const cam = camera(100, 2, 200, 0, 1); // looking along +z: its right is -x
+  const eta = af.orderFlypast(cam);
+  assert.ok(Math.abs(eta - (FLYPAST.approach + FLYPAST.past) / FLYPAST.speed) < 1e-9);
+  assert.ok(Math.abs(af.flypast.overhead - FLYPAST.approach / FLYPAST.speed) < 1e-9, 'overhead first, then the burst');
   const [lead, left, right, slot] = af.flypast.jets;
   af.update(1 / 60, 0);
   assert.ok(af.flypast.jets.every((j) => j.model.root.visible && j.sound.active && j.contact.visible));
-  // 6 km out ahead, a little to the right, coming towards the camera, at least 180 m up
+  // 2.5 km out ahead, just to the right, coming towards the camera, 150 m up (nothing tall under it)
   assert.ok(Math.abs(lead.pos.z - (200 + FLYPAST.approach)) < 5 && Math.abs(lead.pos.x - (100 - FLYPAST.side)) < 1);
   assert.ok(Math.abs(Math.abs(lead.heading) - Math.PI) < 1e-9, 'heading for the camera');
-  assert.ok(lead.pos.y >= 180);
+  assert.equal(lead.pos.y, FLYPAST.height);
   // the diamond: wings either side and back, the slot behind, all lower than the lead
   const along = (j) => (j.pos.x - lead.pos.x) * Math.sin(lead.heading) + (j.pos.z - lead.pos.z) * Math.cos(lead.heading);
   assert.ok(Math.abs(along(left) + 15) < 0.01 && Math.abs(along(right) + 15) < 0.01 && Math.abs(along(slot) + 30) < 0.01);
   assert.ok(left.pos.y < lead.pos.y && slot.pos.y < left.pos.y);
-  // the burst starts 900 m short of the camera, in front of it
-  run(af, eta - 1 / 60);
-  assert.ok(Math.abs(lead.pos.z - (200 + FLYPAST.short)) < 10, `pulls at z ${lead.pos.z.toFixed(0)}`);
+  // right over the camera: the lead's closest pass within 160 m of it (150 up, 30 aside)
+  let closest = Infinity;
+  run(af, eta - 1 / 60, 1 / 60, () => { closest = Math.min(closest, Math.hypot(lead.pos.x - 100, lead.pos.y - 2, lead.pos.z - 200)); });
+  assert.ok(closest < 160, `closest ${closest.toFixed(0)} m`);
+  // and the burst starts 250 m past it
+  assert.ok(Math.abs(lead.pos.z - (200 - FLYPAST.past)) < 10, `pulls at z ${lead.pos.z.toFixed(0)}`);
   assert.ok(af.flypast.eta < 0.1);
 });
 
@@ -96,7 +101,7 @@ test('the bomb burst: in afterburner, the lead straight up, the wings away to ea
   af.orderFlypast(camera(0, 2, 0, 0, 1));
   const [lead, left, right, slot] = af.flypast.jets;
   run(af, af.flypast.eta + 6);
-  assert.ok(lead.pos.y > 180 + 600, `the lead pulls up to ${lead.pos.y.toFixed(0)} m`);
+  assert.ok(lead.pos.y > FLYPAST.height + 600, `the lead pulls up to ${lead.pos.y.toFixed(0)} m`);
   assert.ok(lead.model.ab > 0.9, 'in afterburner');
   const h = lead.heading;
   const side = (j) => (j.pos.x - lead.pos.x) * Math.cos(h) - (j.pos.z - lead.pos.z) * Math.sin(h);
@@ -108,12 +113,35 @@ test('the bomb burst: in afterburner, the lead straight up, the wings away to ea
   assert.equal(DIAMOND.length, 4);
 });
 
-test('a flypast stays clear of the tallest building under its track', () => {
-  // a 290 m tower on the run-in line, 3 km out
-  const { af } = airForce([{ x: -FLYPAST.side, z: 3000, maxY: 290 }]);
+test('a flypast stays clear of the tallest building under its track, and passes over a camera up high', () => {
+  // a 290 m tower on the run-in line, 1.5 km out
+  const { af } = airForce([{ x: -FLYPAST.side, z: 1500, maxY: 290 }]);
   af.orderFlypast(camera(0, 2, 0, 0, 1));
   af.update(1 / 60, 0);
-  assert.equal(af.flypast.jets[0].pos.y, 380);
+  assert.equal(af.flypast.jets[0].pos.y, 350);
+  // from a helicopter at 380 m: still over it
+  const high = airForce().af;
+  high.orderFlypast(camera(0, 380, 0, 0, 1));
+  high.update(1 / 60, 0);
+  assert.equal(high.flypast.jets[0].pos.y, 500);
+});
+
+test('the flypast\'s focus: the middle of the formation and how far it spreads, for the binoculars', () => {
+  const { af } = airForce();
+  const out = new Vector3();
+  assert.equal(af.flypast.focus(out), 0, 'nothing to see');
+  af.orderFlypast(camera(0, 2, 0, 0, 1));
+  af.update(1 / 60, 0);
+  const r = af.flypast.focus(out);
+  const lead = af.flypast.jets[0];
+  assert.ok(Math.abs(out.x - lead.pos.x) < 0.5 && out.z > lead.pos.z && out.z < lead.pos.z + 30, 'behind the lead, in the diamond');
+  assert.ok(r > 25 && r < 40, `radius ${r.toFixed(1)} m`);
+  // in the burst: the lead and the slot, up the middle (the wings peel away out of the frame)
+  run(af, af.flypast.eta + 8);
+  const [l, , , slot] = af.flypast.jets;
+  const r2 = af.flypast.focus(out);
+  assert.ok(Math.abs(out.y - (l.pos.y + slot.pos.y) / 2) < 1e-6);
+  assert.ok(Math.abs(r2 - (Math.hypot(l.pos.x - slot.pos.x, l.pos.y - slot.pos.y, l.pos.z - slot.pos.z) / 2 + 10)) < 1e-6);
 });
 
 test('the wingman parks beside the jet, then holds right echelon in the air', () => {

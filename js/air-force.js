@@ -9,13 +9,14 @@ import { WingtipTrails } from './jet-effects.js';
 //   abreast of it, 2 m of air between the wingtips (so the chase camera sees both). It holds its place in the leader's frame, catching up a little late, so a roll or a pull
 //   swings it round and back into position; when the leader crashes it flies on, and rejoins when the leader is back.
 // - A flypast ordered for wherever the camera is: four jets in a diamond (lead, left and right wing, slot) running in
-//   level from about 6 km out ahead of the view, straight towards it (passing a little to one side), low enough to be
-//   loud but clear of the tallest buildings under their track, so they are watched coming the whole way; then, about
-//   900 m short (climbing into the view, not over it), a bomb burst in front of the camera: all four in afterburner, the lead pulling straight up, the wings
-//   peeling left and right, the slot rolling up the middle, vapour off their wingtips; and on over the top.
+//   level from 2.5 km out ahead of the view, straight towards it, 150 m up (clear of the tallest buildings under their
+//   track, and over a camera up high), passing right over it, 30 m to one side: at their closest an F-15 is a good
+//   tenth of the screen; then, 250 m past it, a bomb burst: all four in afterburner, the lead pulling straight up, the
+//   wings peeling left and right, the slot rolling up the middle, vapour off their wingtips; and on over the top.
+//   js/binoculars.js follows it all, zoomed in (focus()).
 // The jets are heard through js/audio-sources.js (`aircraft`) and drawn on the radar and map (`contacts`).
 // createAirForce(scene, controllers) returns { group, aircraft, contacts, setWingman(on), wingman, orderFlypast(camera),
-// flypast: { active, eta }, update(dt, elapsed) }.
+// flypast: { active, eta, overhead, focus(out) }, update(dt, elapsed) }.
 
 const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
@@ -137,9 +138,9 @@ const DIAMOND = [
   { at: [-15, -2, -15], burst: { pitch: 0.75, turn: -0.22, bank: 1.0, roll: 0 } }, // right wing: up and away right
   { at: [0, -4, -30], burst: { pitch: 1.2, turn: 0, bank: 0, roll: 2.2 } } // slot: rolling up the middle
 ];
-// m/s; the run-in's length and how far short of the camera the burst starts (m); its offset to the side (m); how long
-// the burst is watched (s)
-const FLYPAST = { speed: 190, approach: 6000, short: 900, side: 90, burst: 18 };
+// m/s; the run-in's length up to the camera, and how far past it the burst starts (m); its offset to the side (m); its
+// height (m: at least, and over the buildings under it, and the camera); how long the burst is watched (s)
+const FLYPAST = { speed: 190, approach: 2500, past: 250, side: 30, height: 150, clear: 60, above: 120, burst: 18 };
 
 class Flypast {
   constructor(group) {
@@ -158,7 +159,28 @@ class Flypast {
     return this.active ? Math.max(0, this.pullAt - this.t) : 0;
   }
 
-  get pullAt() { return (FLYPAST.approach - FLYPAST.short) / FLYPAST.speed; }
+  /** Time until it's over the camera (s) */
+  get overhead() {
+    return this.active ? Math.max(0, FLYPAST.approach / FLYPAST.speed - this.t) : 0;
+  }
+
+  get pullAt() { return (FLYPAST.approach + FLYPAST.past) / FLYPAST.speed; }
+
+  /**
+   * What to watch, for js/binoculars.js: the middle of the formation into `out`, and how far it spreads from it (m,
+   * wingtips in), 0 with none; in the bomb burst the lead and the slot climbing up the middle together, the wings
+   * peeling away out of the frame, as a camera on the ground follows it
+   */
+  focus(out) {
+    if (!this.active) return 0;
+    const watched = this.t < this.pullAt ? this.jets : [this.jets[0], this.jets[3]];
+    out.set(0, 0, 0);
+    for (const j of watched) out.add(j.pos);
+    out.set(out.x / watched.length, out.y / watched.length, out.z / watched.length);
+    let r = 0;
+    for (const j of watched) r = Math.max(r, Math.hypot(j.pos.x - out.x, j.pos.y - out.y, j.pos.z - out.z));
+    return r + 10; // (an F-15 is 19.4 m long)
+  }
 
   // run in towards (ox, oz) along the unit direction (dx, dz) at height `altitude`, from FLYPAST.approach out
   begin(ox, oz, dx, dz, altitude) {
@@ -243,13 +265,13 @@ function createAirForce(scene, controllers) {
   const flypast = new Flypast(group);
   const all = [wingman.jet, ...flypast.jets];
 
-  /** Clear above the buildings along a line: the tallest under it (within 80 m) + 90 m, at least 180 m */
+  /** Clear above the buildings along a line: the tallest under it (within 80 m) + FLYPAST.clear, at least FLYPAST.height */
   function clearAltitude(ox, oz, dx, dz, from, to) {
     let top = 0;
     for (let s = from; s <= to; s += 100) {
       for (const c of controllers.nearColliders(ox + dx * s, oz + dz * s, 80)) top = Math.max(top, c.maxY || 0);
     }
-    return Math.min(600, Math.max(180, top + 90));
+    return Math.min(900, Math.max(FLYPAST.height, top + FLYPAST.clear));
   }
 
   return {
@@ -261,9 +283,9 @@ function createAirForce(scene, controllers) {
     contacts: all.map((j) => j.contact),
     setWingman(on) { wingman.setEnabled(on); },
     /**
-     * A flypast for where the camera is: running in from out ahead of it, straight towards it, a little to its right
-     * (the camera's right, looking along (fx, fz) with y up, is (-fz, fx)), the bomb burst in front of it. Returns the
-     * seconds until the burst.
+     * A flypast for where the camera is: running in from out ahead of it, straight towards it and over it, a little to
+     * its right (the camera's right, looking along (fx, fz) with y up, is (-fz, fx)), the bomb burst just past it.
+     * Returns the seconds until the burst.
      */
     orderFlypast(camera) {
       const look = camera.getWorldDirection(new THREE.Vector3());
@@ -271,7 +293,7 @@ function createAirForce(scene, controllers) {
       const L = Math.hypot(fx, fz) || 1;
       fx /= L; fz /= L;
       const ox = camera.position.x - fz * FLYPAST.side, oz = camera.position.z + fx * FLYPAST.side;
-      const altitude = clearAltitude(ox, oz, -fx, -fz, -FLYPAST.approach, 1500);
+      const altitude = Math.min(3000, Math.max(clearAltitude(ox, oz, -fx, -fz, -FLYPAST.approach, FLYPAST.past + 300), camera.position.y + FLYPAST.above));
       flypast.begin(ox, oz, -fx, -fz, altitude);
       return flypast.eta;
     },

@@ -1500,6 +1500,34 @@ body[data-driver='crazy'] .nav-driver-badge { background: var(--taxi); color: va
   pointer-events: none;
 }
 .perception-overlay[hidden] { display: none; }
+/* Binoculars (js/binoculars.js): dark outside two overlapping eyepieces, over the view and the jet's HUD, under the
+   HUD panels; their magnification and range at the foot */
+.binoculars {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  background: rgba(4, 6, 8, 0.94);
+  -webkit-mask:
+    radial-gradient(circle 41vmin at calc(50% - 23vmin) 50%, transparent 96%, #000 100%),
+    radial-gradient(circle 41vmin at calc(50% + 23vmin) 50%, transparent 96%, #000 100%);
+  -webkit-mask-composite: source-in;
+  mask:
+    radial-gradient(circle 41vmin at calc(50% - 23vmin) 50%, transparent 96%, #000 100%),
+    radial-gradient(circle 41vmin at calc(50% + 23vmin) 50%, transparent 96%, #000 100%);
+  mask-composite: intersect;
+}
+.binoculars[hidden] { display: none; }
+.binoculars-label {
+  position: absolute;
+  left: 50%;
+  top: calc(50% - 37vmin);
+  transform: translateX(-50%);
+  font: 600 13px/1 var(--font, system-ui);
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.72);
+}
+body.binoculars-up .jet-hud, body.binoculars-up .perception-overlay { visibility: hidden; }
 /* The F-15SG's head-up display (js/jet-hud.js): over the view, under the HUD panels */
 .jet-hud {
   position: fixed;
