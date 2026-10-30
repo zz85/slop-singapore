@@ -8,11 +8,13 @@ import { WingtipTrails } from './jet-effects.js';
 // - A wingman on the player's jet: in right echelon, 16 m off the right wing and 16 m back, a little low; on the runway
 //   abreast of it, 2 m of air between the wingtips (so the chase camera sees both). It holds its place in the leader's frame, catching up a little late, so a roll or a pull
 //   swings it round and back into position; when the leader crashes it flies on, and rejoins when the leader is back.
-// - A flypast ordered for wherever the camera is: four jets in a diamond (lead, left and right wing, slot) running in
-//   level from about 6 km out ahead of the view, straight towards it (passing a little to one side), low enough to be
-//   loud but clear of the tallest buildings under their track, so they are watched coming the whole way; then, about
-//   900 m short (climbing into the view, not over it), a bomb burst in front of the camera: all four in afterburner, the lead pulling straight up, the wings
-//   peeling left and right, the slot rolling up the middle, vapour off their wingtips; and on over the top.
+// - A flypast ordered for wherever the camera is: four jets running in level from about 6 km out ahead of the view,
+//   straight towards it (passing a little to one side), low enough to be loud but clear of the tallest buildings under
+//   their track, so they are watched coming the whole way; then, in front of the camera, their manoeuvre, a different
+//   formation each time (FORMATIONS): a diamond's bomb burst (the lead straight up, the wings peeling left and right,
+//   the slot rolling up the middle), a finger four's missing man (#3 pulls up into the sky as the others fly on over),
+//   an echelon's fan break (one by one rolling into a hard turn away), a loop in line abreast, or a line astern's
+//   rolls in turn and climb; in afterburner, vapour off their wingtips as they pull.
 // The jets are heard through js/audio-sources.js (`aircraft`) and drawn on the radar and map (`contacts`).
 // createAirForce(scene, controllers) returns { group, aircraft, contacts, setWingman(on), wingman, orderFlypast(camera),
 // flypast: { active, eta }, update(dt, elapsed) }.
@@ -130,22 +132,64 @@ class Wingman {
 // ---------------------------------------------------------------------------------------------------------------------
 // The flypast
 // ---------------------------------------------------------------------------------------------------------------------
-// The diamond, in the lead's frame (left +x, up +y, forward +z), and each jet's part in the bomb burst
-const DIAMOND = [
-  { at: [0, 0, 0], burst: { pitch: 1.45, turn: 0, bank: 0, roll: 0 } }, // lead: straight up
-  { at: [15, -2, -15], burst: { pitch: 0.75, turn: 0.22, bank: -1.0, roll: 0 } }, // left wing: up and away left
-  { at: [-15, -2, -15], burst: { pitch: 0.75, turn: -0.22, bank: 1.0, roll: 0 } }, // right wing: up and away right
-  { at: [0, -4, -30], burst: { pitch: 1.2, turn: 0, bank: 0, roll: 2.2 } } // slot: rolling up the middle
-];
-// m/s; the run-in's length and how far short of the camera the burst starts (m); its offset to the side (m); how long
-// the burst is watched (s)
-const FLYPAST = { speed: 190, approach: 6000, short: 900, side: 90, burst: 18 };
+// The formations, each four jets: where each flies in the lead's frame (left +x, up +y, forward +z) on the run-in, and
+// its part in the manoeuvre, from `short` metres short of the camera:
+// { delay (s), pitch: the climb it pulls to (rad; 2π a loop), rate: how fast (rad/s), bank (rad, + right), turn
+// (rad/s, + left), rolls: aileron rolls (at `roll` rad/s), ab: afterburner (0..1) }
+const LOOP = 2 * Math.PI;
+const FORMATIONS = {
+  diamond: {
+    name: 'Diamond', manoeuvre: 'bomb burst', short: 900, duration: 18,
+    slots: [
+      { at: [0, 0, 0], part: { pitch: 1.45, rate: 0.45 } }, // lead: straight up
+      { at: [15, -2, -15], part: { pitch: 0.75, rate: 0.45, bank: -1.0, turn: 0.22 } }, // left wing: up and away left
+      { at: [-15, -2, -15], part: { pitch: 0.75, rate: 0.45, bank: 1.0, turn: -0.22 } }, // right wing: away right
+      { at: [0, -4, -30], part: { pitch: 1.2, rate: 0.45, roll: 2.2, rolls: Infinity } } // slot: rolling up the middle
+    ]
+  },
+  // the fingertips of a right hand; the missing man is #3, who pulls up out of it into the sky as the others fly on
+  missingMan: {
+    name: 'Finger four', manoeuvre: 'missing man', short: 250, duration: 20,
+    slots: [
+      { at: [0, 0, 0], part: { ab: 0 } },
+      { at: [13, -1, -13], part: { ab: 0 } },
+      { at: [-13, -1, -13], part: { pitch: 1.5, rate: 0.35 } },
+      { at: [-26, -2, -26], part: { ab: 0 } }
+    ]
+  },
+  // in echelon right, then one by one each rolls left into a hard turn away: the fan break
+  echelonBreak: {
+    name: 'Echelon right', manoeuvre: 'fan break', short: 700, duration: 18,
+    slots: [0, 1, 2, 3].map((k) => ({
+      at: [-14 * k, -1.5 * k, -14 * k],
+      part: { delay: k * 1.1, bank: -1.25, turn: 0.15, pitch: 0.12, rate: 0.2 }
+    }))
+  },
+  // abreast, a loop together (6.8 g, 1.1 km across, in front of the camera), then on over it
+  abreastLoop: {
+    name: 'Line abreast', manoeuvre: 'loop', short: 1000, duration: 26,
+    slots: [27, 9, -9, -27].map((x) => ({ at: [x, 0, -Math.abs(x) * 0.15], part: { pitch: LOOP, rate: 0.35 } }))
+  },
+  // in trail, each in turn a pair of aileron rolls, then all four up into the climb
+  trailRolls: {
+    name: 'Line astern', manoeuvre: 'roll and climb', short: 1300, duration: 18,
+    slots: [0, 1, 2, 3].map((k) => ({
+      at: [0, -3 * k, -28 * k],
+      part: { delay: k * 0.7, roll: 3.4, rolls: 2, pitch: 0.9, rate: 0.25, pitchDelay: 3.5 }
+    }))
+  }
+};
+const FORMATION_IDS = Object.keys(FORMATIONS);
+// m/s; the run-in's length (m); its offset to the side of the camera (m)
+const FLYPAST = { speed: 190, approach: 6000, side: 90 };
 
 class Flypast {
   constructor(group) {
-    this.jets = DIAMOND.map((d) => ({ ...aiJet(group), part: d, heading: 0, pitch: 0, bank: 0, rollAngle: 0 }));
+    this.jets = [0, 1, 2, 3].map(() => ({ ...aiJet(group), part: {}, at: [0, 0, 0], heading: 0, pitch: 0, bank: 0, rollAngle: 0 }));
     this.trails = this.jets.map(() => new WingtipTrails(group));
     this.active = false;
+    this.formation = FORMATIONS.diamond;
+    this.id = null;
     this.t = 0;
     this.start = new THREE.Vector3();
     this.dir = new THREE.Vector3();
@@ -153,26 +197,32 @@ class Flypast {
     this.up = new THREE.Vector3();
   }
 
-  /** Time until the bomb burst (s) */
+  /** Time until the manoeuvre (s) */
   get eta() {
     return this.active ? Math.max(0, this.pullAt - this.t) : 0;
   }
 
-  get pullAt() { return (FLYPAST.approach - FLYPAST.short) / FLYPAST.speed; }
+  get pullAt() { return (FLYPAST.approach - this.formation.short) / FLYPAST.speed; }
 
-  // run in towards (ox, oz) along the unit direction (dx, dz) at height `altitude`, from FLYPAST.approach out
-  begin(ox, oz, dx, dz, altitude) {
+  // run in towards (ox, oz) along the unit direction (dx, dz) at height `altitude`, from FLYPAST.approach out, in
+  // formation `id`
+  begin(ox, oz, dx, dz, altitude, id = 'diamond') {
+    this.id = id;
+    this.formation = FORMATIONS[id] || FORMATIONS.diamond;
     this.active = true;
     this.t = 0;
     this.dir.set(dx, 0, dz);
     this.start.set(ox - dx * FLYPAST.approach, altitude, oz - dz * FLYPAST.approach);
     const heading = Math.atan2(dx, dz);
-    for (const j of this.jets) {
+    this.jets.forEach((j, k) => {
+      const slot = this.formation.slots[k];
+      j.at = slot.at;
+      j.part = slot.part;
       j.heading = heading;
       j.pitch = j.bank = j.rollAngle = 0;
       j.model.root.visible = true;
       j.model.setGear(0);
-    }
+    });
     for (const t of this.trails) t.clear();
   }
 
@@ -190,47 +240,56 @@ class Flypast {
     this.t += dt;
     const pull = this.pullAt;
     const v = FLYPAST.speed;
-    if (this.t >= pull + FLYPAST.burst) {
+    if (this.t >= pull + this.formation.duration) {
       this.end();
       return;
     }
     if (this.t < pull) {
-      // in formation: the lead along the run-in line, the others in their places around it
+      // in formation: along the run-in line, each in its place
       const lead = _v.copy(this.start).addScaledVector(this.dir, v * this.t);
       attitude(this.jets[0].heading, 0, 0, qArray);
       _q.set(qArray[0], qArray[1], qArray[2], qArray[3]);
       for (const j of this.jets) {
-        j.pos.set(...j.part.at).applyQuaternion(_q).add(lead);
+        j.pos.set(...j.at).applyQuaternion(_q).add(lead);
         j.q.copy(_q);
         j.model.setAfterburner(0);
         syncOutputs(j, v, 0.75, j.heading);
       }
     } else {
-      // the bomb burst: each its own way, in afterburner
-      const into = this.t - pull;
+      // the manoeuvre: each its own part, from its own moment
+      const since = this.t - pull;
       this.jets.forEach((j, k) => {
-        const b = j.part.burst;
-        j.pitch += Math.max(-0.5 * dt, Math.min(0.5 * dt, b.pitch - j.pitch));
-        j.bank += (b.bank - j.bank) * (1 - Math.exp(-dt * 2));
-        j.heading += b.turn * dt;
-        j.rollAngle += b.roll * dt * Math.min(1, into);
+        const b = j.part;
+        const into = since - (b.delay || 0);
+        let pulling = 0;
+        if (into > 0) {
+          const rate = b.rate || 0.4;
+          const before = j.pitch;
+          if (into > (b.pitchDelay || 0)) j.pitch += Math.max(-rate * dt, Math.min(rate * dt, (b.pitch || 0) - j.pitch));
+          pulling = Math.abs(j.pitch - before) / dt;
+          j.bank += ((b.bank || 0) - j.bank) * (1 - Math.exp(-dt * 2.5));
+          j.heading += (b.turn || 0) * Math.min(1, into) * dt;
+          if (b.roll) j.rollAngle = Math.min((b.rolls ?? Infinity) * 2 * Math.PI, j.rollAngle + b.roll * dt * Math.min(1, into * 2));
+        }
         const cp = Math.cos(j.pitch);
         j.pos.x += Math.sin(j.heading) * cp * v * dt;
         j.pos.y += Math.sin(j.pitch) * v * dt;
         j.pos.z += Math.cos(j.heading) * cp * v * dt;
         attitude(j.heading, j.pitch, j.bank + j.rollAngle, qArray);
         j.q.set(qArray[0], qArray[1], qArray[2], qArray[3]);
-        j.model.setAfterburner(Math.min(1, into * 2));
-        j.model.setStabilators(into < 4 ? 0.8 : 0.2);
-        syncOutputs(j, v, 1, j.heading);
-        // vapour off the wingtips as they pull
+        const ab = into > 0 ? (b.ab ?? 1) * Math.min(1, into * 2) : 0;
+        j.model.setAfterburner(ab);
+        j.model.setStabilators(pulling > 0.05 ? 0.8 : 0.1);
+        syncOutputs(j, v, into > 0 && (b.ab ?? 1) > 0 ? 1 : 0.75, j.heading);
+        // vapour off the wingtips while it pulls (or turns hard): the g above about 4
+        const g = (pulling * v + Math.abs((b.turn || 0) * (into > 0 ? 1 : 0)) * v) / 9.81 + 1;
         this.tips[0].set(6.45, 0.3, -4.4).applyQuaternion(j.q).add(j.pos);
         this.tips[1].set(-6.45, 0.3, -4.4).applyQuaternion(j.q).add(j.pos);
         this.up.set(0, 1, 0).applyQuaternion(j.q);
-        this.trails[k].update(dt, this.tips, this.up, into < 3.5 ? 0.8 : 0);
+        this.trails[k].update(dt, this.tips, this.up, Math.max(0, Math.min(0.8, (g - 4) / 2.5)));
       });
     }
-    for (const j of this.jets) j.model.strobe.visible = ((elapsed + j.part.at[0] * 0.03) % 1.3) < 0.07;
+    for (const j of this.jets) j.model.strobe.visible = ((elapsed + j.at[0] * 0.03) % 1.3) < 0.07;
   }
 }
 
@@ -262,17 +321,22 @@ function createAirForce(scene, controllers) {
     setWingman(on) { wingman.setEnabled(on); },
     /**
      * A flypast for where the camera is: running in from out ahead of it, straight towards it, a little to its right
-     * (the camera's right, looking along (fx, fz) with y up, is (-fz, fx)), the bomb burst in front of it. Returns the
-     * seconds until the burst.
+     * (the camera's right, looking along (fx, fz) with y up, is (-fz, fx)), its manoeuvre in front of it. `id`: the
+     * formation (FORMATIONS), or else one picked at random, never the last one flown. Returns the seconds until the
+     * manoeuvre.
      */
-    orderFlypast(camera) {
+    orderFlypast(camera, id = null) {
+      if (!FORMATIONS[id]) {
+        const others = FORMATION_IDS.filter((f) => f !== flypast.id);
+        id = others[Math.floor(Math.random() * others.length)];
+      }
       const look = camera.getWorldDirection(new THREE.Vector3());
       let fx = look.x, fz = look.z;
       const L = Math.hypot(fx, fz) || 1;
       fx /= L; fz /= L;
       const ox = camera.position.x - fz * FLYPAST.side, oz = camera.position.z + fx * FLYPAST.side;
       const altitude = clearAltitude(ox, oz, -fx, -fz, -FLYPAST.approach, 1500);
-      flypast.begin(ox, oz, -fx, -fz, altitude);
+      flypast.begin(ox, oz, -fx, -fz, altitude, id);
       return flypast.eta;
     },
     update(dt, elapsed) {
@@ -282,4 +346,4 @@ function createAirForce(scene, controllers) {
   };
 }
 
-export { createAirForce, FLYPAST, DIAMOND };
+export { createAirForce, FLYPAST, FORMATIONS };

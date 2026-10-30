@@ -746,7 +746,8 @@ async function initApp() {
       if (airForce.flypast.active) return;
       const eta = airForce.orderFlypast(cameraSystem.camera);
       closePopovers();
-      streetDetails.notice?.('RSAF FLYPAST', `Four F-15SGs inbound, dead ahead: bomb burst in ${Math.round(eta)} s`, false, 'erp');
+      const f = airForce.flypast.formation;
+      streetDetails.notice?.('RSAF FLYPAST', `Four F-15SGs in ${f.name.toLowerCase()} inbound, dead ahead: ${f.manoeuvre} in ${Math.round(eta)} s`, false, 'erp');
     });
     setWingman(recalled('airforce-wingman'));
     setRunwaysOnMap(recalled('map-runways'));
@@ -759,7 +760,8 @@ async function initApp() {
   function updateAirForceMenu() {
     if (!airForce || !afFlypast) return;
     const f = airForce.flypast;
-    const text = !f.active ? afFlypastText : f.eta > 0 ? `Inbound dead ahead: bomb burst in ${Math.ceil(f.eta)} s` : 'Bomb burst: look up';
+    const m = f.formation;
+    const text = !f.active ? afFlypastText : f.eta > 0 ? `${m.name} inbound: ${m.manoeuvre} in ${Math.ceil(f.eta)} s` : `${m.name}, ${m.manoeuvre}: look up`;
     if (text === afShown) return;
     afShown = text;
     afFlypastSub.textContent = text;
