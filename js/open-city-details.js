@@ -5,7 +5,7 @@ import { createEnforcement } from './open-city-enforcement.js';
 import { GEO } from './geodata.js';
 import { treeColliders } from './street-colliders.js';
 import { treeGeometry } from './city-tiles.js';
-import { onlyIn, createTinyTreeMaterial } from './tiny-look.js';
+import { onlyIn, createTinyTreeMaterial, tinyTreeLod } from './tiny-look.js';
 
 // js/open-city-details.js
 // The street details of a city built from OpenStreetMap, built by main.js instead of street-details.js's New York
@@ -25,14 +25,16 @@ const MIN_HEIGHT = 7.5;
 
 // The same trees in the tiny look (js/tiny-look.js): the island's faceted crown on a trunk (city-tiles.js treeGeometry),
 // one instance per tree scaled to its height and its family's crown (a rain tree's wide umbrella, a palm's small
-// tuft on a tall trunk), in cells of 300 m so the ones out of view are skipped. Shown in place of the leaf-card
-// trees while the look is on (onlyIn).
+// tuft on a tall trunk), in cells of 300 m: each cell drawn by its distance (tinyTreeLod: the faceted crown near,
+// the plain one across the city, a speck far off, none beyond, shadows near; update(cameraPosition) every frame).
+// Shown in place of the leaf-card trees while the look is on (onlyIn). -> { group, update }
 const TINY_CELL = 300;
 function buildTinyTrees(sites) {
   const group = new THREE.Group();
   group.name = 'TinyTrees';
   group.visible = false;
-  const geometry = treeGeometry(1);
+  const geometries = [treeGeometry(-1), treeGeometry(0), treeGeometry(1)]; // by detail + 1
+  const geometry = geometries[1];
   const material = createTinyTreeMaterial();
   const cells = new Map();
   for (const s of sites) {
@@ -62,7 +64,21 @@ function buildTinyTrees(sites) {
     mesh.name = 'TinyTrees';
     group.add(mesh);
   }
-  return group;
+  const cells2 = group.children.map((mesh) => ({ mesh, sphere: mesh.boundingSphere, detail: 0 }));
+  const update = (cameraPosition) => {
+    if (!group.visible) return;
+    for (const c of cells2) {
+      const d = Math.max(0, cameraPosition.distanceTo(c.sphere.center) - c.sphere.radius);
+      const lod = tinyTreeLod(d);
+      c.mesh.visible = lod.visible;
+      c.mesh.castShadow = lod.castShadow;
+      if (lod.visible && lod.detail !== c.detail) {
+        c.detail = lod.detail;
+        c.mesh.geometry = geometries[lod.detail + 1];
+      }
+    }
+  };
+  return { group, update };
 }
 
 function buildOpenCityDetails(scene) {
@@ -88,10 +104,12 @@ function buildOpenCityDetails(scene) {
       sites.push({ x, y: b ? (park ? LAWN_Y : SIDEWALK_Y) : 0, z, height, species, tier: park ? 0 : height >= 12 ? 1 : 2 });
     }
   }
+  let tinyTrees = null;
   if (sites.length) {
     const field = createTreeField(scene, sites);
     group.add(onlyIn(field.group, 'photo'));
-    group.add(onlyIn(buildTinyTrees(sites), 'tiny'));
+    tinyTrees = buildTinyTrees(sites);
+    group.add(onlyIn(tinyTrees.group, 'tiny'));
   }
   const enforcement = createEnforcement(group, { keepLeft: CITY.driveSide === 'left' });
   // what the player bumps into (js/street-colliders.js): the trees' trunks, the gantries' & cameras' poles, and once
@@ -107,7 +125,10 @@ function buildOpenCityDetails(scene) {
     signalColliders: () => (enforcement ? enforcement.signalColliders() : []),
     signalClock,
     audioSignals: [],
-    update: enforcement ? (camera, player) => enforcement.update(signalClock.value, player) : null,
+    update: (camera, player) => {
+      if (tinyTrees) tinyTrees.update(camera.position);
+      if (enforcement) enforcement.update(signalClock.value, player);
+    },
     attach: enforcement ? (network, audio) => enforcement.attach(network, audio) : null,
     notice: enforcement ? enforcement.notice : null
   };

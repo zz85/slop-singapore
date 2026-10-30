@@ -24,7 +24,7 @@ import { TouchControls } from './touch-controls.js';
 import { GamepadControls } from './gamepad-controls.js';
 import { CameraSystem, CAMERA_PRESETS } from './cameras.js';
 import { LightingSystem, TIME_PRESETS } from './lighting.js';
-import { applyTinyLook } from './tiny-look.js';
+import { applyTinyLook, pairedMaterial } from './tiny-look.js';
 import { NYCMapSystem } from './nyc-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { CityAudioSystem } from './audio-system.js';
@@ -966,6 +966,22 @@ async function initApp() {
         jobs.push(job);
       }
       job.push(o);
+    });
+    // The other look too (js/tiny-look.js): a stand-in with the paired material for every mesh that has one, and the
+    // meshes hidden because they belong to the other look, so switching looks later finds its pipelines compiled
+    const seen = new Set();
+    for (const job of jobs) for (const o of job) seen.add(o.material);
+    scene.traverse((o) => {
+      if (!o.isMesh || o.userData.shadowProxy) return;
+      for (const material of [o.material, pairedMaterial(o.material)]) {
+        if (!material || seen.has(material)) continue;
+        seen.add(material);
+        const standIn = o.isInstancedMesh ? new THREE.InstancedMesh(o.geometry, material, 1) : new THREE.Mesh(o.geometry, material);
+        standIn.frustumCulled = false;
+        standIn.matrixWorld.copy(o.matrixWorld);
+        standIn.matrixAutoUpdate = false;
+        jobs.push([standIn]);
+      }
     });
 
     renderer.setRenderTarget(scenePass.renderTarget);

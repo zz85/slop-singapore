@@ -6,7 +6,8 @@ const { loadModule } = require('./helpers/module.cjs');
 
 // The tiny look's materials (js/tiny-look.js): flat Lambert stand-ins for the city's photoreal materials, swapped in
 // over the scene while the look is on (pairMaterial / onlyIn / applyTinyLook), the painted-window facades and the
-// pastel palettes after tinywarsaw.app.
+// pastel palettes after tinywarsaw.app. (The TSL inside the materials runs through a stand-in here, so a typo in a
+// shader graph passes these tests: the browser is the only check of what the shaders draw.)
 
 // A stand-in for any TSL node or three.js object: every property is another one, so is what calling or constructing
 // one gives, and a property assigned is kept and read back
@@ -73,17 +74,29 @@ test('the materials: painted-window facades in four patterns, flat ground, facet
   const m = load();
   for (const pattern of ['punched', 'ribbon', 'curtain', 'strips']) {
     const facade = m.createTinyFacadeMaterial({ kind: 'office', pattern, floorHeight: 3.5, bayWidth: 3 });
-    assert.ok(facade.colorNode, `${pattern} draws its own colour`);
+    assert.ok(Object.hasOwn(facade, 'colorNode'), `${pattern} draws its own colour`);
   }
   assert.throws(() => m.createTinyFacadeMaterial({ kind: 'office', pattern: 'stripes' }), /pattern/);
   assert.throws(() => m.createTinyFacadeMaterial({ kind: 'castle', pattern: 'punched' }), /kind/);
   const flat = m.createTinyFlatMaterial(0x9c9a95);
   assert.equal(flat.color, 0x9c9a95);
   const roof = m.createTinyRoofMaterial();
-  assert.ok(roof.colorNode, 'reads the roof colour baked per building (tinyColor)');
+  assert.ok(Object.hasOwn(roof, 'colorNode'), 'reads the roof colour baked per building (tinyColor)');
   const tree = m.createTinyTreeMaterial();
   assert.equal(tree.flatShading, true, 'faceted crowns');
-  assert.ok(tree.colorNode);
+  assert.ok(Object.hasOwn(tree, 'colorNode'));
+  assert.equal(m.createTinyTreeMaterial(), tree, 'one material for every tree in the city and on the island');
   const wall = m.createTinyTileWallMaterial();
-  assert.ok(wall.colorNode);
+  assert.ok(Object.hasOwn(wall, 'colorNode'));
+});
+
+test('the tiny trees by distance: the faceted crown near, the plain one across the city, a far speck, none beyond', () => {
+  const { tinyTreeLod } = load();
+  assert.deepEqual({ ...tinyTreeLod(0) }, { detail: 1, visible: true, castShadow: true });
+  assert.deepEqual({ ...tinyTreeLod(300) }, { detail: 1, visible: true, castShadow: true });
+  assert.deepEqual({ ...tinyTreeLod(800) }, { detail: 0, visible: true, castShadow: true });
+  assert.deepEqual({ ...tinyTreeLod(1200) }, { detail: 0, visible: true, castShadow: false });
+  assert.deepEqual({ ...tinyTreeLod(2500) }, { detail: -1, visible: true, castShadow: false });
+  assert.deepEqual({ ...tinyTreeLod(3500) }, { detail: -1, visible: false, castShadow: false });
+  assert.deepEqual({ ...tinyTreeLod(NaN) }, { detail: -1, visible: false, castShadow: false });
 });

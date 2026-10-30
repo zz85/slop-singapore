@@ -60,6 +60,10 @@ function pairMaterial(photo, tiny) {
   photoOf.set(tiny, photo);
   return tiny;
 }
+/** The other look's material for a paired one (the tiny stand-in of a photoreal material, or the reverse), else undefined */
+function pairedMaterial(material) {
+  return tinyOf.get(material) || photoOf.get(material);
+}
 /** Marks an object as belonging to one look only: shown in it, hidden in the other */
 function onlyIn(object, look) {
   lookOf.set(object, look);
@@ -177,10 +181,21 @@ function createTinyWaterMaterial() {
   return m;
 }
 
+/** How a cell of the city's tiny trees `d` m from the camera is drawn (js/open-city-details.js): the faceted crown
+ *  (treeGeometry detail 1) within 350 m, the plain one (0) to 1.4 km, a far speck (-1, the octahedron) to 3 km, none
+ *  beyond; shadows from within 900 m */
+function tinyTreeLod(d) {
+  if (!(d < 3000)) return { detail: -1, visible: false, castShadow: false };
+  return { detail: d < 350 ? 1 : d < 1400 ? 0 : -1, visible: true, castShadow: d < 900 };
+}
+
 /** The island's and the city's trees (js/city-tiles.js treeGeometry: a crown on a trunk, `crown` 1 on the crown's
- *  vertices): faceted, in a green per tree from the shade to the sun, lighter towards the top of the crown */
+ *  vertices): faceted, in a green per tree from the shade to the sun, lighter towards the top of the crown. One
+ *  material for all of them (one set of pipelines). */
+let tinyTree = null;
 function createTinyTreeMaterial() {
-  const m = new THREE.MeshLambertNodeMaterial({ flatShading: true });
+  if (tinyTree) return tinyTree;
+  const m = tinyTree = new THREE.MeshLambertNodeMaterial({ flatShading: true });
   m.name = 'tinyTree';
   const isCrown = attribute('crown', 'float');
   const tone = fract(sin(float(instanceIndex).mul(0.6180339).add(1.7)).mul(43758.5453));
@@ -218,7 +233,7 @@ function createTinyTileRoofMaterial() {
 
 export {
   TINY_PALETTES, GROUND, blendHex, tinyWallColor, tinyRoofColor,
-  pairMaterial, onlyIn, applyTinyLook,
+  pairMaterial, pairedMaterial, onlyIn, applyTinyLook, tinyTreeLod,
   createTinyFacadeMaterial, createTinyRoofMaterial, createTinyFlatMaterial, createTinyLawnMaterial, createTinyWaterMaterial,
   createTinyTreeMaterial, createTinyTileWallMaterial, createTinyTileRoofMaterial
 };
