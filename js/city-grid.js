@@ -60,6 +60,7 @@ import {
   createTunnelShadeMaterial
 } from './tsl-materials.js';
 import { GEO } from './geodata.js';
+import { pairMaterial, createTinyFlatMaterial, createTinyLawnMaterial, createTinyWaterMaterial, GROUND as TINY } from './tiny-look.js';
 
 // Live construction data consumed by the building and street-detail builders after buildCityGrid().
 let centralParkClearings;
@@ -2580,7 +2581,9 @@ function buildOpenCityGrid(scene) {
   const footprints = [];
   const addFootprint = (x, z, w, d) => footprints.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
 
+  // (each material's flat stand-in for the tiny look paired beside it: js/tiny-look.js)
   const waterMat = createWaterMaterial();
+  pairMaterial(waterMat, createTinyWaterMaterial());
   const waterGeo = new THREE.PlaneGeometry(60000, 60000, 1, 1);
   waterGeo.rotateX(-Math.PI / 2);
   const water = new THREE.Mesh(waterGeo, waterMat);
@@ -2588,15 +2591,20 @@ function buildOpenCityGrid(scene) {
   group.add(water);
 
   const seawallMat = new THREE.MeshStandardNodeMaterial({ color: 0x5c5a55, roughness: 0.82, metalness: 0.1 });
+  pairMaterial(seawallMat, createTinyFlatMaterial(TINY.seawall));
   const roadMat = createRoadSurfaceMaterial();
+  pairMaterial(roadMat, createTinyFlatMaterial(TINY.asphalt));
   for (const region of LAND_REGIONS) {
     group.add(createRegionMesh(region, -2.35, 2.31, seawallMat));
     group.add(createRegionMesh(region, 0.0, 0, roadMat));
   }
 
   const sidewalkMat = createSidewalkMaterial();
+  pairMaterial(sidewalkMat, createTinyFlatMaterial(TINY.sidewalk));
   const curbMat = createCurbMaterial();
+  pairMaterial(curbMat, createTinyFlatMaterial(TINY.curb));
   const medianHedgeMat = new THREE.MeshStandardNodeMaterial({ color: 0x366e3b, roughness: 0.82 });
+  pairMaterial(medianHedgeMat, createTinyFlatMaterial(TINY.hedge));
   const sidewalk = GEO.frame.sidewalk || 4.6;
   const { blockSidewalks, roadSidewalks } = buildBlockSidewalks(group, BLOCKS, { sidewalkMat, curbMat, medianHedgeMat }, {
     addFootprint,
@@ -2607,6 +2615,7 @@ function buildOpenCityGrid(scene) {
   // Bridges carrying streets across the water at grade (open-city-config.js: the street graph's links flagged over
   // water): a concrete deck under the roadway with a parapet along each edge, segment by segment
   const deckMat = new THREE.MeshStandardNodeMaterial({ color: 0x8a8780, roughness: 0.8, metalness: 0.05 });
+  pairMaterial(deckMat, createTinyFlatMaterial(TINY.deck));
   const deckGeos = [];
   const RG = GEO.roadGraph;
   const deckBox = (ax, az, bx, bz, w, y0, h, side) => {
@@ -2639,6 +2648,7 @@ function buildOpenCityGrid(scene) {
   // Lawn over the sidewalk slab inside every block's property line (GEO.lawns, traced by tools/city/build.mjs: the
   // ground the buildings and the trees stand on)
   const lawnMat = createParkLawnMaterial(false);
+  pairMaterial(lawnMat, createTinyLawnMaterial());
   const lawnGeos = [];
   const L = GEO.lawns || [];
   for (let i = 0, fx = 0, fz = 0; i < L.length;) {

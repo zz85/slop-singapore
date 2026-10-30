@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 import { createPreWarBuildingMaterial, createCurtainWallMaterial, WALL_KINDS } from './tsl-materials.js';
 import { districtAt } from './city-config.js';
 import { GEO } from './geodata.js';
+import { pairMaterial, createTinyFacadeMaterial, createTinyRoofMaterial, tinyRoofColor } from './tiny-look.js';
 
 // js/open-city-buildings.js
 // The real buildings of a city built from OpenStreetMap (GEO.buildings: footprints with courtyards, the heights of
@@ -27,6 +28,20 @@ const FACADES = [
   [createPreWarBuildingMaterial, { stoneColor: 0xb7d0e3, trimColor: 0xf2eee4, windowGlassColor: 0x1d2a30, windowWidth: 2.0, floorHeight: 3.6, litProbability: 0.52, warmth: 0.88, seed: 37.7 }],
   [createPreWarBuildingMaterial, { stoneColor: 0xc9c4ba, trimColor: 0x9a958d, windowGlassColor: 0x19252f, windowWidth: 2.6, floorHeight: 3.8, litProbability: 0.55, warmth: 0.7, seed: 43.3 }],
   [createPreWarBuildingMaterial, { stoneColor: 0xefebe3, trimColor: 0xc9c2b4, windowGlassColor: 0x1a2630, windowWidth: 2.4, floorHeight: 4.5, litProbability: 0.45, warmth: 0.85, seed: 61.1 }]
+];
+// The same facades in the tiny look (js/tiny-look.js createTinyFacadeMaterial: a pastel of the kind's palette with
+// painted windows in a pattern), paired with the photoreal ones and swapped in while the look is on
+const TINY_FACADES = [
+  { kind: 'glass', pattern: 'curtain', floorHeight: 3.9, bayWidth: 2.7 },
+  { kind: 'glass', pattern: 'curtain', floorHeight: 4.1, bayWidth: 2.9 },
+  { kind: 'office', pattern: 'ribbon', floorHeight: 3.8, bayWidth: 2.5 },
+  { kind: 'slab', pattern: 'punched', floorHeight: 2.9, bayWidth: 3.0, windowWidth: 0.6, windowHeight: 0.5 },
+  { kind: 'shophouse', pattern: 'punched', floorHeight: 3.6, bayWidth: 2.0, windowWidth: 0.42, windowHeight: 0.62 },
+  { kind: 'shophouse', pattern: 'punched', floorHeight: 3.6, bayWidth: 2.0, windowWidth: 0.42, windowHeight: 0.62 },
+  { kind: 'shophouse', pattern: 'strips', floorHeight: 3.6, bayWidth: 2.0, windowWidth: 0.4 },
+  { kind: 'shophouse', pattern: 'punched', floorHeight: 3.6, bayWidth: 2.0, windowWidth: 0.42, windowHeight: 0.62 },
+  { kind: 'concrete', pattern: 'ribbon', floorHeight: 3.8, bayWidth: 2.6 },
+  { kind: 'civic', pattern: 'punched', floorHeight: 4.5, bayWidth: 2.4, windowWidth: 0.45, windowHeight: 0.58 }
 ];
 const GLASS = [0, 1, 2];
 const HOUSING = 3;
@@ -139,6 +154,7 @@ function buildOpenCityBuildings(scene) {
   const walls = FACADES.map(() => ({ m: [], box: [], faces: [] }));
   const roofPos = [];
   const roofCol = [];
+  const roofTiny = []; // the tiny look's roof colour per vertex (tinyRoofColor)
   const colliders = [];
   const footprints = [];
   const mat = new THREE.Matrix4();
@@ -198,6 +214,7 @@ function buildOpenCityBuildings(scene) {
     const verts = [contour, ...holes].flat();
     const tris = THREE.ShapeUtils.triangulateShape(contour, holes);
     const shade = 0.82 + tone * 0.26;
+    const [tr, tg, tb] = tinyRoofColor(TINY_FACADES[facade].kind, tone);
     for (const [y, faceUp] of b.bottom > 0.5 ? [[b.top, true], [b.bottom, false]] : [[b.top, true]]) {
       for (const [i0, i1, i2] of tris) {
         const p0 = verts[i0], p1 = verts[i1], p2 = verts[i2];
@@ -206,6 +223,7 @@ function buildOpenCityBuildings(scene) {
         const [q1, q2] = (cross < 0) === faceUp ? [p1, p2] : [p2, p1];
         roofPos.push(p0.x, y, p0.y, q1.x, y, q1.y, q2.x, y, q2.y);
         roofCol.push(shade, shade, shade, shade, shade, shade, shade, shade, shade);
+        roofTiny.push(tr, tg, tb, tr, tg, tb, tr, tg, tb);
       }
     }
     footprints.push({ pts: outer, h: b.top });
@@ -223,7 +241,9 @@ function buildOpenCityBuildings(scene) {
     const geometry = quad.clone();
     geometry.setAttribute('box', new THREE.InstancedBufferAttribute(new Float32Array(W.box), 4));
     geometry.setAttribute('faces', new THREE.InstancedBufferAttribute(new Float32Array(W.faces), 4));
-    const mesh = new THREE.InstancedMesh(geometry, create({ ...opts, boxLocal: true }), count);
+    const material = create({ ...opts, boxLocal: true });
+    pairMaterial(material, createTinyFacadeMaterial(TINY_FACADES[f]));
+    const mesh = new THREE.InstancedMesh(geometry, material, count);
     mesh.instanceMatrix.array.set(W.m);
     mesh.instanceMatrix.needsUpdate = true;
     mesh.castShadow = mesh.receiveShadow = true;
@@ -234,8 +254,11 @@ function buildOpenCityBuildings(scene) {
   const roofGeo = new THREE.BufferGeometry();
   roofGeo.setAttribute('position', new THREE.Float32BufferAttribute(roofPos, 3));
   roofGeo.setAttribute('color', new THREE.Float32BufferAttribute(roofCol, 3));
+  roofGeo.setAttribute('tinyColor', new THREE.Float32BufferAttribute(roofTiny, 3));
   roofGeo.computeVertexNormals();
-  const roofs = new THREE.Mesh(roofGeo, new THREE.MeshStandardNodeMaterial({ color: 0x9c988f, roughness: 0.9, metalness: 0.05, vertexColors: true }));
+  const roofMaterial = new THREE.MeshStandardNodeMaterial({ color: 0x9c988f, roughness: 0.9, metalness: 0.05, vertexColors: true });
+  pairMaterial(roofMaterial, createTinyRoofMaterial());
+  const roofs = new THREE.Mesh(roofGeo, roofMaterial);
   roofs.castShadow = roofs.receiveShadow = true;
   roofs.name = 'CityBuildings_roofs';
   group.add(roofs);
@@ -245,4 +268,4 @@ function buildOpenCityBuildings(scene) {
   return { group, colliders, allBlocks: [{ footprints }], update: () => {}, updateLights: null };
 }
 
-export { buildOpenCityBuildings };
+export { buildOpenCityBuildings, FACADES, TINY_FACADES };

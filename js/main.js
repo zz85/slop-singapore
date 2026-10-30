@@ -24,6 +24,7 @@ import { TouchControls } from './touch-controls.js';
 import { GamepadControls } from './gamepad-controls.js';
 import { CameraSystem, CAMERA_PRESETS } from './cameras.js';
 import { LightingSystem, TIME_PRESETS } from './lighting.js';
+import { applyTinyLook } from './tiny-look.js';
 import { NYCMapSystem } from './nyc-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { CityAudioSystem } from './audio-system.js';
@@ -519,6 +520,10 @@ async function initApp() {
     lightingSystem.applyPreset(timeId);
     const look = colorGrade.applyPreset(lightingSystem.activePresetId);
     ssrPass.intensity.value = look.reflections; // (0 in the flat tiny look)
+    // the flat look's materials over the city (js/tiny-look.js), and for the island tiles still to be built
+    const flat = !!TIME_PRESETS[lightingSystem.activePresetId]?.flat;
+    applyTinyLook(scene, flat);
+    if (cityTiles) cityTiles.setLook(flat);
     timeButtons.forEach((btn) => {
       btn.classList.toggle('active', btn.getAttribute('data-time') === timeId);
     });

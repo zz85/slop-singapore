@@ -4,6 +4,8 @@ import { blockAt, CITY } from './city-config.js';
 import { createEnforcement } from './open-city-enforcement.js';
 import { GEO } from './geodata.js';
 import { treeColliders } from './street-colliders.js';
+import { treeGeometry } from './city-tiles.js';
+import { onlyIn, createTinyTreeMaterial } from './tiny-look.js';
 
 // js/open-city-details.js
 // The street details of a city built from OpenStreetMap, built by main.js instead of street-details.js's New York
@@ -20,6 +22,48 @@ const LAWN_Y = 0.235;
 // The tree models (mature trees, 10-13 m tall at scale 1) scale as a whole, leaf cards and all: below ~60% their crowns
 // thin out to bare twigs, so the inventory's young & small trees grow to this height
 const MIN_HEIGHT = 7.5;
+
+// The same trees in the tiny look (js/tiny-look.js): the island's faceted crown on a trunk (city-tiles.js treeGeometry),
+// one instance per tree scaled to its height and its family's crown (a rain tree's wide umbrella, a palm's small
+// tuft on a tall trunk), in cells of 300 m so the ones out of view are skipped. Shown in place of the leaf-card
+// trees while the look is on (onlyIn).
+const TINY_CELL = 300;
+function buildTinyTrees(sites) {
+  const group = new THREE.Group();
+  group.name = 'TinyTrees';
+  group.visible = false;
+  const geometry = treeGeometry(1);
+  const material = createTinyTreeMaterial();
+  const cells = new Map();
+  for (const s of sites) {
+    const key = Math.floor(s.x / TINY_CELL) + ':' + Math.floor(s.z / TINY_CELL);
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key).push(s);
+  }
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const up = new THREE.Vector3(0, 1, 0);
+  const p = new THREE.Vector3();
+  const scl = new THREE.Vector3();
+  for (const list of cells.values()) {
+    const mesh = new THREE.InstancedMesh(geometry, material, list.length);
+    list.forEach((s, i) => {
+      const sp = TREE_SPECIES[s.species] || {};
+      // the crown's width as a share of the tree's height: wide umbrellas, round crowns, a palm's tuft
+      const width = sp.fronds ? 0.45 : sp.name === 'raintree' ? 1.35 : sp.name === 'weeping' ? 0.85 : 0.75;
+      const yaw = ((s.x * 12.9898 + s.z * 78.233) % 6.2832);
+      q.setFromAxisAngle(up, yaw);
+      m.compose(p.set(s.x, s.y, s.z), q, scl.set(s.height * width, s.height, s.height * width));
+      mesh.setMatrixAt(i, m);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.castShadow = mesh.receiveShadow = true;
+    mesh.computeBoundingSphere();
+    mesh.name = 'TinyTrees';
+    group.add(mesh);
+  }
+  return group;
+}
 
 function buildOpenCityDetails(scene) {
   const group = new THREE.Group();
@@ -44,7 +88,11 @@ function buildOpenCityDetails(scene) {
       sites.push({ x, y: b ? (park ? LAWN_Y : SIDEWALK_Y) : 0, z, height, species, tier: park ? 0 : height >= 12 ? 1 : 2 });
     }
   }
-  if (sites.length) group.add(createTreeField(scene, sites).group);
+  if (sites.length) {
+    const field = createTreeField(scene, sites);
+    group.add(onlyIn(field.group, 'photo'));
+    group.add(onlyIn(buildTinyTrees(sites), 'tiny'));
+  }
   const enforcement = createEnforcement(group, { keepLeft: CITY.driveSide === 'left' });
   // what the player bumps into (js/street-colliders.js): the trees' trunks, the gantries' & cameras' poles, and once
   // the traffic network is attached, its signal poles
