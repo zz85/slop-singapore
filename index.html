@@ -80,6 +80,7 @@
   <link rel="modulepreload" href="./js/jet-hud.js" />
   <link rel="modulepreload" href="./js/air-force.js" />
   <link rel="modulepreload" href="./js/binoculars.js" />
+  <link rel="modulepreload" href="./js/jet-acoustics.js" />
   <link rel="modulepreload" href="./js/main.js" />
   <script type="module" src="./js/main.js"></script>
   <!-- Inter (UI) & Overpass (street-name signs: modelled on Highway Gothic, the US road sign typeface) -->
@@ -227,7 +228,15 @@
     <div class="pop-title">Republic of Singapore Air Force</div>
     <button id="af-wingman" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">F-15 wingman</span><span class="pop-sub">Flies in echelon off your jet's right wing</span></button>
     <button id="af-flypast" class="pop-item" type="button"><span class="pop-name">Order a flypast</span><span id="af-flypast-sub" class="pop-sub">Four F-15SGs run in low, right over you, then a bomb burst</span></button>
-    <button id="af-binoculars" class="pop-item nav-toggle" type="button" role="switch" aria-checked="true"><span class="pop-name">Binoculars on a flypast <kbd>Z</kbd></span><span class="pop-sub">Follow it zoomed in from where you are</span></button>
+    <button id="af-supersonic" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">Supersonic</span><span class="pop-sub">Mach 1.14: it passes in silence, then the booms</span></button>
+    <div id="af-view-title" class="pop-title">Watch the flypast from <kbd>X</kbd></div>
+    <div id="af-view" role="radiogroup" aria-labelledby="af-view-title">
+      <button class="pop-item" data-view="ground" type="button" role="radio" aria-checked="true"><span class="pop-name">Where you are</span><span class="pop-sub">Its roar and its booms reach you as they would</span></button>
+      <button class="pop-item" data-view="wing" type="button" role="radio" aria-checked="false"><span class="pop-name">The left wing's cockpit</span><span class="pop-sub">The lead off your right shoulder</span></button>
+      <button class="pop-item" data-view="slot" type="button" role="radio" aria-checked="false"><span class="pop-name">The slot's cockpit</span><span class="pop-sub">Tucked in behind the lead, the wings either side</span></button>
+      <button class="pop-item" data-view="chase" type="button" role="radio" aria-checked="false"><span class="pop-name">A chase plane</span><span class="pop-sub">Behind and above the diamond</span></button>
+    </div>
+    <button id="af-binoculars" class="pop-item nav-toggle" type="button" role="switch" aria-checked="true"><span class="pop-name">Binoculars from where you are <kbd>Z</kbd></span><span class="pop-sub">Follow it zoomed in</span></button>
     <button id="af-runways" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">Runways on the map</span><span class="pop-sub">Paya Lebar, Tengah, Changi and Seletar</span></button>
     <div class="pop-title">Flying the F-15SG</div>
     <button id="af-fuel" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">Unlimited fuel</span><span class="pop-sub">Off: 22,900 lb, ~12 min in afterburner; refuel stopped on a runway</span></button>

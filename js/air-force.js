@@ -1,7 +1,8 @@
 import * as THREE from 'three/webgpu';
 import { createJetModel } from './jet-model.js';
 import { attitude } from './jet-flight.js';
-import { WingtipTrails } from './jet-effects.js';
+import { WingtipTrails, ShockCollar } from './jet-effects.js';
+import { SoundTrail, SOUND } from './jet-acoustics.js';
 
 // js/air-force.js
 // The RSAF's other F-15SGs (js/jet-model.js, without cockpits):
@@ -13,17 +14,25 @@ import { WingtipTrails } from './jet-effects.js';
 //   track, and over a camera up high), passing right over it, 30 m to one side: at their closest an F-15 is a good
 //   tenth of the screen; then, 250 m past it, a bomb burst: all four in afterburner, the lead pulling straight up, the
 //   wings peeling left and right, the slot rolling up the middle, vapour off their wingtips; and on over the top.
-//   js/binoculars.js follows it all, zoomed in (focus()).
+//   js/binoculars.js follows it all, zoomed in (focus()). Supersonic, it runs in at Mach 1.14 from twice as far out (the
+//   same wait), a vapour cone round each jet: it passes over in silence, and the booms follow as each one's Mach cone
+//   sweeps over (js/jet-acoustics.js: every jet's path is kept for its sound, heard from the ground as it arrives).
+//   It can be watched from inside it too (ride): a wingman's or the slot's front seat, or a chase plane behind.
 // The jets are heard through js/audio-sources.js (`aircraft`) and drawn on the radar and map (`contacts`).
-// createAirForce(scene, controllers) returns { group, aircraft, contacts, setWingman(on), wingman, orderFlypast(camera),
-// flypast: { active, eta, overhead, focus(out) }, update(dt, elapsed) }.
+// createAirForce(scene, controllers) returns { group, aircraft (each with its `trail`), contacts, setWingman(on), wingman,
+// orderFlypast(camera, { supersonic }), flypast: { active, speed, eta, overhead, focus(out), ride(view, camera) },
+// update(dt, elapsed) }.
 
 const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _q2 = new THREE.Quaternion();
+const _axis = new THREE.Vector3();
+const _look = new THREE.Vector3();
 const qArray = [0, 0, 0, 1];
 
-function aiJet(group) {
-  const model = createJetModel({ cockpit: false });
+function aiJet(group, { cockpit = false } = {}) {
+  const model = createJetModel({ cockpit });
+  model.setCockpitView?.(false);
   model.root.traverse((o) => {
     if (o.isMesh && !o.material.transparent && !o.material.isMeshBasicNodeMaterial) o.castShadow = true;
   });
@@ -35,7 +44,8 @@ function aiJet(group) {
     pos: model.root.position,
     q: model.root.quaternion,
     // what js/audio-sources.js hears
-    sound: { active: false, x: 0, y: 0, z: 0, speed: 0, throttle: 0, heading: 0, gain: 1 },
+    // (`trail`: where it's been, for its sound to be heard from as it arrives; `direct`: heard as it is, from inside it)
+    sound: { active: false, x: 0, y: 0, z: 0, speed: 0, throttle: 0, heading: 0, gain: 1, trail: new SoundTrail(), direct: false },
     contact: { visible: false, x: 0, z: 0, heading: 0 }
   };
 }
@@ -76,6 +86,7 @@ class Wingman {
   setEnabled(on) {
     this.enabled = !!on;
     this.fresh = true;
+    this.jet.sound.trail.clear();
     this.jet.model.root.visible = this.enabled;
     if (!this.enabled) syncOutputs(this.jet, 0, 0, 0);
   }
@@ -138,14 +149,29 @@ const DIAMOND = [
   { at: [-15, -2, -15], burst: { pitch: 0.75, turn: -0.22, bank: 1.0, roll: 0 } }, // right wing: up and away right
   { at: [0, -4, -30], burst: { pitch: 1.2, turn: 0, bank: 0, roll: 2.2 } } // slot: rolling up the middle
 ];
-// m/s; the run-in's length up to the camera, and how far past it the burst starts (m); its offset to the side (m); its
-// height (m: at least, and over the buildings under it, and the camera); how long the burst is watched (s)
-const FLYPAST = { speed: 190, approach: 2500, past: 250, side: 30, height: 150, clear: 60, above: 120, burst: 18 };
+// m/s, subsonic and supersonic (Mach 1.14); the run-in's length up to the camera, and how far past it the burst starts
+// (m, at the subsonic speed: further in proportion at another); its offset to the side (m); its height (m: at least, and
+// over the buildings under it, and the camera); how long the burst is watched (s)
+const FLYPAST = { speed: 190, supersonic: 390, approach: 2500, past: 250, side: 30, height: 150, clear: 60, above: 120, burst: 18 };
+
+// The views from inside the formation (Flypast.ride): which jet's front seat, and where it looks (yaw + left, pitch +
+// down, in its frame: the lead ahead and to the right of the left wing, ahead and a little up from the slot)
+const RIDES = ['wing', 'slot', 'chase'];
+const SEATS = { wing: { jet: 1, yaw: -0.6, pitch: -0.02 }, slot: { jet: 3, yaw: 0, pitch: -0.133 } };
+const EYE = [0, 1.12, 4.1]; // the front seat's eyes, in the jet's frame
 
 class Flypast {
   constructor(group) {
-    this.jets = DIAMOND.map((d) => ({ ...aiJet(group), part: d, heading: 0, pitch: 0, bank: 0, rollAngle: 0 }));
+    this.jets = DIAMOND.map((d) => {
+      const j = { ...aiJet(group, { cockpit: true }), part: d, heading: 0, pitch: 0, bank: 0, rollAngle: 0 };
+      j.collar = new ShockCollar(j.model.root);
+      return j;
+    });
     this.trails = this.jets.map(() => new WingtipTrails(group));
+    this.speed = FLYPAST.speed;
+    this.approach = FLYPAST.approach;
+    this.past = FLYPAST.past;
+    this.rider = null; // the jet whose cockpit is in view
     this.active = false;
     this.t = 0;
     this.start = new THREE.Vector3();
@@ -161,10 +187,42 @@ class Flypast {
 
   /** Time until it's over the camera (s) */
   get overhead() {
-    return this.active ? Math.max(0, FLYPAST.approach / FLYPAST.speed - this.t) : 0;
+    return this.active ? Math.max(0, this.approach / this.speed - this.t) : 0;
   }
 
-  get pullAt() { return (FLYPAST.approach + FLYPAST.past) / FLYPAST.speed; }
+  get pullAt() { return (this.approach + this.past) / this.speed; }
+
+  /**
+   * Put `camera` in the formation (view one of RIDES: a wingman's or the slot's front seat, its cockpit drawn, or a
+   * chase plane behind and above the lead, looking past it), or take it out (null). Returns whether it's riding.
+   */
+  ride(view, camera) {
+    const seat = this.active ? SEATS[view] : null;
+    const rider = seat ? this.jets[seat.jet] : null;
+    if (rider !== this.rider) {
+      if (this.rider) { this.rider.model.setCockpitView?.(false); this.rider.collar.hidden = false; }
+      if (rider) { rider.model.setCockpitView?.(true); rider.collar.hidden = true; }
+      this.rider = rider;
+    }
+    if (!this.active || !RIDES.includes(view)) return false;
+    if (rider) {
+      camera.position.set(EYE[0], EYE[1], EYE[2]).applyQuaternion(rider.q).add(rider.pos);
+      // the camera looks down its -z: the jet's attitude, the look about its up and across, turned round
+      camera.quaternion.copy(rider.q)
+        .multiply(_q.setFromAxisAngle(_axis.set(0, 1, 0), seat.yaw))
+        .multiply(_q2.setFromAxisAngle(_axis.set(1, 0, 0), seat.pitch))
+        .multiply(_q.setFromAxisAngle(_axis.set(0, 1, 0), Math.PI));
+      return true;
+    }
+    const lead = this.jets[0];
+    camera.position.set(0, 9, -62).applyQuaternion(lead.q).add(lead.pos);
+    _v.set(0, 1, 0).applyQuaternion(lead.q);
+    const upX = camera.up.x, upY = camera.up.y, upZ = camera.up.z;
+    camera.up.set(_v.x, _v.y, _v.z);
+    camera.lookAt(_look.set(0, -3, 30).applyQuaternion(lead.q).add(lead.pos));
+    camera.up.set(upX, upY, upZ);
+    return true;
+  }
 
   /**
    * What to watch, for js/binoculars.js: the middle of the formation into `out`, and how far it spreads from it (m,
@@ -182,24 +240,31 @@ class Flypast {
     return r + 10; // (an F-15 is 19.4 m long)
   }
 
-  // run in towards (ox, oz) along the unit direction (dx, dz) at height `altitude`, from FLYPAST.approach out
-  begin(ox, oz, dx, dz, altitude) {
+  // run in towards (ox, oz) along the unit direction (dx, dz) at height `altitude` and `speed`, from as far out as
+  // FLYPAST.approach takes at FLYPAST.speed
+  begin(ox, oz, dx, dz, altitude, speed = FLYPAST.speed) {
     this.active = true;
     this.t = 0;
+    this.speed = speed;
+    this.approach = (FLYPAST.approach * speed) / FLYPAST.speed;
+    this.past = (FLYPAST.past * speed) / FLYPAST.speed;
     this.dir.set(dx, 0, dz);
-    this.start.set(ox - dx * FLYPAST.approach, altitude, oz - dz * FLYPAST.approach);
+    this.start.set(ox - dx * this.approach, altitude, oz - dz * this.approach);
     const heading = Math.atan2(dx, dz);
     for (const j of this.jets) {
       j.heading = heading;
       j.pitch = j.bank = j.rollAngle = 0;
       j.model.root.visible = true;
       j.model.setGear(0);
+      j.sound.trail.clear();
     }
     for (const t of this.trails) t.clear();
   }
 
   end() {
     this.active = false;
+    if (this.rider) { this.rider.model.setCockpitView?.(false); this.rider.collar.hidden = false; }
+    this.rider = null;
     for (const j of this.jets) {
       j.model.root.visible = false;
       syncOutputs(j, 0, 0, 0);
@@ -211,7 +276,7 @@ class Flypast {
     if (!this.active || !(dt > 0)) return;
     this.t += dt;
     const pull = this.pullAt;
-    const v = FLYPAST.speed;
+    const v = this.speed;
     if (this.t >= pull + FLYPAST.burst) {
       this.end();
       return;
@@ -224,8 +289,8 @@ class Flypast {
       for (const j of this.jets) {
         j.pos.set(...j.part.at).applyQuaternion(_q).add(lead);
         j.q.copy(_q);
-        j.model.setAfterburner(0);
-        syncOutputs(j, v, 0.75, j.heading);
+        j.model.setAfterburner(v > SOUND.speed ? 0.6 : 0);
+        syncOutputs(j, v, v > SOUND.speed ? 0.92 : 0.8, j.heading);
       }
     } else {
       // the bomb burst: each its own way, in afterburner
@@ -252,7 +317,10 @@ class Flypast {
         this.trails[k].update(dt, this.tips, this.up, into < 3.5 ? 0.8 : 0);
       });
     }
-    for (const j of this.jets) j.model.strobe.visible = ((elapsed + j.part.at[0] * 0.03) % 1.3) < 0.07;
+    for (const j of this.jets) {
+      j.model.strobe.visible = ((elapsed + j.part.at[0] * 0.03) % 1.3) < 0.07;
+      j.collar.set(v / SOUND.speed, elapsed);
+    }
   }
 }
 
@@ -287,21 +355,25 @@ function createAirForce(scene, controllers) {
      * its right (the camera's right, looking along (fx, fz) with y up, is (-fz, fx)), the bomb burst just past it.
      * Returns the seconds until the burst.
      */
-    orderFlypast(camera) {
+    orderFlypast(camera, { supersonic = false } = {}) {
       const look = camera.getWorldDirection(new THREE.Vector3());
       let fx = look.x, fz = look.z;
       const L = Math.hypot(fx, fz) || 1;
       fx /= L; fz /= L;
       const ox = camera.position.x - fz * FLYPAST.side, oz = camera.position.z + fx * FLYPAST.side;
-      const altitude = Math.min(3000, Math.max(clearAltitude(ox, oz, -fx, -fz, -FLYPAST.approach, FLYPAST.past + 300), camera.position.y + FLYPAST.above));
-      flypast.begin(ox, oz, -fx, -fz, altitude);
+      const speed = supersonic ? FLYPAST.supersonic : FLYPAST.speed;
+      const far = (FLYPAST.approach * speed) / FLYPAST.speed;
+      const altitude = Math.min(3000, Math.max(clearAltitude(ox, oz, -fx, -fz, -far, FLYPAST.past + 300), camera.position.y + FLYPAST.above));
+      flypast.begin(ox, oz, -fx, -fz, altitude, speed);
       return flypast.eta;
     },
     update(dt, elapsed) {
       wingman.update(dt, elapsed, controllers.entities.jet);
       flypast.update(dt, elapsed);
+      // where each one is now, for its sound to be heard from
+      for (const j of all) if (j.model.root.visible) j.sound.trail.push(elapsed, j.pos.x, j.pos.y, j.pos.z, j.sound.throttle);
     }
   };
 }
 
-export { createAirForce, FLYPAST, DIAMOND };
+export { createAirForce, FLYPAST, DIAMOND, RIDES };

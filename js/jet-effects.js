@@ -1,10 +1,12 @@
 import * as THREE from 'three/webgpu';
-import { vec3, float, attribute, uniform, sin, time, positionLocal } from 'three/tsl';
+import { vec3, float, attribute, uniform, sin, time, positionLocal, uv, smoothstep } from 'three/tsl';
 
 // js/jet-effects.js
 // What the F-15SG leaves in the air: vapour trails off its wingtips when it pulls hard (Singapore's air is humid; above
 // about 4 g the low pressure in the tip vortices condenses), and the fireball and smoke when it doesn't pull hard
-// enough. Both cheap: two ribbons of 64 points rewritten in place, and two spheres scaled over a few seconds.
+// enough. Both cheap: two ribbons of 64 points rewritten in place, and two spheres scaled over a few seconds. And the
+// vapour cone (ShockCollar) round a jet near and past Mach 1: the shock over its wings condensing the humid air into a
+// white collar, densest at its front, frayed at its back.
 
 const TRAIL = 64; // points per wingtip
 const TRAIL_LIFE = 2.2; // s
@@ -89,6 +91,35 @@ class WingtipTrails {
   }
 }
 
+class ShockCollar {
+  /** On `root` (the jet's model, its frame: forward +z): an open collar from the canopy back over the wings */
+  constructor(root) {
+    const g = new THREE.CylinderGeometry(1.4, 5.6, 5, 32, 4, true);
+    g.rotateX(Math.PI / 2); // (its top, +y, forward to +z)
+    g.translate(0, 0.35, 0.2);
+    this.hidden = false; // (not drawn round the jet a camera rides in)
+    this.level = uniform(0);
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide });
+    m.colorNode = vec3(0.96, 0.97, 0.99);
+    const along = uv().y; // 0 at its back, 1 at its front
+    const fray = sin(positionLocal.x.mul(3.1).add(positionLocal.y.mul(2.3)).add(time.mul(23))).mul(0.5).add(0.5);
+    m.opacityNode = this.level.mul(smoothstep(0.0, 0.75, along)).mul(float(1).sub(smoothstep(0.93, 1.0, along)))
+      .mul(fray.mul(0.35).add(0.65));
+    this.mesh = new THREE.Mesh(g, m);
+    this.mesh.name = 'F15SG_vapour_cone';
+    this.mesh.castShadow = this.mesh.receiveShadow = false;
+    this.mesh.visible = false;
+    root.add(this.mesh);
+  }
+
+  /** Its density at `mach`: from Mach 0.94, thickest at 1, thinning past it */
+  set(mach) {
+    const o = mach < 0.94 ? 0 : mach < 1 ? (mach - 0.94) / 0.06 : Math.max(0.4, 1 - (mach - 1) / 0.3);
+    this.level.value = o * 0.32;
+    this.mesh.visible = o > 0.01 && !this.hidden;
+  }
+}
+
 class Explosion {
   constructor(scene) {
     const geo = new THREE.IcosahedronGeometry(1, 2);
@@ -137,4 +168,4 @@ class Explosion {
   }
 }
 
-export { WingtipTrails, Explosion };
+export { WingtipTrails, ShockCollar, Explosion };

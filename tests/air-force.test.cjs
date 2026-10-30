@@ -28,6 +28,12 @@ class Quaternion {
   constructor() { this.set(0, 0, 0, 1); }
   set(x, y, z, w) { this.x = x; this.y = y; this.z = z; this.w = w; return this; }
   copy(q) { return this.set(q.x, q.y, q.z, q.w); }
+  setFromAxisAngle(a, angle) { const s = Math.sin(angle / 2); return this.set(a.x * s, a.y * s, a.z * s, Math.cos(angle / 2)); }
+  multiply(q) {
+    const { x: ax, y: ay, z: az, w: aw } = this;
+    return this.set(aw * q.x + ax * q.w + ay * q.z - az * q.y, aw * q.y - ax * q.z + ay * q.w + az * q.x,
+      aw * q.z + ax * q.y - ay * q.x + az * q.w, aw * q.w - ax * q.x - ay * q.y - az * q.z);
+  }
   slerp(q, t) {
     // (normalised lerp: close enough here)
     const d = this.x * q.x + this.y * q.y + this.z * q.z + this.w * q.w < 0 ? -1 : 1;
@@ -43,15 +49,18 @@ class Group {
 const model = () => ({
   root: { position: new Vector3(), quaternion: new Quaternion(), visible: true, traverse() {} },
   strobe: { visible: false },
-  setGear() {}, setAfterburner(level) { this.ab = level; }, setStabilators() {}
+  setGear() {}, setAfterburner(level) { this.ab = level; }, setStabilators() {}, setCockpitView(on) { this.cockpitView = on; }
 });
+const acoustics = loadModule(read('js/jet-acoustics.js'), { globals: { Math, Number, Float64Array, Float32Array, WeakMap }, filename: 'jet-acoustics.js' });
+class ShockCollar { constructor() { this.mach = 0; } set(mach) { this.mach = mach; } }
 
-const { createAirForce, FLYPAST, DIAMOND } = loadModule(read('js/air-force.js'), {
+const { createAirForce, FLYPAST, DIAMOND, RIDES } = loadModule(read('js/air-force.js'), {
   imports: {
     'three/webgpu': { Vector3, Quaternion, Group },
     './jet-model.js': { createJetModel: model },
     './jet-flight.js': flight,
-    './jet-effects.js': { WingtipTrails: class { clear() {} update() {} } }
+    './jet-effects.js': { WingtipTrails: class { clear() {} update() {} }, ShockCollar },
+    './jet-acoustics.js': acoustics
   },
   globals: { Math, Number },
   filename: 'air-force.js'
@@ -173,4 +182,101 @@ test('the wingman parks beside the jet, then holds right echelon in the air', ()
   assert.ok(Math.abs(w.pos.x + 16) < 0.01 && Math.abs(w.pos.z - (jet.position.z - 16)) < 0.01);
   af.setWingman(false);
   assert.ok(!w.model.root.visible && !w.sound.active);
+});
+
+test('a supersonic run-in: Mach 1.14, from twice as far out, the same pass over the camera', () => {
+  const { af } = airForce();
+  af.orderFlypast(camera(0, 2, 0, 0, 1), { supersonic: true });
+  const f = af.flypast;
+  assert.equal(f.speed, FLYPAST.supersonic);
+  assert.ok(f.speed / acoustics.SOUND.speed > 1.1);
+  assert.ok(Math.abs(f.overhead - FLYPAST.approach / FLYPAST.speed) < 0.5, 'about as long to wait');
+  const lead = f.jets[0];
+  af.update(1 / 60, 0);
+  assert.ok(lead.pos.z > 4500, `starts ${lead.pos.z.toFixed(0)} m out`);
+  assert.ok(f.jets.every((j) => j.collar.mach > 1.1), 'the vapour cone round each');
+  let closest = Infinity;
+  run(af, f.eta - 1 / 60, 1 / 60, () => { closest = Math.min(closest, Math.hypot(lead.pos.x, lead.pos.y - 2, lead.pos.z)); });
+  assert.ok(closest < 160);
+  // subsonic: no vapour cone
+  const slow = airForce().af;
+  slow.orderFlypast(camera(0, 2, 0, 0, 1));
+  slow.update(1 / 60, 0);
+  assert.ok(slow.flypast.jets.every((j) => j.collar.mach < 0.95));
+});
+
+test('each jet\'s path is kept for its sound: heard late from the ground, a boom each as the Mach cones arrive', () => {
+  for (const supersonic of [false, true]) {
+    const { af } = airForce();
+    af.orderFlypast(camera(0, 2, 0, 0, 1), { supersonic });
+    const trails = af.aircraft.map((a) => a.trail);
+    assert.ok(trails.every((t) => t && typeof t.hear === 'function'));
+    const watch = new acoustics.BoomWatcher();
+    const booms = [];
+    let heardLate = false;
+    let t = 0;
+    run(af, af.flypast.eta + 4, 1 / 60, (tt) => {
+      t = tt;
+      for (const b of watch.check(trails, tt, 0, 2, 0)) booms.push(tt);
+      const lead = af.flypast.jets[0];
+      const h = af.flypast.jets[0].sound.trail.hear(tt, 0, 2, 0);
+      if (h && Math.hypot(lead.pos.x - h.x, lead.pos.y - h.y, lead.pos.z - h.z) > 100) heardLate = true;
+    });
+    if (supersonic) {
+      assert.equal(booms.length, 4, `${booms.length} booms`);
+      const over = FLYPAST.approach * FLYPAST.supersonic / FLYPAST.speed / FLYPAST.supersonic;
+      assert.ok(booms.every((b) => b > over && b < over + 1.5), `booms at ${booms.map((b) => b.toFixed(2)).join(', ')} (overhead ${over.toFixed(2)})`);
+    } else {
+      assert.equal(booms.length, 0);
+      assert.ok(heardLate, 'heard from well behind where it is');
+    }
+  }
+  // the wingman's path too, cleared as it's turned on
+  const { af, jet } = airForce();
+  af.setWingman(true);
+  af.update(1 / 60, 0);
+  assert.ok(af.wingman.jet.sound.trail.length > 0);
+});
+
+test('watching it from inside the formation: a wingman\'s or the slot\'s cockpit, or a chase plane behind', () => {
+  assert.equal(JSON.stringify(RIDES), JSON.stringify(['wing', 'slot', 'chase']));
+  const { af } = airForce();
+  const cam = {
+    position: new Vector3(), quaternion: new Quaternion(), up: new Vector3(0, 1, 0), target: null,
+    lookAt(v) { this.target = new Vector3().copy(v); }
+  };
+  assert.equal(af.flypast.ride('slot', cam), false, 'nothing to ride');
+  af.orderFlypast(camera(0, 2, 0, 0, 1));
+  run(af, 5);
+  const [lead, left, , slot] = af.flypast.jets;
+  // from the slot: in its front seat, looking ahead at the lead
+  assert.equal(af.flypast.ride('slot', cam), true);
+  assert.ok(slot.model.cockpitView && !lead.model.cockpitView, 'its cockpit in, the others\' out');
+  assert.ok(slot.collar.hidden && !lead.collar.hidden, 'its own vapour cone not drawn round the camera');
+  const eye = new Vector3(0, 1.12, 4.1).applyQuaternion(slot.q).add(slot.pos);
+  assert.ok(cam.position.distanceTo(eye) < 1e-6);
+  const fwd = new Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+  const toLead = new Vector3().subVectors(lead.pos, cam.position);
+  const cos = (fwd.x * toLead.x + fwd.y * toLead.y + fwd.z * toLead.z) / toLead.length();
+  assert.ok(cos > 0.99, `the lead dead ahead (cos ${cos.toFixed(4)})`);
+  // from the left wing: the lead ahead and to the right
+  af.flypast.ride('wing', cam);
+  assert.ok(left.model.cockpitView && !slot.model.cockpitView);
+  const f2 = new Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+  const to2 = new Vector3().subVectors(lead.pos, cam.position);
+  assert.ok((f2.x * to2.x + f2.y * to2.y + f2.z * to2.z) / to2.length() > 0.9, 'looking towards the lead');
+  // the chase plane: behind and above the lead, looking at the formation
+  af.flypast.ride('chase', cam);
+  assert.ok(af.flypast.jets.every((j) => !j.model.cockpitView));
+  const back = new Vector3().subVectors(cam.position, lead.pos);
+  const along = back.x * Math.sin(lead.heading) + back.z * Math.cos(lead.heading);
+  assert.ok(along < -40 && back.y > 5, `${along.toFixed(0)} m behind, ${back.y.toFixed(0)} m up`);
+  assert.ok(cam.target && cam.target.distanceTo(lead.pos) < 60);
+  assert.equal(cam.up.y, 1, 'its up left as it was');
+  // off: the cockpits out again; and when it's over
+  af.flypast.ride(null, cam);
+  assert.ok(af.flypast.jets.every((j) => !j.model.cockpitView));
+  af.flypast.ride('slot', cam);
+  af.flypast.end();
+  assert.ok(af.flypast.jets.every((j) => !j.model.cockpitView));
 });

@@ -3,6 +3,7 @@ import { createEventResources, playEvent, createWindVoice } from './audio-events
 import { CityAudioSources } from './audio-sources.js';
 import { CityAcoustics } from './audio-acoustics.js';
 import { createTropicalAmbience } from './audio-tropics.js';
+import { renderBoom } from './jet-acoustics.js';
 
 // Seconds a car waits behind a player holding it up before it honks (plus up to 1 s, car to car)
 const HOLD_UP_AFTER = 3;
@@ -42,6 +43,8 @@ class SpatialEmitter {
       this.panner.coneOuterAngle = 260;
       this.panner.coneOuterGain = 0.6;
     }
+    // the distance (m) over which the air dulls it (an e-fold): a jet's roar carries much further than a car's
+    this.air = 70;
     this.direct = context.createGain();
     this.input.connect(this.filter).connect(this.panner);
     this.panner.connect(this.direct).connect(dry);
@@ -74,7 +77,7 @@ class SpatialEmitter {
     const fade = clamp((range - distance) / (range * 0.3), 0, 1);
     smooth(this.input.gain, (source.gain ?? 1) * fade * fade * (3 - 2 * fade), now, 0.035, immediate);
     smooth(this.direct.gain, 1 - this.obstruction * 0.78, now, 0.12, immediate);
-    const airCutoff = 1800 + 14000 * Math.exp(-distance / 70);
+    const airCutoff = 1800 + 14000 * Math.exp(-distance / this.air);
     smooth(this.filter.frequency, airCutoff * Math.pow(0.065, this.obstruction), now, 0.12, immediate);
     return distance;
   }
@@ -277,15 +280,21 @@ class CityAudioSystem {
         if (pool.size >= limit) continue;
         const emitter = new SpatialEmitter(this.context, this.mix, this.reflections, this.acoustics,
           siren ? 9 : source.kind === 'jet' ? 18 : source.kind === 'helicopter' ? 12 : 4, siren ? 0.9 : 0, siren);
-        // (a jet is heard for kilometres: it keeps fading past the others' 500 m)
-        if (source.kind === 'jet') emitter.panner.maxDistance = 4000;
+        // (a jet is heard for kilometres: loud, falling off slowly, and dulled by the air over hundreds of metres)
+        if (source.kind === 'jet') {
+          emitter.panner.maxDistance = 9000;
+          emitter.panner.refDistance = 55;
+          emitter.panner.rolloffFactor = 0.85;
+          emitter.air = 650;
+        }
         slot = { emitter, voice: createMotorVoice(this.context, this.resources, siren ? 'siren' : source.kind, emitter.input),
           distance: 0, x: source.x, y: source.y, z: source.z, fresh: true };
         pool.set(source.id, slot);
       }
       slot.selected = true;
       slot.retire = 0;
-      const jumped = Math.hypot(source.x - slot.x, source.y - slot.y, source.z - slot.z) > 35;
+      // (a jet covers 40 m between two looks at supersonic speed)
+      const jumped = Math.hypot(source.x - slot.x, source.y - slot.y, source.z - slot.z) > (source.kind === 'jet' ? 150 : 35);
       const range = source.range;
       const distance = slot.emitter.update(source, this.listener, now, range, slot.fresh || jumped);
       const radial = slot.fresh || jumped ? 0 : clamp((distance - slot.distance) / dt, -60, 60);
@@ -294,7 +303,7 @@ class CityAudioSystem {
       params.load = source.load;
       params.verticalSpeed = source.verticalSpeed;
       params.seed = source.seed;
-      params.doppler = clamp(343 / (343 + radial), 0.85, 1.18);
+      params.doppler = source.doppler > 0 ? source.doppler : clamp(343 / (343 + radial), 0.85, 1.18);
       slot.voice.update(params, now);
       slot.distance = distance;
       slot.x = source.x; slot.y = source.y; slot.z = source.z;
@@ -436,6 +445,45 @@ class CityAudioSystem {
     this.ambience.storm = storm;
   }
 
+  /**
+   * A sonic boom (js/jet-acoustics.js renderBoom), `intensity` 0-1, from a jet at (x, y, z): straight to the output,
+   * past the compressor (a boom is the loudest thing there is), panned a little its way, and into the reflections for
+   * the city's echo. `delay` s from now (a formation's booms come a beat apart).
+   */
+  boom(intensity, x, y, z, delay = 0) {
+    if (!this.ready || !this.enabled || this.context?.state !== 'running' || document.hidden) return;
+    const ctx = this.context;
+    this.boomBuffers ??= [1, 2, 3].map((seed) => {
+      const data = renderBoom(ctx.sampleRate, seed);
+      const b = ctx.createBuffer(1, data.length, ctx.sampleRate);
+      b.getChannelData(0).set(data);
+      return b;
+    });
+    const when = ctx.currentTime + Math.max(0, delay);
+    const src = ctx.createBufferSource();
+    src.buffer = this.boomBuffers[(this.boomCount = (this.boomCount || 0) + 1) % 3];
+    src.playbackRate.value = 0.94 + ((this.boomCount * 0.37) % 1) * 0.12;
+    const low = ctx.createBiquadFilter();
+    low.type = 'lowpass';
+    low.frequency.value = 2400 + intensity * 6000;
+    const pan = ctx.createStereoPanner();
+    const m = this.cameraMatrix;
+    if (m) {
+      // its side: along the listener's right
+      const dx = x - this.listener.x, dy = y - this.listener.y, dz = z - this.listener.z;
+      const L = Math.hypot(dx, dy, dz) || 1;
+      pan.pan.value = clamp(((dx * m[0] + dy * m[1] + dz * m[2]) / L) * 0.5, -0.5, 0.5);
+    }
+    const level = ctx.createGain();
+    level.gain.value = 0.95 * Math.min(1, intensity);
+    const echo = ctx.createGain();
+    echo.gain.value = 0.35 * Math.min(1, intensity);
+    src.connect(low).connect(pan).connect(level).connect(this.master);
+    low.connect(echo).connect(this.reflections);
+    src.start(when);
+    src.onended = () => { for (const n of [src, low, pan, level, echo]) n.disconnect(); };
+  }
+
   // Thunder from a lightning flash `distance` m away (arrives distance / 343 s later)
   thunder(distance) {
     if (!this.ready || !this.enabled || this.context?.state !== 'running' || document.hidden) return;
@@ -450,10 +498,12 @@ class CityAudioSystem {
     this.accumulator %= 0.1;
     const now = this.context.currentTime;
     const position = camera.position;
-    if (this.haveListener && Math.hypot(position.x - this.listener.x, position.y - this.listener.y, position.z - this.listener.z) > 60) this.reset();
+    // (a jump: a teleport; not a camera riding in a jet, 40 m in a tenth of a second)
+    if (this.haveListener && Math.hypot(position.x - this.listener.x, position.y - this.listener.y, position.z - this.listener.z) > Math.max(60, 450 * dt)) this.reset();
     this.listener.x = position.x; this.listener.y = position.y; this.listener.z = position.z;
     camera.updateMatrixWorld();
     const m = camera.matrixWorld.elements;
+    this.cameraMatrix = m;
     const listener = this.context.listener;
     if (listener.positionX) {
       const values = [position.x, position.y, position.z, -m[8], -m[9], -m[10], m[4], m[5], m[6]];

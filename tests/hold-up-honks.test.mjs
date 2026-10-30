@@ -19,7 +19,8 @@ const { CityAudioSystem } = loadModule(fs.readFileSync(new URL('../js/audio-syst
     './audio-events.js': stub(['createEventResources', 'playEvent', 'createWindVoice']),
     './audio-sources.js': { CityAudioSources },
     './audio-acoustics.js': { CityAcoustics: class {} },
-    './audio-tropics.js': stub(['createTropicalAmbience'])
+    './audio-tropics.js': stub(['createTropicalAmbience']),
+    './jet-acoustics.js': stub(['renderBoom'])
   },
   globals: { Math, Number, Array, Object, WeakMap, Map }
 });

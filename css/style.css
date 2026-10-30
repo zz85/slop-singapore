@@ -1527,7 +1527,9 @@ body[data-driver='crazy'] .nav-driver-badge { background: var(--taxi); color: va
   letter-spacing: 0.06em;
   color: rgba(255, 255, 255, 0.72);
 }
-body.binoculars-up .jet-hud, body.binoculars-up .perception-overlay { visibility: hidden; }
+body.binoculars-up .jet-hud, body.binoculars-up .perception-overlay,
+body.flypast-ride .jet-hud, body.flypast-ride .perception-overlay { visibility: hidden; }
+#af-view .pop-item { flex-direction: column; align-items: flex-start; gap: 1px; }
 /* The F-15SG's head-up display (js/jet-hud.js): over the view, under the HUD panels */
 .jet-hud {
   position: fixed;
