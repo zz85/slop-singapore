@@ -79,6 +79,8 @@
   <link rel="modulepreload" href="./js/airbases.js" />
   <link rel="modulepreload" href="./js/jet-hud.js" />
   <link rel="modulepreload" href="./js/air-force.js" />
+  <link rel="modulepreload" href="./js/binoculars.js" />
+  <link rel="modulepreload" href="./js/jet-acoustics.js" />
   <link rel="modulepreload" href="./js/main.js" />
   <script type="module" src="./js/main.js"></script>
   <!-- Inter (UI) & Overpass (street-name signs: modelled on Highway Gothic, the US road sign typeface) -->
@@ -225,12 +227,34 @@
   <div id="airforce-popover" class="popover" popover data-side="below" data-anchor="hud-toolbar" data-align="btn-airforce" aria-label="Air Force">
     <div class="pop-title">Republic of Singapore Air Force</div>
     <button id="af-wingman" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">F-15 wingman</span><span class="pop-sub">Flies in echelon off your jet's right wing</span></button>
-    <button id="af-flypast" class="pop-item" type="button"><span class="pop-name">Order a flypast</span><span id="af-flypast-sub" class="pop-sub">Four F-15SGs run in low towards you: a different formation and display each time</span></button>
+    <button id="af-flypast" class="pop-item" type="button"><span class="pop-name">Order a flypast</span><span id="af-flypast-sub" class="pop-sub">Four F-15SGs run in low, right over you, then their display</span></button>
+    <div id="af-formation-title" class="pop-title">Formation</div>
+    <div id="af-formation" role="radiogroup" aria-labelledby="af-formation-title">
+      <button class="pop-item" data-formation="random" type="button" role="radio" aria-checked="true"><span class="pop-name">Surprise me</span><span class="pop-sub">A different one each time</span></button>
+      <button class="pop-item" data-formation="diamond" type="button" role="radio" aria-checked="false"><span class="pop-name">Diamond</span><span class="pop-sub">Bomb burst: up and out four ways</span></button>
+      <button class="pop-item" data-formation="missingMan" type="button" role="radio" aria-checked="false"><span class="pop-name">Finger four</span><span class="pop-sub">Missing man: one pulls up into the sky</span></button>
+      <button class="pop-item" data-formation="echelonBreak" type="button" role="radio" aria-checked="false"><span class="pop-name">Echelon right</span><span class="pop-sub">Fan break: one by one, a hard turn away</span></button>
+      <button class="pop-item" data-formation="abreastLoop" type="button" role="radio" aria-checked="false"><span class="pop-name">Line abreast</span><span class="pop-sub">A loop together, in front of you</span></button>
+      <button class="pop-item" data-formation="trailRolls" type="button" role="radio" aria-checked="false"><span class="pop-name">Line astern</span><span class="pop-sub">Rolls in turn, then up into the climb</span></button>
+    </div>
+    <button id="af-smoke" class="pop-item nav-toggle" type="button" role="switch" aria-checked="true"><span class="pop-name">Smoke</span><span class="pop-sub">Red and white trails through the display</span></button>
+    <button id="af-supersonic" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">Supersonic</span><span class="pop-sub">Mach 1.14: it passes in silence, then the booms</span></button>
+    <div id="af-view-title" class="pop-title">Watch the flypast from <kbd>X</kbd></div>
+    <div id="af-view" role="radiogroup" aria-labelledby="af-view-title">
+      <button class="pop-item" data-view="ground" type="button" role="radio" aria-checked="true"><span class="pop-name">Where you are</span><span class="pop-sub">Its roar and its booms reach you as they would</span></button>
+      <button class="pop-item" data-view="wing" type="button" role="radio" aria-checked="false"><span class="pop-name">A wingman's cockpit</span><span class="pop-sub">The lead just off your shoulder</span></button>
+      <button class="pop-item" data-view="slot" type="button" role="radio" aria-checked="false"><span class="pop-name">The last jet's cockpit</span><span class="pop-sub">The whole formation ahead of you</span></button>
+      <button class="pop-item" data-view="chase" type="button" role="radio" aria-checked="false"><span class="pop-name">A chase plane</span><span class="pop-sub">Behind and above the formation</span></button>
+    </div>
+    <button id="af-binoculars" class="pop-item nav-toggle" type="button" role="switch" aria-checked="true"><span class="pop-name">Binoculars from where you are <kbd>Z</kbd></span><span class="pop-sub">Follow it zoomed in</span></button>
     <button id="af-runways" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">Runways on the map</span><span class="pop-sub">Paya Lebar, Tengah, Changi and Seletar</span></button>
     <div class="pop-title">Flying the F-15SG</div>
     <button id="af-fuel" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">Unlimited fuel</span><span class="pop-sub">Off: 22,900 lb, ~12 min in afterburner; refuel stopped on a runway</span></button>
     <button id="af-assist" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">Bank assist</span><span class="pop-sub">Holds your height in turns; off, pull back as you bank</span></button>
   </div>
+
+  <!-- Binoculars (js/binoculars.js): two eyepieces over the zoomed-in view, and their reading -->
+  <div id="binoculars" class="binoculars" hidden aria-hidden="true"><span id="binoculars-label" class="binoculars-label"></span></div>
 
   <!-- Turn-by-turn guidance & the Crazy Taxi meter -->
   <div id="nav-panel" class="hud hud-top-center" hidden>

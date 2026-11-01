@@ -52,6 +52,7 @@ function writeMotor(item, id, kind, x, y, z, speed, load, heading, police, playe
   item.held = false;
   item.gain = gain;
   item.range = range;
+  item.doppler = 0; // (0: from how its distance changes; an aircraft heard through its trail has its own)
 }
 
 // Bounded insertion keeps only nearby candidates. Records and the public array are reused across collections.
@@ -85,7 +86,9 @@ class NearestSources {
 // IDs are the simulation objects, independent of pooled record order, so voices survive ranking changes/recycling.
 class CityAudioSources {
   constructor({ controllerManager, trafficSystem, highwayTraffic, streetDetails, islandTraffic = null, aircraft = [] }) {
-    // the other F-15SGs (js/air-force.js: the wingman, a flypast): { active, x, y, z, speed, throttle, heading, gain }
+    // the other F-15SGs (js/air-force.js: the wingman, a flypast): { active, x, y, z, speed, throttle, heading, gain,
+    // trail, direct }: heard from where each was when the sound left it (js/jet-acoustics.js), with its Doppler shift,
+    // and not until its sound arrives (a supersonic one after its boom); `direct` (a camera riding along): as it is
     this.aircraft = aircraft;
     // the island's traffic beyond the detailed city (js/island-traffic.js), heard like the highways'
     this.islandCars = islandTraffic ? islandTraffic.cars : [];
@@ -122,7 +125,8 @@ class CityAudioSources {
     }
     const reach = kind === 'helicopter' || kind === 'jet' ? range : MOTOR_RANGE;
     if (d2 > reach * reach) return;
-    const item = this.motors.take(player ? -1 : d2);
+    // (ranked by how loud they are where the listener is: a jet a kilometre off drowns a car in the next street)
+    const item = this.motors.take(player ? -1 : kind === 'jet' ? d2 / 900 : d2);
     if (!item) return null;
     writeMotor(item, id, kind, x, y, z, speed, load, heading, police, player, seed, blocked, gain, range, verticalSpeed);
     return item;
@@ -223,6 +227,14 @@ class CityAudioSources {
     const holdingUp = this.playerHoldingUp(active);
     for (let i = 0; i < this.aircraft.length; i++) {
       const a = this.aircraft[i];
+      if (a.trail && !a.direct) {
+        // (heard after it's gone, too: its last sound still on its way)
+        const h = a.trail.length ? a.trail.hear(elapsed, this.listener.x, this.listener.y, this.listener.z) : null;
+        if (!h) continue;
+        const item = this.motor(a, 'jet', h.x, h.y, h.z, h.speed, h.throttle, a.heading, false, false, seedAt(4000 + i), false, a.gain ?? 1, 8000);
+        if (item) item.doppler = h.doppler;
+        continue;
+      }
       if (!a.active) continue;
       this.motor(a, 'jet', a.x, a.y, a.z, a.speed, a.throttle, a.heading, false, false, seedAt(4000 + i), false, a.gain ?? 1, 3000);
     }

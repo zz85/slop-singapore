@@ -36,6 +36,8 @@ import { createIslandGraph } from './island-network.js';
 import { createAirbases } from './airbases.js';
 import { JetHUD } from './jet-hud.js';
 import { createAirForce } from './air-force.js';
+import { Binoculars } from './binoculars.js';
+import { BoomWatcher } from './jet-acoustics.js';
 import { GEO } from './geodata.js';
 
 // js/main.js
@@ -244,6 +246,8 @@ async function initApp() {
   }
 
   const cameraSystem = new CameraSystem(renderer.domElement, controllerManager);
+  // Binoculars (js/binoculars.js): on a flypast, from the Air Force menu or [Z]
+  const binoculars = new Binoculars(cameraSystem.camera, { overlay: document.getElementById('binoculars'), label: document.getElementById('binoculars-label') });
   // the taxi cockpit sits on the driver's side: the right in a city driving on the left
   cameraSystem.driverSide = CITY.driveSide === 'left' ? 1 : -1;
   const touchControls = new TouchControls(controllerManager);
@@ -716,6 +720,31 @@ async function initApp() {
   const afFuel = document.getElementById('af-fuel');
   const afAssist = document.getElementById('af-assist');
   const afFlypastText = afFlypastSub?.textContent || '';
+  const afBinoculars = document.getElementById('af-binoculars');
+  const afSupersonic = document.getElementById('af-supersonic');
+  const afSmoke = document.getElementById('af-smoke');
+  const afFormations = [...document.querySelectorAll('#af-formation [data-formation]')];
+  // the formation to order: one of js/air-force.js FORMATIONS, or 'random' (a different one each time); remembered
+  let flypastFormation = (() => { try { return localStorage.getItem('flypast-formation') || 'random'; } catch { return 'random'; } })();
+  if (!afFormations.some((b) => b.dataset.formation === flypastFormation)) flypastFormation = 'random';
+  function setFlypastFormation(id) {
+    flypastFormation = id;
+    for (const b of afFormations) b.setAttribute('aria-checked', String(b.dataset.formation === id));
+    try { localStorage.setItem('flypast-formation', id); } catch { /* storage unavailable */ }
+  }
+  const afViews = [...document.querySelectorAll('#af-view [data-view]')];
+  // where a flypast is watched from: where you are, or riding in it (js/air-force.js RIDES); remembered
+  const FLYPAST_VIEWS = ['ground', 'wing', 'slot', 'chase'];
+  let flypastView = (() => { try { const v = localStorage.getItem('flypast-view'); return FLYPAST_VIEWS.includes(v) ? v : 'ground'; } catch { return 'ground'; } })();
+  function setFlypastView(view) {
+    flypastView = view;
+    for (const b of afViews) b.setAttribute('aria-checked', String(b.dataset.view === view));
+    try { localStorage.setItem('flypast-view', view); } catch { /* storage unavailable */ }
+    if (!airForce?.flypast.active) return;
+    if (view === 'ground') {
+      if (afBinoculars?.getAttribute('aria-checked') === 'true') binoculars.watch(airForce.flypast);
+    } else binoculars.lower();
+  }
   const remember = (key, on) => { try { localStorage.setItem(key, on ? '1' : '0'); } catch { /* storage unavailable */ } };
   const recalled = (key) => { try { return localStorage.getItem(key) === '1'; } catch { return false; } };
   function setWingman(on) {
@@ -744,10 +773,42 @@ async function initApp() {
     afRunways?.addEventListener('click', () => setRunwaysOnMap(!mapSystem.runwaysShown));
     afFlypast?.addEventListener('click', () => {
       if (airForce.flypast.active) return;
-      const eta = airForce.orderFlypast(cameraSystem.camera);
+      const supersonic = afSupersonic?.getAttribute('aria-checked') === 'true';
+      const smoke = afSmoke?.getAttribute('aria-checked') !== 'false';
+      airForce.orderFlypast(cameraSystem.camera, { supersonic, formation: flypastFormation, smoke });
       closePopovers();
+      if (flypastView === 'ground' && afBinoculars?.getAttribute('aria-checked') === 'true') binoculars.watch(airForce.flypast);
+      const how = supersonic ? ', supersonic' : '';
+      const from = flypastView === 'ground' ? 'Z: binoculars' : 'X: watch from elsewhere';
       const f = airForce.flypast.formation;
-      streetDetails.notice?.('RSAF FLYPAST', `Four F-15SGs in ${f.name.toLowerCase()} inbound, dead ahead: ${f.manoeuvre} in ${Math.round(eta)} s`, false, 'erp');
+      streetDetails.notice?.('RSAF FLYPAST', `Four F-15SGs in ${f.name.toLowerCase()}${how}, dead ahead: overhead in ${Math.round(airForce.flypast.overhead)} s, then a ${f.manoeuvre} · ${from}`, false, 'erp');
+    });
+    for (const b of afFormations) b.addEventListener('click', () => setFlypastFormation(b.dataset.formation));
+    setFlypastFormation(flypastFormation);
+    // red and white smoke through the display (on unless turned off; remembered)
+    afSmoke?.setAttribute('aria-checked', String((() => { try { return localStorage.getItem('flypast-smoke') !== '0'; } catch { return true; } })()));
+    afSmoke?.addEventListener('click', () => {
+      const on = afSmoke.getAttribute('aria-checked') !== 'true';
+      afSmoke.setAttribute('aria-checked', String(on));
+      remember('flypast-smoke', on);
+      airForce.flypast.smokeOn = on;
+    });
+    afSupersonic?.addEventListener('click', () => {
+      const on = afSupersonic.getAttribute('aria-checked') !== 'true';
+      afSupersonic.setAttribute('aria-checked', String(on));
+      remember('flypast-supersonic', on);
+    });
+    afSupersonic?.setAttribute('aria-checked', String(recalled('flypast-supersonic')));
+    for (const b of afViews) b.addEventListener('click', () => setFlypastView(b.dataset.view));
+    setFlypastView(flypastView);
+    // binoculars on a flypast, as it's ordered (on unless turned off; remembered)
+    const binocularsOn = (() => { try { return localStorage.getItem('flypast-binoculars') !== '0'; } catch { return true; } })();
+    afBinoculars?.setAttribute('aria-checked', String(binocularsOn));
+    afBinoculars?.addEventListener('click', () => {
+      const on = afBinoculars.getAttribute('aria-checked') !== 'true';
+      afBinoculars.setAttribute('aria-checked', String(on));
+      remember('flypast-binoculars', on);
+      if (airForce.flypast.active) (on ? binoculars.watch(airForce.flypast) : binoculars.lower());
     });
     setWingman(recalled('airforce-wingman'));
     setRunwaysOnMap(recalled('map-runways'));
@@ -755,13 +816,56 @@ async function initApp() {
     afButton?.remove();
     afPopover?.remove();
   }
+  // Riding in the flypast (the camera in a wingman's or the slot's front seat, or a chase plane), then back to the
+  // view's own lens; the sonic booms as each jet's Mach cone reaches the camera (js/jet-acoustics.js), and the view
+  // shaken by them
+  const boomWatcher = new BoomWatcher();
+  const booms = [];
+  let riding = false, ridingFov = 0, shake = 0;
+  let flypastTrails = null;
+  function watchFlypast(dt, elapsed) {
+    const cam = cameraSystem.camera;
+    const f = airForce.flypast;
+    // (the wingman flies with the camera when it's on your jet: heard as it is)
+    airForce.wingman.jet.sound.direct = controllerManager.activeMode === 'jet';
+    const ride = flypastView !== 'ground' && f.active && f.ride(flypastView, cam);
+    if (ride !== riding) {
+      if (ride) ridingFov = cam.fov;
+      else {
+        f.ride(null, cam);
+        cam.fov = ridingFov;
+        cam.updateProjectionMatrix();
+      }
+      riding = ride;
+      document.body.classList.toggle('flypast-ride', ride);
+      for (const a of f.jets) a.sound.direct = ride;
+    }
+    if (ride) {
+      const fov = flypastView === 'chase' ? 58 : 74;
+      if (cam.fov !== fov) { cam.fov = fov; cam.updateProjectionMatrix(); }
+    }
+    const p = cam.position;
+    flypastTrails ??= airForce.aircraft.map((a) => a.trail);
+    for (const b of boomWatcher.check(flypastTrails, elapsed, p.x, p.y, p.z, booms)) {
+      audioSystem.boom(b.intensity, b.x, b.y, b.z);
+      shake = Math.max(shake, b.intensity);
+    }
+    if (shake > 0.01) {
+      cam.position.x += (Math.random() - 0.5) * 0.35 * shake;
+      cam.position.y += (Math.random() - 0.5) * 0.35 * shake;
+      cam.rotateX((Math.random() - 0.5) * 0.02 * shake);
+      cam.rotateZ((Math.random() - 0.5) * 0.015 * shake);
+      shake *= Math.exp(-dt * 4.5);
+    }
+  }
+
   // the flypast's countdown in the menu, while it's on its way
   let afShown = '';
   function updateAirForceMenu() {
     if (!airForce || !afFlypast) return;
     const f = airForce.flypast;
     const m = f.formation;
-    const text = !f.active ? afFlypastText : f.eta > 0 ? `${m.name} inbound: ${m.manoeuvre} in ${Math.ceil(f.eta)} s` : `${m.name}, ${m.manoeuvre}: look up`;
+    const text = !f.active ? afFlypastText : f.overhead > 0 ? `${m.name} inbound: overhead in ${Math.ceil(f.overhead)} s` : f.eta > 0 ? `${m.name} overhead: ${m.manoeuvre} in ${Math.ceil(f.eta)} s` : `${m.name}, ${m.manoeuvre}: look up`;
     if (text === afShown) return;
     afShown = text;
     afFlypastSub.textContent = text;
@@ -866,6 +970,14 @@ async function initApp() {
       case 'BracketLeft':
       case 'BracketRight':
         if (!e.metaKey && !e.ctrlKey && !e.altKey && !mapSystem.isFullMapOpen) navigationUI.step(e.code === 'BracketLeft' ? -1 : 1);
+        break;
+      case 'KeyZ':
+        // the binoculars, on a flypast
+        if (!e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && airForce?.flypast.active && flypastView === 'ground') binoculars.toggle(airForce.flypast);
+        break;
+      case 'KeyX':
+        // where the flypast is watched from: the next one
+        if (!e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && airForce) setFlypastView(FLYPAST_VIEWS[(FLYPAST_VIEWS.indexOf(flypastView) + 1) % FLYPAST_VIEWS.length]);
         break;
       case 'KeyB':
         if (!e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && !mapSystem.isFullMapOpen) audioSystem.honk(controllerManager.getActiveEntity());
@@ -977,7 +1089,7 @@ async function initApp() {
   }
 
   // For poking at from the console (and the browser checks): the simulation's main systems
-  globalThis.slop = { scene, autoTrees, airForce, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
+  globalThis.slop = { scene, autoTrees, airForce, binoculars, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
 
   await precompileShaders();
   markInit('compile');
@@ -1003,8 +1115,12 @@ async function initApp() {
     routeNavigator.update(dt, elapsed); // (the autopilot's inputs, for this frame's car update)
     navigationUI.update(dt);
     controllerManager.update(dt, elapsed);
-    if (airForce) airForce.update(dt, elapsed); // (the wingman follows where the jet went this frame)
+    if (airForce) airForce.update(dt, elapsed, cameraSystem.camera); // (the wingman follows where the jet went this frame)
+    binoculars.before();
     cameraSystem.update(dt, elapsed);
+    binoculars.update(dt, elapsed);
+    if (binoculars.active !== document.body.classList.contains('binoculars-up')) document.body.classList.toggle('binoculars-up', binoculars.active);
+    if (airForce) watchFlypast(dt, elapsed);
     streetDetails.signalClock.value = elapsed;
     trafficSystem.update(
       dt,
