@@ -53,6 +53,31 @@ const source = readFileSync(join(__dirname, '../js/landmark-kit.js'), 'utf8');
 const load = () => loadModule(source, { imports: { 'three/webgpu': THREE, 'three/tsl': tsl, './tiny-look.js': tinyLook }, filename: 'landmark-kit.js' });
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 
+test('explicit collision prisms keep elevated wings solid without adding visible geometry', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 100, z: -50 } });
+  assert.equal(typeof kit.collisionPrism, 'function', 'models can supply collision for elevated architectural parts');
+  kit.collisionPrism({ ring: [[-5,-3],[5,-3],[5,3],[-5,3]], y0: 6, y1: 34 });
+  const { group, colliders, footprints } = kit.finish();
+  assert.equal(group.children.length, 0, 'a collider does not add a duplicate visual surface');
+  assert.equal(kit.triangles, 0);
+  assert.equal(colliders.length, 1);
+  assert.equal(colliders[0].minY, 6, 'clearance below the part remains open');
+  assert.equal(colliders[0].maxY, 34);
+  assert.equal(colliders[0].minX, 95);
+  assert.equal(colliders[0].maxZ, -47);
+  assert.equal(footprints[0].h, 34);
+});
+
+test('explicit collision fills an irregular roof interior while leaving its concave opening clear', () => {
+  const { createKit } = load(), kit = createKit();
+  kit.collisionPrism({ ring: [[0,0],[12,0],[12,4],[4,4],[4,12],[0,12]], y0: 20, y1: 21 });
+  const { colliders } = kit.finish();
+  const hits = (x, z) => colliders.some(({ obb: o }) => Math.abs((x-o.cx)*o.cs-(z-o.cz)*o.sn) <= o.hx && Math.abs((x-o.cx)*o.sn+(z-o.cz)*o.cs) <= o.hz);
+  assert.ok(hits(2, 7) && hits(7, 2), 'both arms have solid roof interiors');
+  assert.ok(!hits(8, 8), 'the courtyard opening remains clear');
+});
+
 test('solids about the anchor: a box, a prism, a loft and a cylinder, with their triangles and bounds', () => {
   const { createKit } = load();
   const kit = createKit({ anchor: { x: 1000, z: -500 } });

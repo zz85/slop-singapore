@@ -112,7 +112,9 @@ export default {
       407941836, 407941837, 407941838, 407941839, 407941840, 407941841, 407941842, 407941843, 407941844, 407941845, 407941847, 407941848,
       679388852, 1566584724] },
     { id: 'marina-bay-financial-centre', name: 'Marina Bay Financial Centre', model: 'marina-bay-financial-centre', hide: [116905040, 116905041,
-      116905042, 116905045, 116905047, 509003525, 509003526, 509003527, 509003528, 509003529, 728243729] }
+      116905042, 116905045, 116905047, 509003525, 509003526, 509003527, 509003528, 509003529, 728243729] },
+    // Former General Post Office: the hotel only; One Fullerton and the Waterboat House remain separate buildings.
+    { id: 'fullerton-hotel', name: 'The Fullerton Hotel', model: 'fullerton-hotel', hide: [46595395,407926378,407926385], hideRelations: [4039936] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]

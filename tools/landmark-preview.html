@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Singapore landmark preview</title>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/gh/mrdoob/three.js@f17eb5d689094a3fbd4cd0d64d54729a48036ce0/build/three.webgpu.js","three/webgpu":"https://cdn.jsdelivr.net/gh/mrdoob/three.js@f17eb5d689094a3fbd4cd0d64d54729a48036ce0/build/three.webgpu.js","three/tsl":"https://cdn.jsdelivr.net/gh/mrdoob/three.js@f17eb5d689094a3fbd4cd0d64d54729a48036ce0/build/three.tsl.js"}}
+</script>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#d6e1e5;color:#263d43;font:14px system-ui,sans-serif}header{height:76px;padding:13px 22px;display:flex;align-items:center;gap:20px;background:#f6f7f1;border-bottom:1px solid #aebfbe}h1{margin:0;font-size:19px}small{display:block;color:#687e80;margin-top:4px}nav{margin-left:auto;display:flex;gap:5px;flex-wrap:wrap}button{border:1px solid #a8b8b6;padding:7px 12px;background:transparent;border-radius:5px;color:inherit;cursor:pointer}button[aria-pressed=true]{background:#304d52;color:#fff}main{height:calc(100vh - 76px);position:relative}canvas{width:100%;height:100%;display:block}.labels{position:absolute;inset:0;pointer-events:none;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}.labels span{padding:14px 18px;color:#536e71;font-size:12px;letter-spacing:.1em;text-transform:uppercase}.labels.single{display:block}#error{position:fixed;bottom:10px;left:20px;color:#8c362c;white-space:pre-wrap}a{color:inherit}@media(max-width:700px){header{height:110px;padding:10px;gap:8px}h1{font-size:16px}small{font-size:11px}main{height:calc(100vh - 110px)}button{padding:6px 8px}}
+</style>
+<header><div><h1 id="title">Landmark preview</h1><small id="stats">Loading…</small></div><nav aria-label="View"><button data-view="all">Four views</button><button data-view="ne">Perspective</button><button data-view="e">Bay front</button><button data-view="w">City front</button><button data-view="top">Roof plan</button><button id="look" aria-pressed="true">Tiny look</button></nav></header>
+<main id="viewport"><div class="labels" id="labels"></div></main><div id="error" role="alert"></div>
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { GEO } from '../js/singapore-geodata.js';
+import { createKit } from '../js/landmark-kit.js';
+import { applyTinyLook } from '../js/tiny-look.js';
+
+try {
+  const q=new URLSearchParams(location.search), model=q.get('model')||'fullerton-hotel';
+  if(!/^[a-z0-9-]+$/.test(model)) throw new Error('Invalid model name');
+  const L=GEO.landmarks.find(l=>l.model===model);
+  if(!L) throw new Error(`No mapped landmark for ${model}`);
+  const {build}=await import(`../js/landmark-models/${model}.js`);
+  const site={...L,parts:L.parts.map(p=>({...p,ring:Array.from({length:p.ring.length/2},(_,i)=>[p.ring[i*2]-L.x,p.ring[i*2+1]-L.z])}))};
+  const kit=createKit({name:L.id});kit.bearingDeg=GEO.frame.bearingDeg;build(kit,site);
+  const done=kit.finish(),scene=new THREE.Scene();scene.background=new THREE.Color(0xd6e1e5);scene.add(done.group);
+  const hemi=new THREE.HemisphereLight(0xeef4ff,0xb8ad9c,1.95);scene.add(hemi);
+  const sun=new THREE.DirectionalLight(0xfff3e0,1.9);sun.position.set(150,230,140);sun.castShadow=true;
+  Object.assign(sun.shadow.camera,{left:-100,right:100,top:100,bottom:-100,near:1,far:800});
+  sun.shadow.mapSize.set(2048,2048);sun.shadow.normalBias=0.08;sun.shadow.bias=-0.0001;scene.add(sun);
+  const ground=new THREE.Mesh(new THREE.PlaneGeometry(220,220),new THREE.MeshLambertNodeMaterial({color:0xc4cdbb}));ground.rotation.x=-Math.PI/2;ground.position.y=-0.3;ground.receiveShadow=true;scene.add(ground);
+  const host=document.getElementById('viewport');
+  const renderer=new THREE.WebGPURenderer({antialias:true,forceWebGL:q.get('backend')!=='webgpu'});
+  await renderer.init();renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.shadowMap.enabled=true;
+  renderer.toneMapping=THREE.NoToneMapping;host.prepend(renderer.domElement);
+  const bounds=kit.bounds(),target=new THREE.Vector3((bounds.minX+bounds.maxX)/2,14,(bounds.minZ+bounds.maxZ)/2);
+  const E=kit.compass(90),N=kit.compass(0),W=kit.compass(270);
+  const definitions={ne:{name:'North-east · massing',dir:[E[0]+N[0],.85,E[1]+N[1]]},e:{name:'Bay-facing colonnade',dir:[E[0],.43,E[1]]},w:{name:'City-facing frontage',dir:[W[0],.6,W[1]]},top:{name:'Roof plan · true north up',dir:[0,1,0]}};
+  const cameras=Object.fromEntries(Object.entries(definitions).map(([id,def])=>{const c=new THREE.OrthographicCamera(-100,100,75,-75,1,1000);if(id==='top')c.up.set(N[0],0,N[1]);c.position.copy(target).add(new THREE.Vector3(...def.dir).normalize().multiplyScalar(250));c.lookAt(target);return[id,c]}));
+  let view=Object.hasOwn(definitions,q.get('view'))?q.get('view'):'all',tiny=q.get('look')!=='day';
+  function render(){
+    const width=host.clientWidth,height=host.clientHeight;renderer.setSize(width,height,false);renderer.setScissorTest(false);renderer.clear();renderer.setScissorTest(true);
+    const ids=view==='all'?['ne','e','w','top']:[view],labels=document.getElementById('labels');labels.classList.toggle('single',view!=='all');labels.replaceChildren();
+    for(const [i,id]of ids.entries()){
+      const w=view==='all'?Math.floor(width/2):width,h=view==='all'?Math.floor(height/2):height;
+      const x=view==='all'?(i%2)*w:0,y=view==='all'?(i<2?0:h):0;
+      const camera=cameras[id],half=view==='all'?79:76;camera.left=-half*w/h;camera.right=half*w/h;camera.top=half;camera.bottom=-half;camera.updateProjectionMatrix();
+      renderer.setViewport(x,y,w,h);renderer.setScissor(x,y,w,h);renderer.render(scene,camera);
+      const label=document.createElement('span');label.textContent=definitions[id].name;labels.append(label);
+    }
+    renderer.setScissorTest(false);
+    for(const button of document.querySelectorAll('[data-view]'))button.setAttribute('aria-pressed',String(button.dataset.view===view));
+  }
+  const useLook=()=>{applyTinyLook(done.group,tiny);renderer.toneMapping=tiny?THREE.NoToneMapping:THREE.ACESFilmicToneMapping;document.getElementById('look').setAttribute('aria-pressed',String(tiny));render()};
+  for(const button of document.querySelectorAll('[data-view]'))button.addEventListener('click',()=>{view=button.dataset.view;render()});
+  document.getElementById('look').addEventListener('click',()=>{tiny=!tiny;useLook()});
+  addEventListener('resize',render);document.getElementById('title').textContent=L.name;
+  document.getElementById('stats').textContent=`${kit.triangles.toLocaleString()} triangles · ${done.group.children.length} material batches · footprint from OpenStreetMap`;
+  useLook();window.landmarkPreview={ready:true,kit,group:done.group,scene,renderer,cameras,render};
+}catch(error){document.getElementById('error').textContent=error.stack||error.message;console.error(error)}
+</script>
+</html>
