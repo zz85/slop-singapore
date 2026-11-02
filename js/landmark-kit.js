@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { Fn, uv, float, color, mix, fract, floor, step, hash, smoothstep, fwidth } from 'three/tsl';
+import { Fn, uv, float, color, mix, fract, floor, step, hash, smoothstep, fwidth, mod, max, abs } from 'three/tsl';
 import { pairMaterial, createTinyFlatMaterial, blendHex } from './tiny-look.js';
 
 // js/landmark-kit.js
@@ -16,7 +16,7 @@ import { pairMaterial, createTinyFlatMaterial, blendHex } from './tiny-look.js';
 // without three.js (tests/landmark-kit.test.cjs, tests/landmark-models.test.cjs).
 
 const SKY_BLUE = 0x9db9d3;
-const PATTERNS = ['punched', 'ribbon', 'curtain', 'strips', 'scatter'];
+const PATTERNS = ['punched', 'ribbon', 'curtain', 'strips', 'scatter', 'honeycomb'];
 const band = (lo, hi, x, fw) => smoothstep(float(lo).sub(fw), float(lo).add(fw), x).mul(float(1).sub(smoothstep(float(hi).sub(fw), float(hi).add(fw), x)));
 
 // --- rings [[x, z], ...] ----------------------------------------------------------------------------------------------
@@ -201,10 +201,11 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
 
   /**
    * A solid over the ring [[x, z], ...] from y0 up, its top at y1 (a function of (x, z) for a sloped top), the top
-   * ring scaled toward its centre by `scale` (a loft), walls in `material` and the top in `top` (the roof grey unless
-   * named). Below 0.5 m from the ground no underside is drawn. -> the part record
+   * ring scaled toward its centre by `scale` (a loft), walls in `material` (or, wall by wall, in what
+   * `edgeMaterial(i)` gives for the wall from point i to i + 1, when it gives one) and the top in `top` (the roof
+   * grey unless named). Below 0.5 m from the ground no underside is drawn. -> the part record
    */
-  function solid({ ring, y0 = 0, y1, scale = 1, upperRing, material, top = kit.roofMaterial(), name = '', type = 'prism' }) {
+  function solid({ ring, y0 = 0, y1, scale = 1, upperRing, material, edgeMaterial, top = kit.roofMaterial(), name = '', type = 'prism' }) {
     if (!ring || ring.length < 3) throw new Error(`landmark kit: ${type} needs a ring of 3 points or more`);
     if (!(y1 > y0) && typeof y1 !== 'function') throw new Error(`landmark kit: ${type} ${name} is not taller than its base`);
     const n = ring.length;
@@ -229,8 +230,9 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
       const ya = topY(tax, taz), yb = topY(tbx, tbz);
       const p0 = [ax, y0, az], p1 = [bx, y0, bz], p2 = [tbx, yb, tbz], p3 = [tax, ya, taz];
       const nrm = [nx, 0, nz];
-      triangle(B, p0, p1, p2, [along, y0], [along + L, y0], [along + L, yb], nrm);
-      triangle(B, p0, p2, p3, [along, y0], [along + L, yb], [along, ya], nrm);
+      const W = edgeMaterial ? batch(edgeMaterial(i) || material) : B;
+      triangle(W, p0, p1, p2, [along, y0], [along + L, y0], [along + L, yb], nrm);
+      triangle(W, p0, p2, p3, [along, y0], [along + L, yb], [along, ya], nrm);
       [p0, p1, p2, p3].forEach(grow);
       along += L;
     }
@@ -262,7 +264,7 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     return solid({ ring, y0: y, y1: y + h, material, top, name, type: 'box' });
   };
   /** A prism over a ring [[x, z], ...] from y0 to y1 (y1 may be a function of (x, z): a sloped top, kit.sloped) */
-  kit.prism = ({ ring, y0 = 0, y1, material, top, name = '' }) => solid({ ring, y0, y1, material, top, name, type: 'prism' });
+  kit.prism = ({ ring, y0 = 0, y1, material, edgeMaterial, top, name = '' }) => solid({ ring, y0, y1, material, edgeMaterial, top, name, type: 'prism' });
   /** A collision/map volume without visible geometry, for wings, bridges or roofs above the ground cutoff. */
   kit.collisionPrism = ({ ring, y0 = 0, y1 }) => {
     if (!ring || ring.length < 3 || ring.some((p) => p.length !== 2 || !p.every(Number.isFinite)) || !Number.isFinite(y0) || !Number.isFinite(y1) || y1 <= y0) {
@@ -271,11 +273,48 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     collisionParts.push({ ring: ring.map((p) => [...p]), y0, y1, filled: true });
   };
   /** A loft: scale the base ring at y1, or supply a corresponding topRing for a translated/inclined facade. */
-  kit.loft = ({ ring, topRing, y0 = 0, y1, scale = 0.5, material, top, name = '' }) => solid({ ring, upperRing: topRing, y0, y1, scale, material, top, name, type: 'loft' });
+  kit.loft = ({ ring, topRing, y0 = 0, y1, scale = 0.5, material, edgeMaterial, top, name = '' }) => solid({ ring, upperRing: topRing, y0, y1, scale, material, edgeMaterial, top, name, type: 'loft' });
   /** A cylinder about (x, z) from y0 to y1, radius r, in `segments` sides */
   kit.cylinder = ({ x = 0, z = 0, y0 = 0, y1, r, segments = 12, material, top, name = '' }) => {
     const ring = Array.from({ length: segments }, (_, i) => { const a = (i / segments) * Math.PI * 2; return [x + Math.cos(a) * r, z + Math.sin(a) * r]; });
     return solid({ ring, y0, y1, material, top, name, type: 'cylinder' });
+  };
+  /**
+   * A beam: a box `w` wide and `h` deep from the point `from` [x, y, z] to `to` — a sloped rafter, a brace, a post —
+   * its width level and its depth square to it. Structure in the bounds, but neither flicker-checked (no wall or top
+   * lies on another's plane) nor anything to walk into. -> the part record
+   */
+  kit.beam = ({ from, to, w = 0.3, h = 0.3, material, name = '' }) => {
+    const t = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+    const L = Math.hypot(t[0], t[1], t[2]);
+    if (!(L > 1e-6)) throw new Error(`landmark kit: beam ${name} needs a length`);
+    t[0] /= L; t[1] /= L; t[2] /= L;
+    // across: level and square to the beam (east-west for a post); up: square to both, upward
+    const level = Math.hypot(t[0], t[2]);
+    const a = level > 1e-6 ? [-t[2] / level, 0, t[0] / level] : [1, 0, 0];
+    let u = [a[1] * t[2] - a[2] * t[1], a[2] * t[0] - a[0] * t[2], a[0] * t[1] - a[1] * t[0]];
+    if (u[1] < 0 || (u[1] === 0 && level <= 1e-6 && u[2] < 0)) u = u.map((v) => -v);
+    const corner = (p, sa, su) => [0, 1, 2].map((k) => p[k] + a[k] * sa * w / 2 + u[k] * su * h / 2);
+    const [f00, f10, f11, f01] = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sa, su]) => corner(from, sa, su));
+    const [t00, t10, t11, t01] = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sa, su]) => corner(to, sa, su));
+    const B = batch(material);
+    const quad = (p, q, r, s, n) => { triangle(B, p, q, r, [0, 0], [1, 0], [1, 1], n); triangle(B, p, r, s, [0, 0], [1, 1], [0, 1], n); };
+    quad(f10, t10, t11, f11, a);
+    quad(t00, f00, f01, t01, a.map((v) => -v));
+    quad(f01, f11, t11, t01, u);
+    quad(f00, t00, t10, f10, u.map((v) => -v));
+    quad(t00, t01, t11, t10, t);
+    quad(f00, f10, f11, f01, t.map((v) => -v));
+    const all = [f00, f10, f11, f01, t00, t10, t11, t01];
+    const bounds = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity };
+    for (const [x, y, z] of all) {
+      bounds.minX = Math.min(bounds.minX, x); bounds.maxX = Math.max(bounds.maxX, x);
+      bounds.minY = Math.min(bounds.minY, y); bounds.maxY = Math.max(bounds.maxY, y);
+      bounds.minZ = Math.min(bounds.minZ, z); bounds.maxZ = Math.max(bounds.maxZ, z);
+    }
+    const part = { name, type: 'beam', material, y0: bounds.minY, y1: bounds.maxY, ring: [[from[0], from[2]], [to[0], to[2]]], walls: [], caps: [], bounds };
+    parts.push(part);
+    return part;
   };
   /** A sloped top for prism(): y1 at the high side, dropping `drop` m toward the compass direction `deg` across the ring */
   kit.sloped = (ring, y1, drop, deg) => {
@@ -303,29 +342,35 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
    * painted text unless given; a sign wider than `maxWidth` is scaled down to it, keeping its shape) with its bottom
    * at `y` (or its top at `yTop`) at (x, z), facing `yaw` (radians; 0 faces +z, south), the text reading right from
    * the back too; on a low bar in `bar` colour when one is given (a sign standing on a roof — hang() is the usual
-   * way). The letters are drawn on a canvas in a browser; in node the panel stands blank. Signs are decoration: left
-   * out of bounds() unless asked, and of the flicker check. -> the part record
+   * way). A `vertical` sign runs its text down the panel instead, the letters' tops to the right (as a hotel's name
+   * down the edge of a tower): the panel is then `height` m across and `width` (capped at `maxWidth`) tall. The
+   * letters are drawn on a canvas in a browser; in node the panel stands blank. Signs are decoration: left out of
+   * bounds() unless asked, and of the flicker check. -> the part record
    */
-  kit.sign = ({ text, x = 0, z = 0, y, yTop, yaw = 0, width, maxWidth = Infinity, height = 6, color = 0xffffff, bar = false, font = 'bold 110px Helvetica, Arial, sans-serif', name = '' }) => {
+  kit.sign = ({ text, x = 0, z = 0, y, yTop, yaw = 0, width, maxWidth = Infinity, height = 6, vertical = false, color = 0xffffff, bar = false, font = 'bold 110px Helvetica, Arial, sans-serif', name = '' }) => {
     if (!text) throw new Error('landmark kit: a sign needs its text');
     if (!Number.isFinite(y) && !Number.isFinite(yTop)) throw new Error(`landmark kit: sign ${text} needs its height y (or yTop)`);
     const material = signMaterial(text, color, font);
     if (!(width > 0)) width = height * (signAspect.get(material) || 0.62 * text.length);
     if (width > maxWidth) { height *= maxWidth / width; width = maxWidth; }
-    if (!Number.isFinite(y)) y = yTop - height;
+    const across = vertical ? height : width, up = vertical ? width : height; // the panel along the wall and up it
+    if (!Number.isFinite(y)) y = yTop - up;
     const nx = Math.sin(yaw), nz = Math.cos(yaw); // the face
     const rx = Math.cos(yaw), rz = -Math.sin(yaw); // its right
     const B = batch(material);
-    const bl = [x - rx * width / 2, y, z - rz * width / 2], br = [x + rx * width / 2, y, z + rz * width / 2];
-    const tr = [br[0], y + height, br[2]], tl = [bl[0], y + height, bl[2]];
-    triangle(B, bl, br, tr, [0, 0], [1, 0], [1, 1], [nx, 0, nz]);
-    triangle(B, bl, tr, tl, [0, 0], [1, 1], [0, 1], [nx, 0, nz]);
-    // the back: the same panel facing the other way, u running the other way, so the text is not mirrored
-    triangle(B, br, bl, tl, [0, 0], [1, 0], [1, 1], [-nx, 0, -nz]);
-    triangle(B, br, tl, tr, [0, 0], [1, 1], [0, 1], [-nx, 0, -nz]);
-    const part = { name: name || `sign:${text}`, type: 'sign', material, y0: y, y1: y + height, ring: [[bl[0], bl[2]], [br[0], br[2]]], walls: [], caps: [], bounds: { minX: Math.min(bl[0], br[0]), maxX: Math.max(bl[0], br[0]), minY: y, maxY: y + height, minZ: Math.min(bl[2], br[2]), maxZ: Math.max(bl[2], br[2]) } };
+    const bl = [x - rx * across / 2, y, z - rz * across / 2], br = [x + rx * across / 2, y, z + rz * across / 2];
+    const tr = [br[0], y + up, br[2]], tl = [bl[0], y + up, bl[2]];
+    // u along the text, v from the letters' feet to their tops: at the viewer's bottom left, bottom right, top right
+    // and top left corners (a vertical sign's text starting at the top, its feet to the left)
+    const [p, q, r, t] = vertical ? [[1, 0], [1, 1], [0, 1], [0, 0]] : [[0, 0], [1, 0], [1, 1], [0, 1]];
+    triangle(B, bl, br, tr, p, q, r, [nx, 0, nz]);
+    triangle(B, bl, tr, tl, p, r, t, [nx, 0, nz]);
+    // the back: the same panel facing the other way, its corners swapped left for right, so the text is not mirrored
+    triangle(B, br, bl, tl, p, q, r, [-nx, 0, -nz]);
+    triangle(B, br, tl, tr, p, r, t, [-nx, 0, -nz]);
+    const part = { name: name || `sign:${text}`, type: 'sign', material, y0: y, y1: y + up, ring: [[bl[0], bl[2]], [br[0], br[2]]], walls: [], caps: [], bounds: { minX: Math.min(bl[0], br[0]), maxX: Math.max(bl[0], br[0]), minY: y, maxY: y + up, minZ: Math.min(bl[2], br[2]), maxZ: Math.max(bl[2], br[2]) } };
     parts.push(part);
-    if (bar !== false && bar !== null) kit.box({ x, z, y: y - 0.6, w: width, h: 0.6, d: 0.8, yaw, material: kit.material(bar), name: `${part.name}:bar` });
+    if (bar !== false && bar !== null) kit.box({ x, z, y: y - 0.6, w: across, h: 0.6, d: 0.8, yaw, material: kit.material(bar), name: `${part.name}:bar` });
     return part;
   };
   /**
@@ -426,17 +471,35 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
    * A painted facade: the wall colour with a window per bay and storey (uv in metres: the kit's walls), in a pattern
    * (punched, ribbon, curtain, strips, or scatter: glass with strips of the wall colour thrown over it a storey tall
    * and `scatter.length` bays long, a share `scatter.density` of the storeys' cells, rising to `scatter.top` between
-   * the heights `scatter.ramp` (metres above the ground), seeded by `scatter.seed`); glossy panes in the photoreal
-   * looks, flat in the tiny one
+   * the heights `scatter.ramp` (metres above the ground), seeded by `scatter.seed`; or honeycomb: a hexagon of glass
+   * in a frame of the wall colour `honeycomb.frame` of a cell thick each side, a bay wide and a storey apart in rows,
+   * every other row half a bay over — pointed at top and bottom; or, `honeycomb.flat`, a storey tall and a bay apart
+   * in columns, every other column half a storey up — flat at top and bottom); glossy panes in the photoreal looks,
+   * flat in the tiny one
    */
-  kit.facadeMaterial = ({ wall, window = 0x3a4a56, floorHeight = 3.6, bayWidth = 2.6, windowWidth = 0.6, windowHeight = 0.55, pattern = 'punched', roughness = 0.78, scatter = null } = {}) => {
+  kit.facadeMaterial = ({ wall, window = 0x3a4a56, floorHeight = 3.6, bayWidth = 2.6, windowWidth = 0.6, windowHeight = 0.55, pattern = 'punched', roughness = 0.78, scatter = null, honeycomb = null } = {}) => {
     if (!PATTERNS.includes(pattern)) throw new Error(`landmark kit: unknown facade pattern "${pattern}"`);
     const thrown = pattern === 'scatter' ? { density: 0.22, top: 0.22, ramp: [0, 1], length: 3, seed: 1, ...(scatter || {}) } : null;
-    return remember(`f${JSON.stringify([wall, window, floorHeight, bayWidth, windowWidth, windowHeight, pattern, roughness, thrown])}`, () => {
+    const hex = pattern === 'honeycomb' ? { flat: false, frame: 0.08, ...(honeycomb || {}) } : null;
+    return remember(`f${JSON.stringify([wall, window, floorHeight, bayWidth, windowWidth, windowHeight, pattern, roughness, thrown, hex])}`, () => {
       const panes = () => {
         const p = uv();
         const cu = fract(p.x.div(bayWidth)), cv = fract(p.y.div(floorHeight));
         const fu = fwidth(p.x.div(bayWidth)), fv = fwidth(p.y.div(floorHeight));
+        if (pattern === 'honeycomb') {
+          // two square lattices (1 by √3, the second half a cell over and up) make the hexagons' centres: the nearer
+          // one's offset, folded into a quadrant, gives the distance in from the hexagon's edge (0 on it, ½ at the
+          // centre); a flat-topped honeycomb is the pointed one with the wall's axes swapped
+          const across = hex.flat ? p.y.div(floorHeight) : p.x.div(bayWidth);
+          const along = (hex.flat ? p.x.div(bayWidth) : p.y.div(floorHeight)).mul(0.8660254);
+          const ax = mod(across, 1).sub(0.5), az = mod(along, 1.7320508).sub(0.8660254);
+          const bx = mod(across.sub(0.5), 1).sub(0.5), bz = mod(along.sub(0.8660254), 1.7320508).sub(0.8660254);
+          const nearA = step(ax.mul(ax).add(az.mul(az)), bx.mul(bx).add(bz.mul(bz)));
+          const gx = abs(mix(bx, ax, nearA)), gz = abs(mix(bz, az, nearA));
+          const inward = float(0.5).sub(max(gx.mul(0.5).add(gz.mul(0.8660254)), gx));
+          const fw = fwidth(inward);
+          return smoothstep(float(hex.frame).sub(fw), float(hex.frame).add(fw), inward);
+        }
         if (pattern === 'scatter') {
           const stripWidth = bayWidth * thrown.length;
           const row = floor(p.y.div(floorHeight));
@@ -537,7 +600,7 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
       group.add(mesh);
     }
     const colliders = [], footprints = [];
-    for (const p of [...parts.filter((p) => p.y0 <= 0.5 && p.type !== 'sign'), ...collisionParts]) {
+    for (const p of [...parts.filter((p) => p.y0 <= 0.5 && p.type !== 'sign' && p.type !== 'beam'), ...collisionParts]) {
       const box = orientedBox(p.ring);
       if (box && ringArea(p.ring) > box.area * 0.85) {
         colliders.push(obbCollider(box.cx + anchor.x, box.cz + anchor.z, box.hx, box.hz, box.ux, box.uz, p.y0, p.y1));

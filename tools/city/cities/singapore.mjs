@@ -125,7 +125,15 @@ export default {
       254816010,254816011,254816013,254816015,254816017,254816022,254816025,254816029,254816030,254816031,
       254816032,254816033,254816036,254816039,254816040,254816041,254816042,254816043,254816044,254816046,
       254816048,254816055,254833690,254833691,254833693,1228813829,1228813830
-    ], hideRelations: [3413910,3413596] }
+    ], hideRelations: [3413910,3413596] },
+    // Marina One: the offices' outline, the West and East Towers, their bronze stair shafts, the glass corner crowns
+    // and their chimneys (941456992–97), and the two residences
+    { id: 'marina-one', name: 'Marina One', model: 'marina-one', hide: [463857949, 463857945, 463857946, 463857947, 463857948,
+      941456992, 941456993, 941456994, 941456995, 941456996, 941456997, 463858904, 463858905] },
+    // DUO: the Residences (its stack of parts and its outline), the Tower (its stack and outline; 432375290 repeats its
+    // base), and the Duo Galleria's outline and the low parts of it between and beside the towers
+    { id: 'duo', name: 'DUO', model: 'duo', hide: [427064874, 432375288, 432375292, 432375294, 560240330, 432375289, 432375290, 432375291,
+      432375293, 560240322, 560240325, 560240327, 560275084, 560275278] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]
