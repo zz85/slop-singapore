@@ -5,8 +5,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { makeFrame, gridBearing } from '../tools/city/frame.mjs';
-import { roadAttrs, streetPieces, coastLand } from '../tools/city/osm.mjs';
+import { roadAttrs, streetPieces, coastLand, osmColour } from '../tools/city/osm.mjs';
 import { buildCity } from '../tools/city/build.mjs';
+import { ROOF_SHAPES, unpackRoof } from '../js/roofs.js';
 
 const LAT0 = 1.3, LON0 = 103.8;
 const way = (id, nodes, coords, tags) => ({ type: 'way', id, nodes, geometry: coords.map(([lon, lat]) => ({ lon, lat })), tags });
@@ -59,6 +60,20 @@ test('highway ways are split into pieces at shared nodes', () => {
   assert.equal(pieces[0].pts.length, 3);
 });
 
+test('OSM colours: #hex and the CSS names mappers use to a packed rgb, or -1', () => {
+  assert.equal(osmColour('#a4543b'), 0xa4543b);
+  assert.equal(osmColour('#A4543B'), 0xa4543b);
+  assert.equal(osmColour('#fff'), 0xffffff);
+  assert.equal(osmColour('red'), 0xff0000);
+  assert.equal(osmColour('Light Grey'), 0xd3d3d3);
+  assert.equal(osmColour('light_grey'), 0xd3d3d3);
+  assert.equal(osmColour('grey'), osmColour('gray'));
+  assert.equal(osmColour('biege'), 0xf5f5dc, 'the common misspelling');
+  assert.equal(osmColour(undefined), -1);
+  assert.equal(osmColour('#12'), -1);
+  assert.equal(osmColour('plaid'), -1);
+});
+
 test('coastline land: land on the left of the coast, water on the right', () => {
   const f = makeFrame({ lat0: LAT0, lon0: LON0 });
   const d = 0.003;
@@ -104,10 +119,10 @@ test('a city builds from OSM layers: land, blocks with lots, parks, the road gra
       return way(id, [id * 10, id * 10 + 1, id * 10 + 2, id * 10 + 3, id * 10], c.map(([px, pz]) => ll(px, pz)), tags);
     };
     write('buildings', [
-      square(60, 160, 160, 10, { building: 'apartments', 'building:levels': '10' }),
+      square(60, 160, 160, 10, { building: 'apartments', 'building:levels': '10', 'roof:shape': 'hipped', 'roof:colour': 'red', 'building:colour': '#ffffff' }),
       square(61, 160, -40 + 200, 0, { building: 'yes' }), // degenerate: dropped
       square(62, -150, -150, 15, { building: 'yes', height: '20' }),
-      square(63, -150, -150, 8, { 'building:part': 'yes', height: '50' }),
+      square(63, -150, -150, 8, { 'building:part': 'yes', height: '50', 'roof:shape': 'gabled', 'roof:height': '4', 'roof:orientation': 'across' }),
       square(64, -60, -220, 6, { building: 'roof' }),
       square(65, 150, -60, 12, { building: 'hotel', height: '193' }) // a landmark modelled by hand: left out
     ]);
@@ -157,11 +172,13 @@ test('a city builds from OSM layers: land, blocks with lots, parks, the road gra
     assert.ok(Math.abs(E.gantries[0] / 10) < 1 && Math.abs(E.gantries[1] / 10 - 120) < 1);
     assert.equal(E.speed[2], 40, 'the speed limit');
     assert.deepEqual([E.redLight[2], E.redLight[3]], [0, -100], 'watching the northbound approach (towards -z)');
-    // buildings: [rings, top dm, bottom dm, type, per ring: points, dx dz (dm) from the point before...]
+    // buildings: [rings, top dm, bottom dm, type, roof, wall colour, roof colour, levels, per ring: points, dx dz (dm)
+    // from the point before...]
     const B = GEO.buildings, built = [];
+    assert.equal(B.extra, 4);
     for (let i = 0, fx = 0, fz = 0; i < B.data.length;) {
-      const b = { rings: B.data[i], top: B.data[i + 1] / 10, bottom: B.data[i + 2] / 10, type: B.types[B.data[i + 3]], pts: [] };
-      i += 4;
+      const b = { rings: B.data[i], top: B.data[i + 1] / 10, bottom: B.data[i + 2] / 10, type: B.types[B.data[i + 3]], roof: B.data[i + 4], wall: B.data[i + 5], roofColour: B.data[i + 6], levels: B.data[i + 7], pts: [] };
+      i += 4 + B.extra;
       for (let r = 0; r < b.rings; r++) {
         const n = B.data[i++];
         let px = fx, pz = fz;
@@ -177,7 +194,12 @@ test('a city builds from OSM layers: land, blocks with lots, parks, the road gra
     assert.ok(!built.some((b) => b.top === 193), 'the modelled landmark is left out');
     const at = (x, z) => built.find((b) => b.pts.every(([px, pz]) => Math.abs(px - x) < 17 && Math.abs(pz - z) < 17));
     assert.equal(at(160, 160).top, 32, 'ten storeys of 3.2 m');
+    assert.deepEqual([at(160, 160).levels, at(160, 160).wall, at(160, 160).roofColour], [10, 0xffffff, 0xff0000]);
+    assert.deepEqual(unpackRoof(at(160, 160).roof), { shape: ROOF_SHAPES.hipped, across: false, included: false, heightDm: 0 }, 'storeys: the roof is on top of them');
     assert.equal(at(-150, -150).top, 50, 'the part stands for its outline');
+    assert.deepEqual(unpackRoof(at(-150, -150).roof), { shape: ROOF_SHAPES.gabled, across: true, included: true, heightDm: 40 }, 'a mapped height has the roof within it');
+    assert.deepEqual([at(-150, -150).wall, at(-150, -150).roofColour, at(-150, -150).levels], [-1, -1, 0]);
+    assert.equal(at(-60, -220).roof, 0, 'a canopy has no roof shape');
     assert.ok(at(-60, -220).bottom >= 2.6, 'a canopy stands clear of the ground');
     // trees: the park's, the sidewalk's and the kerbside one (moved off the roadway) stand; the rest (in the sea,
     // mid-carriageway, inside the apartment block) don't

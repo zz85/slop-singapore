@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, float, vec2, vec3, color, mix, step, fract, floor, smoothstep, fwidth, attribute, positionGeometry, positionWorld,
-  positionView, instanceIndex, uv, sin, dot, max, select
+  positionView, instanceIndex, uv, sin, dot, max, abs, select
 } from 'three/tsl';
 
 // js/tiny-look.js
@@ -28,9 +28,13 @@ const WINDOW = { pane: 0x809aaa, paneLight: 0xa7becb, frame: 0xc3c4ba, shopGlass
 // The ground: light warm asphalt, off-white pavements, a curb one shade darker, flat lawns and water
 const GROUND = { asphalt: 0x9c9a95, sidewalk: 0xd8d2c6, curb: 0xc9c3b6, lawn: 0x7ca057, lawnLight: 0x8cc063, water: 0x8fb8da, seawall: 0xb8b2a6, hedge: 0x5f8a4a, deck: 0xc9c4ba, roof: 0xb9b5ac };
 const PATTERNS = ['punched', 'ribbon', 'curtain', 'strips'];
+// HDB blocks are painted in bands: the accent colours of two storeys per block
+const HDB_BANDS = [0xd98c6a, 0x6f9fd3, 0x8cbf7a, 0xe8c05a, 0xc98bb5];
 
 const channel = (hex, shift) => ((hex >> shift) & 0xff) / 255;
-const rgb = (hex) => [channel(hex, 16), channel(hex, 8), channel(hex, 0)];
+/** A hex colour as [r, g, b] in 0..1 */
+const hexToRgb = (hex) => [channel(hex, 16), channel(hex, 8), channel(hex, 0)];
+const rgb = hexToRgb;
 /** `a` blended `t` of the way to `b`, as a hex colour */
 function blendHex(a, b, t) {
   const A = rgb(a), B = rgb(b);
@@ -116,14 +120,18 @@ function createTinyFacadeMaterial({ kind, pattern = 'punched', floorHeight = 3.5
     // metres along the wall (left to right, facing it) and up from its foot; bays fitted whole along the wall
     const s = positionGeometry.x.add(0.5).mul(wallW);
     const y = positionGeometry.y.add(0.5).mul(wallH);
+    // the wall's colour and storey height per building (open-city-buildings.js `tinyWall`: one of the kind's pastels
+    // by its tone or OpenStreetMap's building:colour toned down; its mapped storeys, or 0 for the pattern's own)
+    const tw = attribute('tinyWall', 'vec4');
+    const fh = select(tw.w.greaterThan(0.1), tw.w, float(floorHeight));
     const bays = max(floor(wallW.div(bayWidth).add(0.5)), 1.0);
     const gu = s.div(wallW.div(bays));
-    const gv = y.div(floorHeight);
+    const gv = y.div(fh);
     const cu = fract(gu), cv = fract(gv);
     const fu = fwidth(gu), fv = fwidth(gv);
     const groundFloor = float(1).sub(step(1.0, gv));
     // a storey only where the wall reaches its ceiling (no sliced windows under the parapet), none on lot-line walls
-    const whole = step(floor(gv).add(1.0).mul(floorHeight), wallH.add(0.05));
+    const whole = step(floor(gv).add(1.0).mul(fh), wallH.add(0.05));
     const parapet = float(1).sub(step(0.4, wallH.sub(y)));
     const windowed = whole.mul(float(1).sub(parapet)).mul(float(1).sub(step(2.5, wallKind)));
     let pane;
@@ -137,7 +145,13 @@ function createTinyFacadeMaterial({ kind, pattern = 'punched', floorHeight = 3.5
     const shopGlass = band(0.1, 0.78, cv, fv).mul(band(0.04, 0.96, cu, fu)).mul(shop);
     const sign = band(0.8, 0.95, cv, fv).mul(shop);
     // colours: the wall's pastel, the panes a shade apart per cell, the sign in one of three paints
-    const wall = pick(TINY_PALETTES[kind], tone);
+    let wall = tw.rgb;
+    if (kind === 'slab') {
+      // two storeys in an accent colour, a different storey and colour per block
+      const bandAt = floor(fract(box.w.mul(0.731)).mul(6)).add(1.0);
+      const inBand = step(abs(floor(gv).sub(bandAt).sub(0.5)), 1.0);
+      wall = mix(wall, pick(HDB_BANDS, fract(box.w.mul(0.173))), inBand.mul(0.85));
+    }
     const cell = hash2(vec2(floor(gu), floor(gv)).add(floor(box.w)));
     const paneCol = mix(color(blendHex(WINDOW.pane, SKY_BLUE, 0.3)), color(blendHex(WINDOW.paneLight, SKY_BLUE, 0.3)), cell.mul(0.6));
     const base = pattern === 'curtain' ? mix(wall, color(WINDOW.frame), 0.15) : wall; // (a tower's mullion grid, a shade greyer)
@@ -232,7 +246,7 @@ function createTinyTileRoofMaterial() {
 }
 
 export {
-  TINY_PALETTES, GROUND, blendHex, tinyWallColor, tinyRoofColor,
+  TINY_PALETTES, GROUND, blendHex, hexToRgb, tinyWallColor, tinyRoofColor,
   pairMaterial, pairedMaterial, onlyIn, applyTinyLook, tinyTreeLod,
   createTinyFacadeMaterial, createTinyRoofMaterial, createTinyFlatMaterial, createTinyLawnMaterial, createTinyWaterMaterial,
   createTinyTreeMaterial, createTinyTileWallMaterial, createTinyTileRoofMaterial

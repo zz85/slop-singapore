@@ -21,7 +21,9 @@
 //               (a ring's first from the previous ring's first), ...]
 //   enforcement { gantries: [x, z (dm), ...] road pricing, speed: [x, z, limit km/h, ...] speed cameras, redLight: [x, z,
 //               approach dx, dz (x100), ...] red light cameras } (or null)
-//   buildings   { types, data: [rings, top dm, bottom dm, type index, per ring: points, then each point's dx dz (dm)
+//   buildings   { types, extra: 4, data: [rings, top dm, bottom dm, type index, roof (js/roofs.js packRoof: shape,
+//               orientation, within the mapped height, height dm), building:colour & roof:colour (0xrrggbb or -1),
+//               building:levels (0 unknown), per ring: points, then each point's dx dz (dm)
 //               from the one before, a ring's first from the previous ring's first, ...] } OpenStreetMap's buildings &
 //               building parts (or null: generated on the lots)
 import fs from 'node:fs';
@@ -32,7 +34,8 @@ import { makeFrame, gridBearing } from './frame.mjs';
 import { bbox, centroid, pointInRing, rdp, rdpRing, ringArea } from './geom.mjs';
 import { extractBlocks, parkCoverage } from './blocks.mjs';
 import { createGraph } from './graph.mjs';
-import { areaPolygons, areaRings, coastLand, num, streetPieces, traceRegions, yes as yesTag, VEHICLE_CLASSES } from './osm.mjs';
+import { areaPolygons, areaRings, coastLand, num, osmColour, streetPieces, traceRegions, yes as yesTag, VEHICLE_CLASSES } from './osm.mjs';
+import { roofShapeCode, packRoof } from '../../js/roofs.js';
 
 const log = (...a) => console.log('[city]', ...a);
 const q = (v) => Math.round(v * 10) / 10;
@@ -191,6 +194,15 @@ export async function buildCity(cityOrId, { out, data } = {}) {
   if (fs.existsSync(path.join(dir, 'osm_buildings.json'))) {
     const LEVEL = 3.2;
     const levelsOf = (t) => num(t['building:levels']);
+    // The roof OSM maps (js/roofs.js): its shape, whether its ridge runs across the long side, its height (roof:height,
+    // else roof:levels of 3 m, else 0: decided from the footprint when built), and whether it is within the building's
+    // mapped height (a tagged height is the whole building, roof included; storeys are not)
+    const roofOf = (t) => {
+      const shape = roofShapeCode(t['roof:shape']);
+      if (!shape) return 0;
+      const rh = num(t['roof:height']) > 0 ? num(t['roof:height']) : num(t['roof:levels']) > 0 ? num(t['roof:levels']) * 3 : 0;
+      return packRoof({ shape, across: t['roof:orientation'] === 'across', included: num(t.height) > 0, heightDm: rh * 10 });
+    };
     const districtStyle = (x, z) => {
       let best = null, bd = Infinity;
       for (const d of districts) { const dd = Math.hypot(x - d.x, z - d.z); if (dd < d.r && dd < bd) { bd = dd; best = d; } }
@@ -239,7 +251,7 @@ export async function buildCity(cityOrId, { out, data } = {}) {
         let bottom = num(t.min_height) > 0 ? num(t.min_height) : num(t['building:min_level']) > 0 ? num(t['building:min_level']) * LEVEL : 0;
         if (type === 'roof') { bottom = Math.max(bottom, top - 0.6, 2.6); top = Math.max(top, bottom + 0.4); } // canopies & covered walkways
         if (top - bottom < 0.3) continue;
-        items.push({ part, type, outer: o, holes: hs, cx, cz, top, bottom, area });
+        items.push({ part, type, outer: o, holes: hs, cx, cz, top, bottom, area, roof: roofOf(t), wall: osmColour(t['building:colour']), roofColour: osmColour(t['roof:colour']), levels: Math.max(0, Math.round(levelsOf(t) || 0)) });
       }
     }
     // Outlines whose parts start at the ground are drawn by their parts
@@ -261,13 +273,13 @@ export async function buildCity(cityOrId, { out, data } = {}) {
     // Neighbours next to each other (64 m cells, row by row): every coordinate is a short step from the one before
     const cellKey = (b) => Math.floor(b.cz / CELL) * 1e6 + Math.floor(b.cx / CELL);
     kept.sort((a, b) => cellKey(a) - cellKey(b) || a.cx - b.cx);
-    // [rings, top dm, bottom dm, type, then per ring: points, then each point's dx dz (dm) from the point before (the
-    // first from the previous ring's first point)]
+    // [rings, top dm, bottom dm, type, roof, wall colour, roof colour, levels, then per ring: points, then each point's
+    // dx dz (dm) from the point before (the first from the previous ring's first point)]
     const data = [];
     let fx = 0, fz = 0;
     for (const b of kept) {
       const rings = [b.outer, ...b.holes];
-      data.push(rings.length, Math.round(b.top * 10), Math.round(b.bottom * 10), types.indexOf(b.type));
+      data.push(rings.length, Math.round(b.top * 10), Math.round(b.bottom * 10), types.indexOf(b.type), b.roof, b.wall, b.roofColour, b.levels);
       for (const r of rings) {
         data.push(r.length);
         let px = fx, pz = fz;
@@ -280,7 +292,7 @@ export async function buildCity(cityOrId, { out, data } = {}) {
       }
       if (b.bottom < 3) groundFootprints.push(b.outer);
     }
-    buildings = { types, data };
+    buildings = { types, extra: 4, data };
     log(`${kept.length} buildings & parts (${items.length - kept.length} outlines drawn by their parts; ${kept.filter((b) => b.top > 60).length} over 60 m; ${hiddenCount} left to the modelled landmarks)`);
   }
 
