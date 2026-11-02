@@ -3,8 +3,8 @@
 // end as two squares superimposed at 45° (an eight-pointed star in plan); Plaza Two (1973, re-clad in 1995; 162 m,
 // 38 storeys); their podium, with the banquet hall's saucer raised between the towers. Built from the mapped
 // outlines and parts (site.parts: OpenStreetMap's stack of parts for both towers, made safe to draw together by
-// kit.resolve) in grey granite with dark window bands, the storeys 4.2 m. Documented heights 280 m and 162 m; the
-// mapped parts carry their own.
+// kit.resolve) in grey granite with dark window bands, the storeys 4.2 m, the bank's name on Plaza One's roof facing
+// the bay. Documented heights 280 m and 162 m; the mapped parts carry their own.
 export const info = { name: 'UOB Plaza', height: 280 };
 
 const PODIUM = 106193385;
@@ -23,6 +23,12 @@ export function build(kit, site) {
     items.push({ ring: p.ring, y0: p.minHeight > 0 ? p.minHeight : -0.3, y1: p.height, material: granite, name: `part-${p.id}` });
   }
   for (const it of kit.resolve(items)) kit.prism(it);
+  // the bank's name on Plaza One's roof: on the broadest of its highest parts (the round crown, not a star-tip
+  // sliver mapped as high), facing the bay
+  const tall = site.parts.filter((p) => p.height > 0 && p.id !== TOWER_1 && p.id !== TOWER_2);
+  const top = Math.max(0, ...tall.map((p) => p.height));
+  const crown = tall.filter((p) => p.height >= top - 1).map((p) => ({ p, b: kit.boxOf(p.ring) })).sort((u, v) => v.b.hx * v.b.hz - u.b.hx * u.b.hz)[0];
+  if (crown) kit.sign({ text: 'UOB', x: crown.b.cx, z: crown.b.cz, y: crown.p.height + 0.6, yaw: kit.yawToward(135), height: 7, maxWidth: 2 * Math.min(crown.b.hx, crown.b.hz) - 2, color: 0xd71920, name: 'sign:uob' });
   // the banquet hall's saucer, between the towers above the podium
   const t1 = site.parts.find((p) => p.id === TOWER_1), t2 = site.parts.find((p) => p.id === TOWER_2);
   if (t1 && t2) {
