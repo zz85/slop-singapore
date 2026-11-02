@@ -90,7 +90,19 @@ export default {
       572839867, 572839868, 572839869, 572839870, 572839876, 572839877, 572839878, 572839879, 572839880,
       572839881, 591619300, 591619301, 591619302, 681695787, 681695788, 681695789, 681695790] },
     // the Esplanade's two shells (the podium, annexe & outdoor theatre stand as mapped)
-    { id: 'esplanade', name: 'Esplanade', hide: [256163011, 256163012] }
+    { id: 'esplanade', name: 'Esplanade', hide: [256163011, 256163012] },
+    // The CBD towers built by model programs (js/landmark-models/<model>.js, from their mapped outlines and documented
+    // dimensions): UOB Plaza's two towers and podium; One Raffles Place's two towers and podium; Guoco Tower, its hotel
+    // block and podium
+    { id: 'uob-plaza', name: 'UOB Plaza', model: 'uob-plaza', hide: [106193385, 171999282, 335167827,
+      // Tower 1's mapped parts (the stack of offset squares) and Tower 2's
+      335167781, 335167782, 335167783, 335167784, 335167786, 335167809, 335167814, 335167823, 335167824, 335167825, 335167826,
+      1075244649, 1566728320, 1566728321, 1566728322, 1566728323, 1566728324, 1566728325, 1566728326, 1566728327, 1566728328,
+      1566728329, 1566728330, 1566728331, 1566728332, 1566728333, 1566728334, 1566728335,
+      335167785, 335167790, 335167791, 335167792, 335167794, 335167796, 335167812, 335167813, 335167816, 335167818, 335167819,
+      335167821, 335167822, 1075244650, 1479638475] },
+    { id: 'one-raffles-place', name: 'One Raffles Place', model: 'one-raffles-place', hide: [171999293, 325793737, 325793773, 407705492, 407705505, 407705559, 852006883] },
+    { id: 'guoco-tower', name: 'Guoco Tower', model: 'guoco-tower', hide: [393100845, 393100848, 393100849, 393100850] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]

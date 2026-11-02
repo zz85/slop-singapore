@@ -24,6 +24,8 @@
 //   buildings   { types, extra: 4, data: [rings, top dm, bottom dm, type index, roof (js/roofs.js packRoof: shape,
 //               orientation, within the mapped height, height dm), building:colour & roof:colour (0xrrggbb or -1),
 //               building:levels (0 unknown), per ring: points, then each point's dx dz (dm)
+//   landmarks   [{ id, name, model, x, z, parts: [{ id, name, ring [x, z, ... m], height m, minHeight m, levels }] }] (m to 0.1)
+//               the anchors of the landmarks built by model programs (config landmarks with `model`)
 //               from the one before, a ring's first from the previous ring's first, ...] } OpenStreetMap's buildings &
 //               building parts (or null: generated on the lots)
 import fs from 'node:fs';
@@ -190,6 +192,7 @@ export async function buildCity(cityOrId, { out, data } = {}) {
   // type in their neighbourhood. A building drawn in parts (building:part) is its parts, unless they all stand above its
   // own height (a tower on its podium).
   let buildings = null;
+  const landmarks = []; // the anchors of the landmarks built by model programs (see below)
   const groundFootprints = []; // rings standing on the ground (trees can't grow there)
   if (fs.existsSync(path.join(dir, 'osm_buildings.json'))) {
     const LEVEL = 3.2;
@@ -226,6 +229,12 @@ export async function buildCity(cityOrId, { out, data } = {}) {
     const els = JSON.parse(fs.readFileSync(path.join(dir, 'osm_buildings.json'), 'utf8')).elements;
     // the outlines of the landmarks the city models by hand (config.landmarks: way ids)
     const hidden = new Set((city.landmarks || []).flatMap((l) => l.hide || []));
+    // A landmark built by a model program (config landmarks with `model`: js/landmark-models/<model>.js) gets an
+    // anchor: its centre and the outlines it replaces, each with its mapped height, floors and name, for the program
+    // to build on (GEO.landmarks: [{ id, name, model, x, z, parts: [{ id, name, ring: [x, z, ... m, world], height m,
+    // minHeight m, levels }] }])
+    const modelOf = new Map((city.landmarks || []).filter((l) => l.model).flatMap((l) => (l.hide || []).map((id) => [id, l])));
+    const anchorParts = new Map();
     let hiddenCount = 0;
     const items = [];
     for (const e of els) {
@@ -233,6 +242,15 @@ export async function buildCity(cityOrId, { out, data } = {}) {
       if (e.type === 'way' && hidden.has(e.id)) {
         // (no trees where the modelled landmark stands either)
         if (!(num(t.min_height) > 0)) for (const { outer } of areaPolygons(e, toWorld, 8)) groundFootprints.push(outer);
+        const landmark = modelOf.get(e.id);
+        if (landmark) {
+          for (const { outer } of areaPolygons(e, toWorld, 0)) {
+            const o = rdpRing(outer, 0.2);
+            if (ringArea(o) > 0) o.reverse();
+            if (!anchorParts.has(landmark.id)) anchorParts.set(landmark.id, []);
+            anchorParts.get(landmark.id).push({ id: e.id, name: t.name || '', ring: o.flatMap(([x, z]) => [q(x), q(z)]), height: q(num(t.height) || 0), minHeight: q(num(t.min_height) || 0), levels: Math.max(0, Math.round(num(t['building:levels']) || 0)) });
+          }
+        }
         hiddenCount++;
         continue;
       }
@@ -295,6 +313,14 @@ export async function buildCity(cityOrId, { out, data } = {}) {
       if (b.bottom < 3) groundFootprints.push(b.outer);
     }
     buildings = { types, extra: 4, data };
+    for (const l of city.landmarks || []) {
+      if (!l.model) continue;
+      const parts = anchorParts.get(l.id) || [];
+      let cx = 0, cz = 0, n = 0;
+      for (const p of parts) for (let k = 0; k < p.ring.length; k += 2) { cx += p.ring[k]; cz += p.ring[k + 1]; n++; }
+      if (n) { cx = Math.round(cx / n); cz = Math.round(cz / n); }
+      landmarks.push({ id: l.id, name: l.name, model: l.model, x: cx, z: cz, parts });
+    }
     log(`${kept.length} buildings & parts (${items.length - kept.length} outlines drawn by their parts; ${kept.filter((b) => b.top > 60).length} over 60 m; ${hiddenCount} left to the modelled landmarks)`);
   }
 
@@ -452,6 +478,7 @@ export async function buildCity(cityOrId, { out, data } = {}) {
     labels,
     trees,
     buildings,
+    landmarks,
     vehicles: city.vehicles || null,
     enforcement,
     lawns

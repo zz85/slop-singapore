@@ -140,7 +140,7 @@ test('a city builds from OSM layers: land, blocks with lots, parks, the road gra
       id: 'testcity', name: 'Test City', origin: { lat: LAT0, lon: LON0, label: 'the crossing' }, bearing: 'auto',
       detail: [LAT0 - 0.0032, LON0 - 0.0032, LAT0 + 0.0032, LON0 + 0.0032], margin: 0.001, sidewalk: 5, strip: 6, driveSide: 'left',
       trees: { credit: 'test', shapes: { 'Fabaceae (Leguminosae)': 'locust' } },
-      landmarks: [{ id: 'tower', name: 'Test Tower', hide: [65] }]
+      landmarks: [{ id: 'tower', name: 'Test Tower', model: 'test-tower', hide: [65] }]
     };
     const out = path.join(dir, 'testcity-geodata.js');
     await buildCity(city, { out, data: dir });
@@ -192,6 +192,13 @@ test('a city builds from OSM layers: land, blocks with lots, parks, the road gra
     }
     assert.equal(built.length, 3, JSON.stringify(built.map((b) => [b.type, b.top])));
     assert.ok(!built.some((b) => b.top === 193), 'the modelled landmark is left out');
+    // ...and anchored for its model program: its centre and the outline it replaces, with the mapped height
+    assert.equal(GEO.landmarks.length, 1);
+    const L = GEO.landmarks[0];
+    assert.deepEqual([L.id, L.name, L.model, L.parts.length], ['tower', 'Test Tower', 'test-tower', 1]);
+    assert.ok(Math.abs(L.x - 150) < 2 && Math.abs(L.z + 60) < 2, `anchored at (${L.x}, ${L.z})`);
+    assert.deepEqual([L.parts[0].id, L.parts[0].height, L.parts[0].minHeight, L.parts[0].levels], [65, 193, 0, 0]);
+    assert.equal(L.parts[0].ring.length, 8, 'the square');
     const at = (x, z) => built.find((b) => b.pts.every(([px, pz]) => Math.abs(px - x) < 17 && Math.abs(pz - z) < 17));
     assert.equal(at(160, 160).top, 32, 'ten storeys of 3.2 m');
     assert.deepEqual([at(160, 160).levels, at(160, 160).wall, at(160, 160).roofColour], [10, 0xffffff, 0xff0000]);

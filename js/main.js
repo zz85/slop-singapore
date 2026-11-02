@@ -9,6 +9,7 @@ import { buildLandmarks } from './landmarks.js';
 import { buildCityBlocks } from './buildings.js';
 import { buildOpenCityBuildings } from './open-city-buildings.js';
 import { buildSingaporeLandmarks } from './singapore-landmarks.js';
+import { buildLandmarkModels } from './landmark-models.js';
 import { CityTiles } from './city-tiles.js';
 import { loadIslandRoads } from './island-roads.js';
 import { createIslandTraffic } from './island-traffic.js';
@@ -143,6 +144,10 @@ async function initApp() {
   const cityLandmarks = CITY.open && CITY.id === 'singapore' ? buildSingaporeLandmarks(scene) : null;
   if (cityLandmarks && cityBlocks.allBlocks[0]) cityBlocks.allBlocks[0].footprints.push(...cityLandmarks.footprints);
   markInit('cityLandmarks');
+  // The landmarks built by model programs (js/landmark-models/<model>.js, anchored by tools/city/build.mjs)
+  const landmarkModels = CITY.open && GEO.landmarks?.length ? await buildLandmarkModels(scene) : null;
+  if (landmarkModels && cityBlocks.allBlocks[0]) cityBlocks.allBlocks[0].footprints.push(...landmarkModels.footprints);
+  markInit('landmarkModels');
   // The rest of the island (tools/city/tiles.mjs), streamed in tiles of buildings & main roads around the camera
   const cityTiles = CITY.open ? new CityTiles(scene, { url: `./tiles/${CITY.id}/` }) : null;
   if (cityTiles && !(await cityTiles.init())) cityTiles.index = null;
@@ -163,7 +168,7 @@ async function initApp() {
     }).catch((e) => { console.warn(`[island] no roads: ${e.message}`); return null; })
     : Promise.resolve(null);
   markInit('islandTiles');
-  const allColliders = [...landmarkColliders, ...(cityLandmarks?.colliders || []), ...cityBlocks.colliders, ...boroughs.colliders, ...(cityGrid.colliders || [])];
+  const allColliders = [...landmarkColliders, ...(cityLandmarks?.colliders || []), ...(landmarkModels?.colliders || []), ...cityBlocks.colliders, ...boroughs.colliders, ...(cityGrid.colliders || [])];
 
   const streetDetails = CITY.open ? buildOpenCityDetails(scene) : buildStreetDetails(scene);
   markInit('streetDetails');
@@ -298,7 +303,7 @@ async function initApp() {
 
   // Island-wide static geometry: chunk & distance-cull the small props, shadow stand-ins for the big casters
   // (scene-culling.js)
-  const cullingRoots = ['ManhattanCityGrid', 'CityGrid', 'ManhattanCityBlocks', 'ManhattanStreetDetails', 'ManhattanLandmarks', 'Boroughs']
+  const cullingRoots = ['ManhattanCityGrid', 'CityGrid', 'ManhattanCityBlocks', 'ManhattanStreetDetails', 'ManhattanLandmarks', 'Boroughs', 'LandmarkModels']
     .map((name) => scene.getObjectByName(name))
     .filter(Boolean);
   setupSceneCulling(scene, cullingRoots, lightingSystem.sunLight.shadow);
@@ -911,6 +916,17 @@ async function initApp() {
   const startCamera = new URLSearchParams(location.search).get('camera');
   selectCamera(cameraOffered(startCamera) ? startCamera : (startLook === 'tiny' ? 'map' : 'chase'), true);
   selectTime(startLook);
+  // ?at=<id>: the map view over a landmark or place (GEO.landmarks, GEO.places), to look a model over
+  const at = new URLSearchParams(location.search).get('at');
+  const spot = at && [...(GEO.landmarks || []), ...(GEO.places || [])].find((p) => p.id === at);
+  if (spot) {
+    selectCamera('map', true);
+    cameraSystem.map.target.set(spot.x, 0, spot.z);
+    cameraSystem.map.fresh = false;
+    // (far enough to take a tall landmark in whole)
+    const tall = Math.max(0, ...(spot.parts || []).map((p) => p.height || 0));
+    cameraSystem.map.distance = Math.max(350, tall * 2.4);
+  }
   // the web fonts change the buttons' widths once they arrive
   if (document.fonts) document.fonts.ready.then(placeModeIndicator);
   markInit('ui');
@@ -1016,7 +1032,7 @@ async function initApp() {
   }
 
   // For poking at from the console (and the browser checks): the simulation's main systems
-  globalThis.slop = { scene, autoTrees, airForce, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
+  globalThis.slop = { scene, autoTrees, airForce, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, landmarkModels, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
 
   await precompileShaders();
   markInit('compile');
