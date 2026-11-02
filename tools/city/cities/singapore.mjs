@@ -116,7 +116,15 @@ export default {
     // Former General Post Office: the hotel only; One Fullerton and the Waterboat House remain separate buildings.
     { id: 'fullerton-hotel', name: 'The Fullerton Hotel', model: 'fullerton-hotel', hide: [46595395,407926378,407926385], hideRelations: [4039936] },
     { id: 'fullerton-bay-hotel', name: 'The Fullerton Bay Hotel', model: 'fullerton-bay-hotel', hide: [184297025,406900561,986973997], hideRelations: [13262095] },
-    { id: 'raffles-place-mrt', name: 'Raffles Place MRT', model: 'raffles-place-mrt', hide: [106193387,106193391] }
+    { id: 'raffles-place-mrt', name: 'Raffles Place MRT', model: 'raffles-place-mrt', hide: [106193387,106193391] },
+    // Marina One: the offices' outline, the West and East Towers, their bronze stair shafts, the glass corner crowns
+    // and their chimneys (941456992–97), and the two residences
+    { id: 'marina-one', name: 'Marina One', model: 'marina-one', hide: [463857949, 463857945, 463857946, 463857947, 463857948,
+      941456992, 941456993, 941456994, 941456995, 941456996, 941456997, 463858904, 463858905] },
+    // DUO: the Residences (its stack of parts and its outline), the Tower (its stack and outline; 432375290 repeats its
+    // base), and the Duo Galleria's outline and the low parts of it between and beside the towers
+    { id: 'duo', name: 'DUO', model: 'duo', hide: [427064874, 432375288, 432375292, 432375294, 560240330, 432375289, 432375290, 432375291,
+      432375293, 560240322, 560240325, 560240327, 560275084, 560275278] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]
