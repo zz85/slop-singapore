@@ -343,8 +343,8 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
    * Prisms to build (`{ ring, y0, y1, ... }`, y1 a height or a sloped top) made safe to draw together, as mapped parts
    * seldom are: one lying entirely within another (its ring inside the other's, its heights within the other's) is
    * dropped, and of two with faces that would flicker the smaller is drawn `inset` m inward (its edges moved in) and
-   * as much lower, so its faces sit just inside the other's; again while that uncovers new pairs. Returns the prisms
-   * to build.
+   * as much lower, so its faces sit just inside the other's; again while that uncovers new pairs (a part is inset up
+   * to three times: once more when another inset brought a neighbour back onto its faces). Returns the prisms to build.
    */
   kit.resolve = (items, { inset = 0.1 } = {}) => {
     const top = (it) => (typeof it.y1 === 'function' ? Math.max(...it.ring.map(([x, z]) => it.y1(x, z))) : it.y1);
@@ -352,15 +352,15 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     list = list.filter((it) => !list.some((o) => o !== it && o.y0 <= it.y0 + 1e-6 && top(o) >= top(it) - 1e-6 && ringArea(o.ring) > ringArea(it.ring) && ringWithin(it.ring, o.ring)));
     const describe = (it) => ({ walls: wallsOf(it.ring, it.y0, it.y1), caps: typeof it.y1 === 'function' ? [] : [{ y: it.y1, ring: it.ring }] });
     const solids = list.map((it) => ({ it, ...describe(it) }));
-    const shrunk = new Set();
-    for (let pass = 0; pass < 4; pass++) {
+    const shrunk = new Map(); // how often each has been inset
+    for (let pass = 0; pass < 6; pass++) {
       let changed = false;
       for (let i = 0; i < solids.length; i++) {
         for (let j = i + 1; j < solids.length; j++) {
           if (!flickerBetween(solids[i], solids[j])) continue;
           const small = ringArea(solids[i].it.ring) <= ringArea(solids[j].it.ring) ? solids[i] : solids[j];
-          if (shrunk.has(small)) continue;
-          shrunk.add(small);
+          if ((shrunk.get(small) || 0) >= 3) continue;
+          shrunk.set(small, (shrunk.get(small) || 0) + 1);
           changed = true;
           const y1 = small.it.y1;
           small.it = { ...small.it, ring: insetRing(small.it.ring, inset), y1: typeof y1 === 'function' ? (x, z) => y1(x, z) - inset : y1 - inset };

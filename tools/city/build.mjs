@@ -24,7 +24,8 @@
 //   buildings   { types, extra: 4, data: [rings, top dm, bottom dm, type index, roof (js/roofs.js packRoof: shape,
 //               orientation, within the mapped height, height dm), building:colour & roof:colour (0xrrggbb or -1),
 //               building:levels (0 unknown), per ring: points, then each point's dx dz (dm)
-//   landmarks   [{ id, name, model, x, z, parts: [{ id, name, ring [x, z, ... m], height m, minHeight m, levels }] }] (m to 0.1)
+//   landmarks   [{ id, name, model, x, z, parts: [{ id, name, ring [x, z, ... m], height m, minHeight m, levels, roofShape,
+//               roofDir (degrees, -1 unmapped), roofHeight m }] }] (m to 0.1)
 //               the anchors of the landmarks built by model programs (config landmarks with `model`)
 //               from the one before, a ring's first from the previous ring's first, ...] } OpenStreetMap's buildings &
 //               building parts (or null: generated on the lots)
@@ -248,7 +249,13 @@ export async function buildCity(cityOrId, { out, data } = {}) {
             const o = rdpRing(outer, 0.2);
             if (ringArea(o) > 0) o.reverse();
             if (!anchorParts.has(landmark.id)) anchorParts.set(landmark.id, []);
-            anchorParts.get(landmark.id).push({ id: e.id, name: t.name || '', ring: o.flatMap(([x, z]) => [q(x), q(z)]), height: q(num(t.height) || 0), minHeight: q(num(t.min_height) || 0), levels: Math.max(0, Math.round(num(t['building:levels']) || 0)) });
+            anchorParts.get(landmark.id).push({
+              id: e.id, name: t.name || '', ring: o.flatMap(([x, z]) => [q(x), q(z)]), height: q(num(t.height) || 0), minHeight: q(num(t.min_height) || 0),
+              levels: Math.max(0, Math.round(num(t['building:levels']) || 0)),
+              // the roof as mapped, for the program to slope a part's top: shape, the compass direction it falls
+              // toward (-1 unmapped) and its height (m)
+              roofShape: t['roof:shape'] || '', roofDir: num(t['roof:direction']) >= 0 ? Math.round(num(t['roof:direction'])) : -1, roofHeight: q(num(t['roof:height']) || 0)
+            });
           }
         }
         hiddenCount++;

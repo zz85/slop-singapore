@@ -916,16 +916,23 @@ async function initApp() {
   const startCamera = new URLSearchParams(location.search).get('camera');
   selectCamera(cameraOffered(startCamera) ? startCamera : (startLook === 'tiny' ? 'map' : 'chase'), true);
   selectTime(startLook);
-  // ?at=<id>: the map view over a landmark or place (GEO.landmarks, GEO.places), to look a model over
-  const at = new URLSearchParams(location.search).get('at');
+  // ?at=<id>: the map view over a landmark or place (GEO.landmarks, GEO.places), to look a model over; with
+  // &yaw=<degrees>, &pitch=<degrees> and &dist=<m> for a view that can be taken again (the same four sides every time)
+  const params = new URLSearchParams(location.search);
+  const at = params.get('at');
   const spot = at && [...(GEO.landmarks || []), ...(GEO.places || [])].find((p) => p.id === at);
   if (spot) {
     selectCamera('map', true);
-    cameraSystem.map.target.set(spot.x, 0, spot.z);
-    cameraSystem.map.fresh = false;
+    const m = cameraSystem.map;
+    m.target.set(spot.x, 0, spot.z);
+    m.fresh = false;
     // (far enough to take a tall landmark in whole)
     const tall = Math.max(0, ...(spot.parts || []).map((p) => p.height || 0));
-    cameraSystem.map.distance = Math.max(350, tall * 2.4);
+    m.distance = Math.max(350, tall * 2.4);
+    const num = (k) => { const v = parseFloat(params.get(k)); return Number.isFinite(v) ? v : null; };
+    if (num('yaw') !== null) m.yaw = (num('yaw') * Math.PI) / 180;
+    if (num('pitch') !== null) m.pitch = Math.max(0.3, Math.min(1.5, (num('pitch') * Math.PI) / 180));
+    if (num('dist') !== null) m.distance = Math.max(30, Math.min(5000, num('dist')));
   }
   // the web fonts change the buttons' widths once they arrive
   if (document.fonts) document.fonts.ready.then(placeModeIndicator);

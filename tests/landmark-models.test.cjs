@@ -28,7 +28,9 @@ const siteOf = (L) => ({ id: L.id, name: L.name, x: L.x, z: L.z, parts: L.parts.
 test('the geodata anchors the three CBD pilots with the mapped parts their programs build from', async () => {
   const { GEO } = await geodata;
   const ids = GEO.landmarks.map((l) => l.id);
-  for (const id of ['uob-plaza', 'one-raffles-place', 'guoco-tower']) assert.ok(ids.includes(id), id);
+  for (const id of ['uob-plaza', 'one-raffles-place', 'guoco-tower', 'republic-plaza', 'asia-square', 'marina-bay-financial-centre']) assert.ok(ids.includes(id), id);
+  const republic = GEO.landmarks.find((l) => l.id === 'republic-plaza');
+  assert.ok(republic.parts.some((p) => p.roofShape === 'skillion' && p.roofDir >= 0 && p.roofHeight > 0), 'the sloped corner parts carry their roof tags');
   const uob = GEO.landmarks.find((l) => l.id === 'uob-plaza');
   assert.ok(uob.parts.length >= 40, `UOB Plaza: ${uob.parts.length} mapped parts (both towers' stacks)`);
   assert.ok(uob.parts.some((p) => p.height === 280), 'the top of Plaza One at 280 m');
@@ -36,7 +38,7 @@ test('the geodata anchors the three CBD pilots with the mapped parts their progr
   assert.ok(guoco.parts.some((p) => p.height === 290 && p.minHeight === 180), 'the Wallich Residence part');
 });
 
-for (const [model, documented] of [['uob-plaza', 280], ['one-raffles-place', 283], ['guoco-tower', 290]]) {
+for (const [model, documented] of [['uob-plaza', 280], ['one-raffles-place', 283], ['guoco-tower', 290], ['republic-plaza', 280], ['asia-square', 229], ['marina-bay-financial-centre', 245]]) {
   test(`${model}: builds on its anchor to its documented height, with nothing to flicker`, async () => {
     const { GEO } = await geodata;
     const L = GEO.landmarks.find((l) => l.model === model);

@@ -241,3 +241,22 @@ test('a sloped slab against a podium is seen by flicker and resolve, and triangl
   const thin = colliders.filter((c) => c.obb.hz <= 0.4 + 1e-9);
   assert.equal(thin.length, 9, 'a thin box along every wall of the triangle and the L');
 });
+
+test('resolve: a pair that both got inset (one because of a third part) is inset again until clear', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 0, z: 0 } });
+  const m = kit.material(0xffffff);
+  // the tower A, a taller part B sharing two of A's edges (not within it, so kept), and a bigger wing D whose east
+  // face lies on A's east face the same way out (so A, the smaller of that pair, is inset too, back onto B's inset faces)
+  const A = [[0, 0], [40, 0], [40, 40], [0, 40]];
+  const B = [[0, 0], [20, 0], [20, 20], [0, 20]];
+  const D = [[15, -20], [40, -20], [40, 60], [15, 60]];
+  const items = kit.resolve([
+    { ring: A, y0: 0, y1: 245, material: m, name: 'A' },
+    { ring: B, y0: 0, y1: 250, material: m, name: 'B' },
+    { ring: D, y0: 0, y1: 300, material: m, name: 'D' }
+  ]);
+  assert.equal(items.length, 3, 'none is inside another');
+  for (const it of items) kit.prism(it);
+  assert.equal(kit.flicker().length, 0, JSON.stringify(kit.flicker()));
+});
