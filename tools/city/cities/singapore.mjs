@@ -116,7 +116,16 @@ export default {
     // Former General Post Office: the hotel only; One Fullerton and the Waterboat House remain separate buildings.
     { id: 'fullerton-hotel', name: 'The Fullerton Hotel', model: 'fullerton-hotel', hide: [46595395,407926378,407926385], hideRelations: [4039936] },
     { id: 'fullerton-bay-hotel', name: 'The Fullerton Bay Hotel', model: 'fullerton-bay-hotel', hide: [184297025,406900561,986973997], hideRelations: [13262095] },
-    { id: 'raffles-place-mrt', name: 'Raffles Place MRT', model: 'raffles-place-mrt', hide: [106193387,106193391] }
+    { id: 'raffles-place-mrt', name: 'Raffles Place MRT', model: 'raffles-place-mrt', hide: [106193387,106193391] },
+    // Raffles Hotel and Arcade: separate suite-wing ways plus the two enclosing multipolygons. These are not
+    // Raffles City (across Bras Basah Road). The model keeps the gardens, Lawn and Arcade square open.
+    { id: 'raffles-hotel', name: 'Raffles Hotel', model: 'raffles-hotel', hide: [
+      254815862,254815935,254815936,254815939,254815947,254815951,254815960,254815966,254815967,254815972,
+      254815973,254815975,254815979,254815983,254815989,254815992,254815995,254816004,254816006,254816008,
+      254816010,254816011,254816013,254816015,254816017,254816022,254816025,254816029,254816030,254816031,
+      254816032,254816033,254816036,254816039,254816040,254816041,254816042,254816043,254816044,254816046,
+      254816048,254816055,254833690,254833691,254833693,1228813829,1228813830
+    ], hideRelations: [3413910,3413596] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]
