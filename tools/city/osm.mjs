@@ -229,3 +229,15 @@ export function osmColour(value) {
   }
   return CSS_COLOURS[v] ?? -1;
 }
+
+// A compass direction as OSM maps it (roof:direction, direction): degrees, or a cardinal point (N, NE, ... NNW), as
+// degrees clockwise from north; -1 for none or anything else
+const POINTS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+export function osmDirection(value) {
+  if (value == null) return -1;
+  const v = String(value).trim();
+  const n = Number(v);
+  if (v !== '' && Number.isFinite(n)) return ((n % 360) + 360) % 360;
+  const i = POINTS.indexOf(v.toUpperCase());
+  return i < 0 ? -1 : i * 22.5;
+}

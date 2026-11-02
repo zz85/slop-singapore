@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { makeFrame, gridBearing } from '../tools/city/frame.mjs';
-import { roadAttrs, streetPieces, coastLand, osmColour } from '../tools/city/osm.mjs';
+import { roadAttrs, streetPieces, coastLand, osmColour, osmDirection } from '../tools/city/osm.mjs';
 import { buildCity } from '../tools/city/build.mjs';
 import { ROOF_SHAPES, unpackRoof } from '../js/roofs.js';
 
@@ -72,6 +72,16 @@ test('OSM colours: #hex and the CSS names mappers use to a packed rgb, or -1', (
   assert.equal(osmColour(undefined), -1);
   assert.equal(osmColour('#12'), -1);
   assert.equal(osmColour('plaid'), -1);
+});
+
+test('OSM directions: degrees or a cardinal point to degrees clockwise from north, or -1', () => {
+  assert.equal(osmDirection('300'), 300);
+  assert.equal(osmDirection(' 45 '), 45);
+  assert.equal(osmDirection('-90'), 270);
+  assert.equal(osmDirection('NE'), 45);
+  assert.equal(osmDirection('ssw'), 202.5);
+  assert.equal(osmDirection(undefined), -1);
+  assert.equal(osmDirection('across'), -1);
 });
 
 test('coastline land: land on the left of the coast, water on the right', () => {

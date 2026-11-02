@@ -23,7 +23,7 @@ import { buildRoadPaint } from './road-paint.js';
 import { ThirdPersonControllerManager } from './controllers.js';
 import { TouchControls } from './touch-controls.js';
 import { GamepadControls } from './gamepad-controls.js';
-import { CameraSystem, CAMERA_PRESETS } from './cameras.js';
+import { CameraSystem, CAMERA_PRESETS, MAP as MAP_VIEW } from './cameras.js';
 import { LightingSystem, TIME_PRESETS } from './lighting.js';
 import { applyTinyLook, pairedMaterial } from './tiny-look.js';
 import { NYCMapSystem } from './nyc-map.js';
@@ -931,8 +931,8 @@ async function initApp() {
     m.distance = Math.max(350, tall * 2.4);
     const num = (k) => { const v = parseFloat(params.get(k)); return Number.isFinite(v) ? v : null; };
     if (num('yaw') !== null) m.yaw = (num('yaw') * Math.PI) / 180;
-    if (num('pitch') !== null) m.pitch = Math.max(0.3, Math.min(1.5, (num('pitch') * Math.PI) / 180));
-    if (num('dist') !== null) m.distance = Math.max(30, Math.min(5000, num('dist')));
+    if (num('pitch') !== null) m.pitch = Math.max(MAP_VIEW.minPitch, Math.min(MAP_VIEW.maxPitch, (num('pitch') * Math.PI) / 180));
+    if (num('dist') !== null) m.distance = Math.max(MAP_VIEW.minDistance, Math.min(MAP_VIEW.maxDistance, num('dist')));
   }
   // the web fonts change the buttons' widths once they arrive
   if (document.fonts) document.fonts.ready.then(placeModeIndicator);

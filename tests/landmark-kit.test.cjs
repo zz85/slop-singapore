@@ -260,3 +260,20 @@ test('resolve: a pair that both got inset (one because of a third part) is inset
   for (const it of items) kit.prism(it);
   assert.equal(kit.flicker().length, 0, JSON.stringify(kit.flicker()));
 });
+
+test('a sloped top follows a compass bearing in the city\'s turned frame', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 0, z: 0 } });
+  kit.bearingDeg = 31.8;
+  const th = (31.8 * Math.PI) / 180;
+  const [nx, nz] = kit.compass(0);
+  assert.ok(Math.abs(nx + Math.sin(th)) < 1e-9 && Math.abs(nz + Math.cos(th)) < 1e-9, 'north in the turned frame');
+  // a square part whose top falls 10 m toward the east: the corner farthest east is the lowest, the farthest west the highest
+  const ring = [[-10, -10], [10, -10], [10, 10], [-10, 10]];
+  const top = kit.sloped(ring, 100, 10, 90);
+  const [ex, ez] = kit.compass(90);
+  const along = ([x, z]) => x * ex + z * ez;
+  const east = ring.reduce((a, b) => (along(b) > along(a) ? b : a));
+  const west = ring.reduce((a, b) => (along(b) < along(a) ? b : a));
+  assert.ok(Math.abs(top(...east) - 90) < 1e-9 && Math.abs(top(...west) - 100) < 1e-9);
+});

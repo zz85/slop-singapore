@@ -37,7 +37,7 @@ import { makeFrame, gridBearing } from './frame.mjs';
 import { bbox, centroid, pointInRing, rdp, rdpRing, ringArea } from './geom.mjs';
 import { extractBlocks, parkCoverage } from './blocks.mjs';
 import { createGraph } from './graph.mjs';
-import { areaPolygons, areaRings, coastLand, num, osmColour, streetPieces, traceRegions, yes as yesTag, VEHICLE_CLASSES } from './osm.mjs';
+import { areaPolygons, areaRings, coastLand, num, osmColour, osmDirection, streetPieces, traceRegions, yes as yesTag, VEHICLE_CLASSES } from './osm.mjs';
 import { roofShapeCode, packRoof } from '../../js/roofs.js';
 
 const log = (...a) => console.log('[city]', ...a);
@@ -254,7 +254,7 @@ export async function buildCity(cityOrId, { out, data } = {}) {
               levels: Math.max(0, Math.round(num(t['building:levels']) || 0)),
               // the roof as mapped, for the program to slope a part's top: shape, the compass direction it falls
               // toward (-1 unmapped) and its height (m)
-              roofShape: t['roof:shape'] || '', roofDir: num(t['roof:direction']) >= 0 ? Math.round(num(t['roof:direction'])) : -1, roofHeight: q(num(t['roof:height']) || 0)
+              roofShape: t['roof:shape'] || '', roofDir: osmDirection(t['roof:direction']), roofHeight: q(num(t['roof:height']) || 0)
             });
           }
         }

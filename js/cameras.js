@@ -677,4 +677,4 @@ class CameraSystem {
   }
 }
 
-export { CAMERA_PRESETS, CameraSystem, headTarget, HEAD };
+export { CAMERA_PRESETS, CameraSystem, headTarget, HEAD, MAP };

@@ -1,10 +1,12 @@
 // js/landmark-models/asia-square.js
-// Asia Square, Marina Bay (Denton Corker Marshall, 2011 and 2013): Tower 1 (229 m, 43 storeys) and Tower 2 (221 m,
-// 46 storeys, the Westin on its upper floors), each a bundle of dark glass shards stepping up to different heights,
-// which OpenStreetMap maps as a dozen building parts between 173 and 228 m. The program builds every part in the
-// tower's glass (a part belongs to the tower whose outline is nearer) over a lobby base on each outline, which is
-// mapped with no height. info.height is Tower 1's documented 229 m.
-export const info = { name: 'Asia Square', height: 229 };
+// Asia Square, Marina Bay (Denton Corker Marshall, 2011 and 2013): Tower 1 (43 storeys) and Tower 2 (46 storeys,
+// the Westin on its upper floors), each a bundle of dark glass shards stepping up to different heights, which
+// OpenStreetMap maps as eighteen building parts between 173 and 228 m. Built as mapped: Tower 1 to 221 m and
+// Tower 2 (its "Westin" part) to 228 m; published heights disagree on which is the taller (229 / 221 one way,
+// 221.5 / 229 the other), so the mapped tops stand until the inventory settles it. The program builds every part in
+// the tower's glass (a part belongs to the tower whose outline is nearer); the outlines, mapped with no height, are
+// tiled by the shards and get nothing of their own. info.height is the mapped top, 228 m.
+export const info = { name: 'Asia Square', height: 228 };
 
 const TOWER_1 = 407941850, TOWER_2 = 407941851;
 
@@ -24,8 +26,5 @@ export function build(kit, site) {
     const first = Math.hypot(x - c1[0], z - c1[1]) <= Math.hypot(x - c2[0], z - c2[1]);
     items.push({ ring: p.ring, y0: p.minHeight > 0 ? p.minHeight : -0.3, y1: p.height, material: first ? glass1 : glass2, top: dark, name: `${first ? 'tower1' : 'tower2'}-${p.id}` });
   }
-  // the lobbies: each tower's outline to its first storeys, under the shards
-  if (t1) items.push({ ring: t1.ring, y0: -0.3, y1: 12, material: dark, name: 'tower1-lobby' });
-  if (t2) items.push({ ring: t2.ring, y0: -0.3, y1: 12, material: dark, name: 'tower2-lobby' });
   for (const it of kit.resolve(items)) kit.prism(it);
 }

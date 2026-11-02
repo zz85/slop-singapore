@@ -19,9 +19,10 @@ export function build(kit, site) {
     if (!(p.height > 0) || p.minHeight >= p.height) continue;
     const y0 = p.minHeight > 0 ? p.minHeight : -0.3;
     if (p.id === SHAFT) {
-      // the octagonal shaft: granite with strip windows, tinted glass from 180 m up
-      items.push({ ring: p.ring, y0, y1: 180, material: granite, name: 'shaft-granite' });
-      items.push({ ring: p.ring, y0: 180, y1: p.height || 275, material: glass, name: 'shaft-glass' });
+      // the octagonal shaft: granite with strip windows, tinted glass from 180 m up (or its top 5 m, were it lower)
+      const split = Math.min(180, p.height - 5);
+      items.push({ ring: p.ring, y0, y1: split, material: granite, name: 'shaft-granite' });
+      items.push({ ring: p.ring, y0: split, y1: p.height, material: glass, name: 'shaft-glass' });
       continue;
     }
     // the corners, sloping away as mapped (a skillion falling toward roof:direction by roof:height)
@@ -31,5 +32,5 @@ export function build(kit, site) {
   for (const it of kit.resolve(items)) kit.prism(it);
   // the crown over the shaft, up to the documented 280 m
   const shaft = site.parts.find((p) => p.id === SHAFT);
-  if (shaft) kit.loft({ ring: kit.inset(shaft.ring, 1.5), y0: shaft.height || 275, y1: 280, scale: 0.8, material: dark, top: dark, name: 'crown' });
+  if (shaft && shaft.height > 0 && shaft.height < 280) kit.loft({ ring: kit.inset(shaft.ring, 1.5), y0: shaft.height, y1: 280, scale: 0.8, material: dark, top: dark, name: 'crown' });
 }

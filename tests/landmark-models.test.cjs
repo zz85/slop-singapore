@@ -25,7 +25,7 @@ const { createKit } = loadModule(readFileSync(join(__dirname, '../js/landmark-ki
 const geodata = import(pathToFileURL(join(__dirname, '../js/singapore-geodata.js')).href);
 const siteOf = (L) => ({ id: L.id, name: L.name, x: L.x, z: L.z, parts: L.parts.map((p) => ({ ...p, ring: Array.from({ length: p.ring.length / 2 }, (_, k) => [p.ring[k * 2] - L.x, p.ring[k * 2 + 1] - L.z]) })) });
 
-test('the geodata anchors the three CBD pilots with the mapped parts their programs build from', async () => {
+test('the geodata anchors the six CBD landmarks with the mapped parts their programs build from', async () => {
   const { GEO } = await geodata;
   const ids = GEO.landmarks.map((l) => l.id);
   for (const id of ['uob-plaza', 'one-raffles-place', 'guoco-tower', 'republic-plaza', 'asia-square', 'marina-bay-financial-centre']) assert.ok(ids.includes(id), id);
@@ -38,7 +38,7 @@ test('the geodata anchors the three CBD pilots with the mapped parts their progr
   assert.ok(guoco.parts.some((p) => p.height === 290 && p.minHeight === 180), 'the Wallich Residence part');
 });
 
-for (const [model, documented] of [['uob-plaza', 280], ['one-raffles-place', 283], ['guoco-tower', 290], ['republic-plaza', 280], ['asia-square', 229], ['marina-bay-financial-centre', 245]]) {
+for (const [model, documented] of [['uob-plaza', 280], ['one-raffles-place', 283], ['guoco-tower', 290], ['republic-plaza', 280], ['asia-square', 228], ['marina-bay-financial-centre', 245]]) {
   test(`${model}: builds on its anchor to its documented height, with nothing to flicker`, async () => {
     const { GEO } = await geodata;
     const L = GEO.landmarks.find((l) => l.model === model);
@@ -51,7 +51,7 @@ for (const [model, documented] of [['uob-plaza', 280], ['one-raffles-place', 283
     const ms = performance.now() - t0;
     assert.ok(ms < 500, `built in ${Math.round(ms)} ms`);
     const b = kit.bounds();
-    assert.ok(Math.abs(b.maxY - documented) <= 8, `${b.maxY} m tall`);
+    assert.ok(Math.abs(b.maxY - documented) <= 3, `${b.maxY} m tall, ${documented} documented`);
     assert.ok(b.minY >= -0.5 && b.minY <= 0.5, `stands on the ground (${b.minY})`);
     assert.ok(Math.max(Math.abs(b.minX), Math.abs(b.maxX), Math.abs(b.minZ), Math.abs(b.maxZ)) < 200, 'within 200 m of its anchor');
     assert.ok(kit.parts.length >= 4, `${kit.parts.length} parts`);
