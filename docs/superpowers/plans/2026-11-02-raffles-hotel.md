@@ -25,6 +25,8 @@
 - [x] Write source notes and `docs/landmark-modeling/README.md`, linked from the root README.
 - [x] Run targeted tests; inspect roof plan, front, rear, Tiny/day, WebGL/WebGPU and city context. Refine against references.
 - [x] Run the full suite in the supported Linux environment and obtain a fresh code review.
-- [ ] Commit, push and open a PR against `main`; leave merging to the user.
+- [x] Commit, push and open a PR against `main`; leave merging to the user.
 
 Validation: 49/49 targeted tests and 385/385 tests in a clean LF Linux checkout (Node 22.15.0); Tiny/day WebGL and WebGPU previews plus city context; 63,083 triangles, 15 material batches, zero reported flicker. The fresh reviewer approved the final fixes, including canopy replacements, corner roof collision and connected roof tiers.
+
+Delivered in [PR #3](https://github.com/datainvestor/tiny-singapore/pull/3).
