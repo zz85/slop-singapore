@@ -6,8 +6,8 @@
 // slender glass tower with balcony lines and a slanted crown of its own, at the bay end of the block, and Marina
 // Bay Suites (222 m, 66 storeys; its own development at 3 Central Boulevard, in the same block) in pale balcony
 // bands. The tenants' names stand on the roofs as Tiny Warsaw's do: Standard Chartered on Tower 1, HSBC on Tower 2,
-// DBS on Tower 3, facing the bay: Tower 3's on its flat top, Towers 1's and 2's hung on their bay walls under the
-// slanted rooflines, as the real ones are.
+// DBS on Tower 3, hung on the walls facing the bay under the rooflines (under the slanted crowns' low ends), as the
+// real ones are.
 // OpenStreetMap maps every tower at 245 m: the program uses the documented heights (Wikipedia's 245, 239, 227, 222,
 // 192 m with Tower 1 at the 186 m of CTBUH). Tower 3 is built from its four mapped parts (tops 218, 238, 218 and
 // 239 m) rather than its outline, so its terraces show. The complex's outline (728243729) is the underground Link
@@ -48,17 +48,10 @@ export function build(kit, site) {
   const suitesPart = P(SUITES);
   if (suitesPart) items.push({ ring: suitesPart.ring, y0: -0.3, y1: 222, material: suites, name: 'suites' });
   for (const it of kit.resolve(items)) kit.prism(it);
-  // the names: Tower 3's on its flat top facing the bay; on the slanted crowns, hung on the wall facing the bay, 2 m
-  // under the roofline's low end over that wall
-  const t3 = P(TOWER_3_TOP);
-  if (t3) { const b = kit.boxOf(t3.ring); kit.sign({ text: 'DBS', x: b.cx, z: b.cz, y: 239.6, yaw: kit.yawToward(BAY), height: 7, color: 0xe2231a, name: 'sign:dbs' }); }
-  const hung = ({ ring, top, drop, toward }, { text, height, color, name }) => {
-    const w = kit.wallToward(ring, BAY);
-    const roof = kit.sloped(ring, top, drop, toward);
-    const line = Math.min(roof(...w.a), roof(...w.b));
-    kit.sign({ text, x: w.x + w.nx * 0.5, z: w.z + w.nz * 0.5, y: line - height - 2, yaw: w.yaw, height, maxWidth: w.length - 6, color, bar: false, name });
-  };
-  const t1 = P(TOWER_1), t2 = P(TOWER_2);
-  if (t1) hung({ ring: t1.ring, ...crowns[0] }, { text: 'Standard Chartered', height: 6, color: 0x1a6aa3, name: 'sign:standard-chartered' });
-  if (t2) hung({ ring: t2.ring, ...crowns[1] }, { text: 'HSBC', height: 7, color: 0xdb0011, name: 'sign:hsbc' });
+  // the names, hung on the walls facing the bay under the rooflines
+  const t1 = P(TOWER_1), t2 = P(TOWER_2), t3 = P(TOWER_3_TOP);
+  const roof = (c) => kit.sloped(P(c.id).ring, c.top, c.drop, c.toward);
+  if (t1) kit.hang({ ring: t1.ring, top: roof(crowns[0]), toward: BAY, below: 2, text: 'Standard Chartered', height: 6, color: 0x1a6aa3, name: 'sign:standard-chartered' });
+  if (t2) kit.hang({ ring: t2.ring, top: roof(crowns[1]), toward: BAY, below: 2, text: 'HSBC', height: 7, color: 0xdb0011, name: 'sign:hsbc' });
+  if (t3) kit.hang({ ring: t3.ring, top: TOWER_3_PARTS[TOWER_3_TOP], toward: BAY, text: 'DBS', height: 7, color: 0xe2231a, name: 'sign:dbs' });
 }

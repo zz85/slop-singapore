@@ -7,7 +7,7 @@ import { pairMaterial, createTinyFlatMaterial, blendHex } from './tiny-look.js';
 // js/landmark-models.js for the anchors tools/city/build.mjs writes into GEO.landmarks), after tinywarsaw.app's: a
 // model is a few dozen solids in metres about its anchor (x east, z south, y up from the ground) in a few colours —
 // box, prism, loft, cylinder — in a matte colour, a glass, or a painted facade with a window per bay and storey, and
-// rooftop signs with a tenant's name painted on them, as Tiny Warsaw's towers carry their companies' logos; then
+// signs with a tenant's name painted on them hung on the towers' crowns, as Tiny Warsaw's towers carry logos; then
 // finish() merges them into one mesh per material, placed at the anchor, with colliders for what stands on the
 // ground and footprints for the maps. Every material is paired with its tiny-look stand-in (js/tiny-look.js), so a
 // model looks right in every look. The kit keeps a record of what it built (parts, bounds, triangles) and can list
@@ -283,17 +283,19 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
 
   /**
    * A sign: `text` painted in `color` on a see-through panel `height` m tall (and `width` wide: as wide as the
-   * painted text unless given, at most `maxWidth`) standing on y at (x, z), facing `yaw` (radians; 0 faces +z,
-   * south), the text reading right from the back too, on a low bar in `bar` colour (none when `bar` is false: a sign
-   * hung on a wall). The letters are drawn on a canvas in a browser; in node the panel stands blank. Signs are
-   * decoration: left out of bounds() unless asked, and of the flicker check. -> the part record
+   * painted text unless given; a sign wider than `maxWidth` is scaled down to it, keeping its shape) with its bottom
+   * at `y` (or its top at `yTop`) at (x, z), facing `yaw` (radians; 0 faces +z, south), the text reading right from
+   * the back too; on a low bar in `bar` colour when one is given (a sign standing on a roof — hang() is the usual
+   * way). The letters are drawn on a canvas in a browser; in node the panel stands blank. Signs are decoration: left
+   * out of bounds() unless asked, and of the flicker check. -> the part record
    */
-  kit.sign = ({ text, x = 0, z = 0, y, yaw = 0, width, maxWidth = Infinity, height = 6, color = 0xffffff, bar = 0x55595c, font = 'bold 110px Helvetica, Arial, sans-serif', name = '' }) => {
+  kit.sign = ({ text, x = 0, z = 0, y, yTop, yaw = 0, width, maxWidth = Infinity, height = 6, color = 0xffffff, bar = false, font = 'bold 110px Helvetica, Arial, sans-serif', name = '' }) => {
     if (!text) throw new Error('landmark kit: a sign needs its text');
-    if (!Number.isFinite(y)) throw new Error(`landmark kit: sign ${text} needs its height y`);
+    if (!Number.isFinite(y) && !Number.isFinite(yTop)) throw new Error(`landmark kit: sign ${text} needs its height y (or yTop)`);
     const material = signMaterial(text, color, font);
     if (!(width > 0)) width = height * (signAspect.get(material) || 0.62 * text.length);
-    width = Math.min(width, maxWidth);
+    if (width > maxWidth) { height *= maxWidth / width; width = maxWidth; }
+    if (!Number.isFinite(y)) y = yTop - height;
     const nx = Math.sin(yaw), nz = Math.cos(yaw); // the face
     const rx = Math.cos(yaw), rz = -Math.sin(yaw); // its right
     const B = batch(material);
@@ -308,6 +310,27 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     parts.push(part);
     if (bar !== false && bar !== null) kit.box({ x, z, y: y - 0.6, w: width, h: 0.6, d: 0.8, yaw, material: kit.material(bar), name: `${part.name}:bar` });
     return part;
+  };
+  /**
+   * A sign hung on a building's crown, as the real ones are: on the wall of `ring` facing compass `toward` best,
+   * `out` m off it, its top `below` m under the roofline (`top` a height, or a function of (x, z) for a slanted
+   * crown: the roofline's low end over that wall), no wider than the wall less `margin`. A crown too round or
+   * many-sided for a wall that long (under 8 m) takes the sign on its face toward the bearing, within its width.
+   * The rest as sign(). -> the part record
+   */
+  kit.hang = ({ ring, top, toward, below = 1.5, out = 0.4, margin = 6, ...sign }) => {
+    if (!ring || ring.length < 3) throw new Error(`landmark kit: hang ${sign.text || ''} needs a ring`);
+    const w = kit.wallToward(ring, toward);
+    const line = typeof top === 'function' ? Math.min(top(...w.a), top(...w.b)) : top;
+    if (w.length - margin >= 8) {
+      return kit.sign({ ...sign, x: w.x + w.nx * out, z: w.z + w.nz * out, yTop: line - below, yaw: w.yaw, maxWidth: Math.min(sign.maxWidth ?? Infinity, w.length - margin), bar: false });
+    }
+    const [dx, dz] = kit.compass(toward), rx = -dz, rz = dx; // along the bearing, and across it
+    let hi = -Infinity, lo = Infinity, cLo = Infinity, cHi = -Infinity;
+    for (const [px, pz] of ring) { const t = px * dx + pz * dz, c = px * rx + pz * rz; hi = Math.max(hi, t); lo = Math.min(lo, t); cLo = Math.min(cLo, c); cHi = Math.max(cHi, c); }
+    const c = (cLo + cHi) / 2, t = hi + out;
+    const crown = typeof top === 'function' ? Math.min(...ring.map(([px, pz]) => top(px, pz))) : top;
+    return kit.sign({ ...sign, x: c * rx + t * dx, z: c * rz + t * dz, yTop: crown - below, yaw: Math.atan2(dx, dz), maxWidth: Math.min(sign.maxWidth ?? Infinity, (cHi - cLo) * 0.6), bar: false });
   };
   /**
    * The wall of a ring that faces a compass bearing best — the longest of those within 45° of it, else the one
