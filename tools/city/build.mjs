@@ -319,6 +319,7 @@ export async function buildCity(cityOrId, { out, data } = {}) {
       let cx = 0, cz = 0, n = 0;
       for (const p of parts) for (let k = 0; k < p.ring.length; k += 2) { cx += p.ring[k]; cz += p.ring[k + 1]; n++; }
       if (n) { cx = Math.round(cx / n); cz = Math.round(cz / n); }
+      else log('warning: landmark ' + l.id + ' (model ' + l.model + ') hides no mapped way: anchored at the origin');
       landmarks.push({ id: l.id, name: l.name, model: l.model, x: cx, z: cz, parts });
     }
     log(`${kept.length} buildings & parts (${items.length - kept.length} outlines drawn by their parts; ${kept.filter((b) => b.top > 60).length} over 60 m; ${hiddenCount} left to the modelled landmarks)`);

@@ -34,7 +34,7 @@ async function buildLandmarkModels(scene) {
       footprints.push(...done.footprints);
       const flicker = kit.flicker();
       if (flicker.length) console.warn(`[landmarks] ${L.id}: faces that may flicker: ${flicker.map(([a, b]) => `${a} / ${b}`).join(', ')}`);
-      built.push(`${L.name} (${kit.parts.length} parts, ${kit.triangles} triangles, ${Math.round(kit.bounds().maxY)} m)`);
+      built.push(`${L.name} (${kit.parts.length} parts, ${kit.triangles} triangles, ${kit.parts.length ? Math.round(kit.bounds().maxY) + ' m' : 'nothing built'})`);
     } catch (e) {
       console.warn(`[landmarks] ${L.model}:`, e);
     }

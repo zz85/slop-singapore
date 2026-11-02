@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { Fn, uv, float, vec3, color, mix, fract, smoothstep, fwidth } from 'three/tsl';
+import { Fn, uv, float, color, mix, fract, smoothstep, fwidth } from 'three/tsl';
 import { pairMaterial, createTinyFlatMaterial, blendHex } from './tiny-look.js';
 
 // js/landmark-kit.js
@@ -10,21 +10,62 @@ import { pairMaterial, createTinyFlatMaterial, blendHex } from './tiny-look.js';
 // finish() merges them into one mesh per material, placed at the anchor, with colliders for what stands on the
 // ground and footprints for the maps. Every material is paired with its tiny-look stand-in (js/tiny-look.js), so a
 // model looks right in every look. The kit keeps a record of what it built (parts, bounds, triangles) and can list
-// the faces that would flicker against each other (flicker: coplanar, the same way out, overlapping), so a model
-// program can be checked in node without three.js (tests/landmark-models.test.mjs).
+// the faces that would flicker against each other (flicker: coplanar, the same way out, overlapping), and make the
+// mapped parts a model builds from safe to draw together (resolve), so a model program can be checked in node
+// without three.js (tests/landmark-kit.test.cjs, tests/landmark-models.test.cjs).
 
 const SKY_BLUE = 0x9db9d3;
 const PATTERNS = ['punched', 'ribbon', 'curtain', 'strips'];
 const band = (lo, hi, x, fw) => smoothstep(float(lo).sub(fw), float(lo).add(fw), x).mul(float(1).sub(smoothstep(float(hi).sub(fw), float(hi).add(fw), x)));
 
-// Ear clipping over a simple polygon [[x, z], ...] (either winding): triangles as index triples
+// --- rings [[x, z], ...] ----------------------------------------------------------------------------------------------
+const signedArea = (ring) => { let a = 0; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) a += ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1]; return a / 2; };
+const ringArea = (ring) => Math.abs(signedArea(ring));
+/** The outward unit normal [nx, nz] of each edge (i to i + 1) of a ring, from the way the ring is wound */
+function outwardNormals(ring) {
+  const s = signedArea(ring) >= 0 ? 1 : -1;
+  return ring.map(([ax, az], i) => {
+    const [bx, bz] = ring[(i + 1) % ring.length];
+    const L = Math.hypot(bx - ax, bz - az) || 1;
+    return [(s * (bz - az)) / L, (-s * (bx - ax)) / L];
+  });
+}
+/** The ring moved inward by d m: each edge offset along its outward normal, the corners where neighbouring offset
+ *  edges meet (a sharp corner keeps to a short mitre) */
+function insetRing(ring, d) {
+  const n = ring.length;
+  const N = outwardNormals(ring);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const h = (i + n - 1) % n;
+    const [px, pz] = ring[i];
+    // the two offset edges through this corner: the one before (h) and the one after (i)
+    const [hx, hz] = N[h], [ix, iz] = N[i];
+    const [ax, az] = ring[h], [bx, bz] = ring[(i + 1) % n];
+    const p1 = [ax - hx * d, az - hz * d], u = [px - ax, pz - az];
+    const p2 = [px - ix * d, pz - iz * d], v = [bx - px, bz - pz];
+    const cross = u[0] * v[1] - u[1] * v[0];
+    let q;
+    if (Math.abs(cross) < 1e-9) q = [px - ix * d, pz - iz * d];
+    else {
+      const t = ((p2[0] - p1[0]) * v[1] - (p2[1] - p1[1]) * v[0]) / cross;
+      q = [p1[0] + u[0] * t, p1[1] + u[1] * t];
+    }
+    // a very sharp corner: no long mitre, just the corner moved in along the two normals' mean
+    if (Math.hypot(q[0] - px, q[1] - pz) > 4 * d) {
+      const mx = hx + ix, mz = hz + iz, L = Math.hypot(mx, mz) || 1;
+      q = [px - (mx / L) * d, pz - (mz / L) * d];
+    }
+    out.push(q);
+  }
+  return out;
+}
+// Ear clipping over a simple polygon (either winding): triangles as index triples
 function triangulate(ring) {
   const n = ring.length;
   if (n < 3) return [];
-  let area = 0;
-  for (let i = 0, j = n - 1; i < n; j = i++) area += ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1];
   const idx = Array.from({ length: n }, (_, i) => i);
-  if (area < 0) idx.reverse(); // counter-clockwise in (x, z)
+  if (signedArea(ring) < 0) idx.reverse(); // counter-clockwise in (x, z)
   const cross = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
   const inside = (p, a, b, c) => cross(a, b, p) >= -1e-9 && cross(b, c, p) >= -1e-9 && cross(c, a, p) >= -1e-9;
   const out = [];
@@ -47,8 +88,7 @@ function triangulate(ring) {
   if (idx.length >= 3) for (let i = 1; i + 1 < idx.length; i++) out.push([idx[0], idx[i], idx[i + 1]]);
   return out;
 }
-
-// The smallest turned box holding a ring: { cx, cz, hx, hz, ux, uz } (as js/open-city-buildings.js orientedBox)
+// The smallest turned box holding a ring: { cx, cz, hx, hz, ux, uz, area } (as js/open-city-buildings.js orientedBox)
 function orientedBox(ring) {
   let best = null;
   const n = ring.length;
@@ -70,24 +110,25 @@ function orientedBox(ring) {
   }
   return best;
 }
-
-// The vertical walls of a ring between y0 and y1 for the flicker check: each a plane (outward normal, offset) with
-// its extent along the plane and up
-function wallsOf(ring, y0, y1) {
-  const n = ring.length;
-  let cx = 0, cz = 0;
-  for (const [x, z] of ring) { cx += x; cz += z; }
-  cx /= n; cz /= n;
+// An oriented box collider as js/open-city-buildings.js obbCollider
+const obbCollider = (cx, cz, hx, hz, ux, uz, minY, maxY) => {
+  const ex = Math.abs(ux) * hx + Math.abs(uz) * hz;
+  const ez = Math.abs(uz) * hx + Math.abs(ux) * hz;
+  return { minX: cx - ex, maxX: cx + ex, minZ: cz - ez, maxZ: cz + ez, minY, maxY, obb: { cx, cz, hx, hz, cs: ux, sn: -uz } };
+};
+// The vertical walls of a ring from y0 up to its top (a height, or a function of (x, z)) for the flicker check: each
+// a plane (outward normal, offset) with its extent along the plane and up
+function wallsOf(ring, y0, top) {
+  const N = outwardNormals(ring);
+  const topY = (x, z) => (typeof top === 'function' ? top(x, z) : top);
   const walls = [];
-  for (let i = 0; i < n; i++) {
-    const [ax, az] = ring[i], [bx, bz] = ring[(i + 1) % n];
-    const L = Math.hypot(bx - ax, bz - az);
-    if (L < 1e-6) continue;
-    let nx = (bz - az) / L, nz = -(bx - ax) / L;
-    if (nx * ((ax + bx) / 2 - cx) + nz * ((az + bz) / 2 - cz) < 0) { nx = -nx; nz = -nz; }
+  for (let i = 0; i < ring.length; i++) {
+    const [ax, az] = ring[i], [bx, bz] = ring[(i + 1) % ring.length];
+    if (Math.hypot(bx - ax, bz - az) < 1e-6) continue;
+    const [nx, nz] = N[i];
     const tx = -nz, tz = nx;
     const a0 = ax * tx + az * tz, a1 = bx * tx + bz * tz;
-    walls.push({ nx, nz, off: ax * nx + az * nz, a0: Math.min(a0, a1), a1: Math.max(a0, a1), y0, y1 });
+    walls.push({ nx, nz, off: ax * nx + az * nz, a0: Math.min(a0, a1), a1: Math.max(a0, a1), y0, y1: Math.max(topY(ax, az), topY(bx, bz)) });
   }
   return walls;
 }
@@ -104,7 +145,6 @@ function pointInRing([x, z], ring) {
   }
   return c ? 'in' : 'out';
 }
-// Whether every point of ring A lies within (or on) ring B
 const ringWithin = (A, B) => A.every((p) => pointInRing(p, B) !== 'out');
 // Whether two rings share any area: a point of one strictly inside the other, or the same ring (neighbours sharing
 // an edge do not)
@@ -119,53 +159,40 @@ function flickerBetween(A, B) {
     if (Math.abs(w.nx * v.nx + w.nz * v.nz - 1) > 1e-6 || Math.abs(w.off - v.off) > 0.01) continue;
     if (Math.min(w.a1, v.a1) - Math.max(w.a0, v.a0) > 0.05 && Math.min(w.y1, v.y1) - Math.max(w.y0, v.y0) > 0.05) return true;
   }
-  for (const c of A.caps) for (const d of B.caps) {
-    if (Math.abs(c.y - d.y) <= 0.01 && ringsOverlap(c.ring, d.ring)) return true;
-  }
+  for (const c of A.caps) for (const d of B.caps) if (Math.abs(c.y - d.y) <= 0.01 && ringsOverlap(c.ring, d.ring)) return true;
   return false;
 }
-const ringArea = (ring) => { let a = 0; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) a += ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1]; return Math.abs(a / 2); };
 
 /** A kit about the anchor `{ x, z }` (world metres) of the landmark `name` */
 function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
-  const parts = []; // what was built: { name, type, material, y0, y1, bounds, walls: [...], caps: [...] }
+  const parts = []; // what was built: { name, type, material, y0, y1, ring, bounds, walls, caps }
   const batches = new Map(); // material -> { pos, nrm, uvs }
   const materials = new Map();
-  const kit = { anchor, parts, triangles: 0 };
+  const kit = { anchor, parts, triangles: 0, bearingDeg: 0 };
 
   const batch = (material) => {
     if (!batches.has(material)) batches.set(material, { pos: [], nrm: [], uvs: [] });
     return batches.get(material);
   };
-  // one flat-shaded triangle with uv in metres
-  const tri = (B, a, b, c, ua, ub, uc) => {
+  // one flat-shaded triangle wound to face the way `n` points, with uv in metres; nothing for a sliver
+  const triangle = (B, a, b, c, ua, ub, uc, n) => {
     const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
     const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
     let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-    const L = Math.hypot(nx, ny, nz) || 1;
+    const L = Math.hypot(nx, ny, nz);
+    if (L < 1e-6) return;
     nx /= L; ny /= L; nz /= L;
+    if (nx * n[0] + ny * n[1] + nz * n[2] < 0) { [b, c] = [c, b]; [ub, uc] = [uc, ub]; nx = -nx; ny = -ny; nz = -nz; }
     B.pos.push(...a, ...b, ...c);
     B.nrm.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
     B.uvs.push(...ua, ...ub, ...uc);
     kit.triangles++;
   };
-  // a quad wound to face the way `n` points (a, b, c, d around it)
-  const quad = (B, pts, uvs, n) => {
-    const [a, b, c] = pts;
-    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
-    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
-    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-    const flip = nx * n[0] + ny * n[1] + nz * n[2] < 0;
-    const P = flip ? [pts[0], pts[3], pts[2], pts[1]] : pts;
-    const U = flip ? [uvs[0], uvs[3], uvs[2], uvs[1]] : uvs;
-    tri(B, P[0], P[1], P[2], U[0], U[1], U[2]);
-    tri(B, P[0], P[2], P[3], U[0], U[2], U[3]);
-  };
 
   /**
    * A solid over the ring [[x, z], ...] from y0 up, its top at y1 (a function of (x, z) for a sloped top), the top
-   * ring scaled toward its centre by `scale` (a loft), walls in `material` (the top in `top` material, else the same).
-   * Below 0.5 m from the ground no underside is drawn. -> the part record
+   * ring scaled toward its centre by `scale` (a loft), walls in `material` and the top in `top` (the roof grey unless
+   * named). Below 0.5 m from the ground no underside is drawn. -> the part record
    */
   function solid({ ring, y0 = 0, y1, scale = 1, material, top = kit.roofMaterial(), name = '', type = 'prism' }) {
     if (!ring || ring.length < 3) throw new Error(`landmark kit: ${type} needs a ring of 3 points or more`);
@@ -176,44 +203,40 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     cx /= n; cz /= n;
     const topRing = ring.map(([x, z]) => [cx + (x - cx) * scale, cz + (z - cz) * scale]);
     const topY = (x, z) => (typeof y1 === 'function' ? y1(x, z) : y1);
+    const N = outwardNormals(ring);
     const B = batch(material);
-    const part = { name, type, material, y0, y1: -Infinity, walls: [], caps: [], ring, bounds: { minX: Infinity, maxX: -Infinity, minY: y0, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity } };
+    const part = { name, type, material, y0, y1: -Infinity, ring, walls: [], caps: [], bounds: { minX: Infinity, maxX: -Infinity, minY: y0, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity } };
     const grow = ([x, y, z]) => { const b = part.bounds; b.minX = Math.min(b.minX, x); b.maxX = Math.max(b.maxX, x); b.minY = Math.min(b.minY, y); b.maxY = Math.max(b.maxY, y); b.minZ = Math.min(b.minZ, z); b.maxZ = Math.max(b.maxZ, z); };
-    // walls: outward from the ring's centre, uv metres along the wall and up
+    // walls: outward by the ring's winding, uv metres along the wall and up
     let along = 0;
     for (let i = 0; i < n; i++) {
       const [ax, az] = ring[i], [bx, bz] = ring[(i + 1) % n];
       const [tax, taz] = topRing[i], [tbx, tbz] = topRing[(i + 1) % n];
       const L = Math.hypot(bx - ax, bz - az);
       if (L < 1e-6) continue;
-      let nx = (bz - az) / L, nz = -(bx - ax) / L; // a normal to the edge
-      const mx = (ax + bx) / 2 - cx, mz = (az + bz) / 2 - cz;
-      if (nx * mx + nz * mz < 0) { nx = -nx; nz = -nz; } // the one pointing away from the centre
+      const [nx, nz] = N[i];
       const ya = topY(tax, taz), yb = topY(tbx, tbz);
-      const p = [[ax, y0, az], [bx, y0, bz], [tbx, yb, tbz], [tax, ya, taz]];
-      quad(B, p, [[along, y0], [along + L, y0], [along + L, yb], [along, ya]], [nx, 0, nz]);
-      p.forEach(grow);
+      const p0 = [ax, y0, az], p1 = [bx, y0, bz], p2 = [tbx, yb, tbz], p3 = [tax, ya, taz];
+      const nrm = [nx, 0, nz];
+      triangle(B, p0, p1, p2, [along, y0], [along + L, y0], [along + L, yb], nrm);
+      triangle(B, p0, p2, p3, [along, y0], [along + L, yb], [along, ya], nrm);
+      [p0, p1, p2, p3].forEach(grow);
       along += L;
     }
-    // vertical walls recorded for the flicker check (plane: normal & offset; extents along it and up)
-    if (scale === 1 && typeof y1 !== 'function') part.walls = wallsOf(ring, y0, y1);
+    if (scale === 1) part.walls = wallsOf(ring, y0, y1);
     // the top (and, up in the air, the underside)
     const tris = triangulate(topRing);
     const T = batch(top);
     for (const [i, j, k] of tris) {
       const P = [topRing[i], topRing[j], topRing[k]].map(([x, z]) => [x, topY(x, z), z]);
-      quad(T, [P[0], P[1], P[2], P[2]], [[P[0][0], P[0][2]], [P[1][0], P[1][2]], [P[2][0], P[2][2]], [P[2][0], P[2][2]]], [0, 1, 0]);
-      kit.triangles--; // (the quad drew a degenerate second triangle)
-      T.pos.length -= 9; T.nrm.length -= 9; T.uvs.length -= 6;
+      triangle(T, P[0], P[1], P[2], [P[0][0], P[0][2]], [P[1][0], P[1][2]], [P[2][0], P[2][2]], [0, 1, 0]);
       P.forEach(grow);
     }
     if (typeof y1 !== 'function') part.caps.push({ y: y1, ring: topRing });
     if (y0 > 0.5) {
       for (const [i, j, k] of tris) {
         const P = [ring[i], ring[j], ring[k]].map(([x, z]) => [x, y0, z]);
-        quad(B, [P[0], P[1], P[2], P[2]], [[P[0][0], P[0][2]], [P[1][0], P[1][2]], [P[2][0], P[2][2]], [P[2][0], P[2][2]]], [0, -1, 0]);
-        kit.triangles--;
-        B.pos.length -= 9; B.nrm.length -= 9; B.uvs.length -= 6;
+        triangle(B, P[0], P[1], P[2], [P[0][0], P[0][2]], [P[1][0], P[1][2]], [P[2][0], P[2][2]], [0, -1, 0]);
       }
     }
     part.y1 = part.bounds.maxY;
@@ -227,7 +250,7 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     const ring = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]].map(([px, pz]) => [x + px * c - pz * s, z + px * s + pz * c]);
     return solid({ ring, y0: y, y1: y + h, material, top, name, type: 'box' });
   };
-  /** A prism over a ring [[x, z], ...] from y0 to y1 (y1 may be a function of (x, z): a sloped top) */
+  /** A prism over a ring [[x, z], ...] from y0 to y1 (y1 may be a function of (x, z): a sloped top, kit.sloped) */
   kit.prism = ({ ring, y0 = 0, y1, material, top, name = '' }) => solid({ ring, y0, y1, material, top, name, type: 'prism' });
   /** A loft: the ring at y0, scaled toward its centre by `scale` at y1 (a taper, a setback crown, a spire at ~0) */
   kit.loft = ({ ring, y0 = 0, y1, scale = 0.5, material, top, name = '' }) => solid({ ring, y0, y1, scale, material, top, name, type: 'loft' });
@@ -250,7 +273,8 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     const a = (deg * Math.PI) / 180, e = Math.sin(a), n = Math.cos(a);
     return [e * c - n * s, -(e * s + n * c)];
   };
-  kit.bearingDeg = 0;
+  /** A ring moved inward by d m (insetRing) */
+  kit.inset = insetRing;
 
   // --- materials, each paired with its tiny-look stand-in -------------------------------------------------------------
   const remember = (key, make) => {
@@ -258,7 +282,7 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     return materials.get(key);
   };
   /** A matte colour */
-  kit.material = (hex, { roughness = 0.78, metalness = 0.04 } = {}) => remember(`m${hex}`, () => {
+  kit.material = (hex, { roughness = 0.78, metalness = 0.04 } = {}) => remember(`m${hex}:${roughness}:${metalness}`, () => {
     const m = new THREE.MeshStandardNodeMaterial({ color: hex, roughness, metalness });
     m.name = `landmark.${hex.toString(16)}`;
     pairMaterial(m, createTinyFlatMaterial(hex));
@@ -277,7 +301,7 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
    *  pattern (punched, ribbon, curtain, strips); glossy panes in the photoreal looks, flat in the tiny one */
   kit.facadeMaterial = ({ wall, window = 0x3a4a56, floorHeight = 3.6, bayWidth = 2.6, windowWidth = 0.6, windowHeight = 0.55, pattern = 'punched', roughness = 0.78 } = {}) => {
     if (!PATTERNS.includes(pattern)) throw new Error(`landmark kit: unknown facade pattern "${pattern}"`);
-    return remember(`f${JSON.stringify([wall, window, floorHeight, bayWidth, windowWidth, windowHeight, pattern])}`, () => {
+    return remember(`f${JSON.stringify([wall, window, floorHeight, bayWidth, windowWidth, windowHeight, pattern, roughness])}`, () => {
       const panes = () => {
         const p = uv();
         const cu = fract(p.x.div(bayWidth)), cv = fract(p.y.div(floorHeight));
@@ -307,29 +331,27 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     for (const p of parts) for (const k of Object.keys(b)) b[k] = k.startsWith('min') ? Math.min(b[k], p.bounds[k]) : Math.max(b[k], p.bounds[k]);
     return b;
   };
-  /** Pairs of parts with faces that would flicker against each other: vertical walls on one plane, the same way out,
-   *  overlapping along it and in height; tops at one height with overlapping footprints */
+  /** Pairs of parts (by name, or index) with faces that would flicker against each other: vertical walls on one
+   *  plane, the same way out, overlapping along it and in height; tops at one height sharing area */
   kit.flicker = () => {
     const out = [];
-    const seen = new Set();
-    const note = (a, b) => { const k = [a.name, b.name].join('|'); if (!seen.has(k)) { seen.add(k); out.push([a.name, b.name]); } };
-    for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) if (flickerBetween(parts[i], parts[j])) note(parts[i], parts[j]);
+    const label = (p) => p.name || `#${parts.indexOf(p)}`;
+    for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) if (flickerBetween(parts[i], parts[j])) out.push([label(parts[i]), label(parts[j])]);
     return out;
   };
   /**
-   * Prisms to build (`{ ring, y0, y1, ... }`, y1 a number or a sloped top) made safe to draw together, as mapped parts
+   * Prisms to build (`{ ring, y0, y1, ... }`, y1 a height or a sloped top) made safe to draw together, as mapped parts
    * seldom are: one lying entirely within another (its ring inside the other's, its heights within the other's) is
-   * dropped, and of two with faces that would flicker the smaller is drawn inset by `inset` m (its ring scaled
-   * toward its centre), so its faces sit just inside the other's. Returns the prisms to build.
+   * dropped, and of two with faces that would flicker the smaller is drawn `inset` m inward (its edges moved in) and
+   * as much lower, so its faces sit just inside the other's; again while that uncovers new pairs. Returns the prisms
+   * to build.
    */
   kit.resolve = (items, { inset = 0.1 } = {}) => {
     const top = (it) => (typeof it.y1 === 'function' ? Math.max(...it.ring.map(([x, z]) => it.y1(x, z))) : it.y1);
     let list = items.filter((it) => it.ring && it.ring.length >= 3);
     list = list.filter((it) => !list.some((o) => o !== it && o.y0 <= it.y0 + 1e-6 && top(o) >= top(it) - 1e-6 && ringArea(o.ring) > ringArea(it.ring) && ringWithin(it.ring, o.ring)));
-    const describe = (it) => ({ walls: typeof it.y1 === 'function' ? [] : wallsOf(it.ring, it.y0, it.y1), caps: typeof it.y1 === 'function' ? [] : [{ y: it.y1, ring: it.ring }] });
+    const describe = (it) => ({ walls: wallsOf(it.ring, it.y0, it.y1), caps: typeof it.y1 === 'function' ? [] : [{ y: it.y1, ring: it.ring }] });
     const solids = list.map((it) => ({ it, ...describe(it) }));
-    // the smaller of a flickering pair drawn a little inset and a little lower (its top under the other's), once;
-    // again while that uncovers new pairs
     const shrunk = new Set();
     for (let pass = 0; pass < 4; pass++) {
       let changed = false;
@@ -340,13 +362,8 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
           if (shrunk.has(small)) continue;
           shrunk.add(small);
           changed = true;
-          const ring = small.it.ring;
-          let cx = 0, cz = 0;
-          for (const [x, z] of ring) { cx += x; cz += z; }
-          cx /= ring.length; cz /= ring.length;
-          const r = Math.min(...ring.map(([x, z]) => Math.hypot(x - cx, z - cz))) || 1;
-          const f = Math.max(0.5, 1 - inset / r);
-          small.it = { ...small.it, ring: ring.map(([x, z]) => [cx + (x - cx) * f, cz + (z - cz) * f]), y1: typeof small.it.y1 === 'function' ? small.it.y1 : small.it.y1 - inset };
+          const y1 = small.it.y1;
+          small.it = { ...small.it, ring: insetRing(small.it.ring, inset), y1: typeof y1 === 'function' ? (x, z) => y1(x, z) - inset : y1 - inset };
           Object.assign(small, describe(small.it));
         }
       }
@@ -356,7 +373,8 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
   };
 
   /** Merges what was built into one mesh per material in a group at the anchor; colliders (js/open-city-buildings.js
-   *  obbCollider) for every part standing on the ground, and their footprints for the maps */
+   *  obbCollider) for every part standing on the ground — one turned box where the footprint nearly fills it, else
+   *  a thin box along each wall — and their footprints for the maps */
   kit.finish = () => {
     const group = new THREE.Group();
     group.name = `Landmark_${name}`;
@@ -377,11 +395,17 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     for (const p of parts) {
       if (p.y0 > 0.5) continue;
       const box = orientedBox(p.ring);
-      if (box) {
-        const cx = box.cx + anchor.x, cz = box.cz + anchor.z;
-        const ex = Math.abs(box.ux) * box.hx + Math.abs(box.uz) * box.hz;
-        const ez = Math.abs(box.uz) * box.hx + Math.abs(box.ux) * box.hz;
-        colliders.push({ minX: cx - ex, maxX: cx + ex, minZ: cz - ez, maxZ: cz + ez, minY: p.y0, maxY: p.y1, obb: { cx, cz, hx: box.hx, hz: box.hz, cs: box.ux, sn: -box.uz } });
+      if (box && ringArea(p.ring) > box.area * 0.85) {
+        colliders.push(obbCollider(box.cx + anchor.x, box.cz + anchor.z, box.hx, box.hz, box.ux, box.uz, p.y0, p.y1));
+      } else {
+        const N = outwardNormals(p.ring);
+        for (let i = 0; i < p.ring.length; i++) {
+          const [ax, az] = p.ring[i], [bx, bz] = p.ring[(i + 1) % p.ring.length];
+          const L = Math.hypot(bx - ax, bz - az);
+          if (L < 0.4) continue;
+          const [nx, nz] = N[i];
+          colliders.push(obbCollider((ax + bx) / 2 - nx * 0.4 + anchor.x, (az + bz) / 2 - nz * 0.4 + anchor.z, L / 2, 0.4, (bx - ax) / L, (bz - az) / L, p.y0, p.y1));
+        }
       }
       footprints.push({ pts: Float32Array.from(p.ring.flatMap(([x, z]) => [x + anchor.x, z + anchor.z])), h: p.y1 });
     }
@@ -391,4 +415,4 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
   return kit;
 }
 
-export { createKit, triangulate, orientedBox };
+export { createKit, triangulate, orientedBox, insetRing, outwardNormals };

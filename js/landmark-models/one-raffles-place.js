@@ -2,13 +2,13 @@
 // One Raffles Place: Tower 1 (the OUB Centre, Kenzo Tange, 1986; 280 m, 63 storeys), two triangular prisms a step
 // apart in dark bronze, one taller (mapped 283 m) than the other (215 m); Tower 2 (2012; 209 m, 38 storeys), two
 // glass slabs whose tops slope 30 m across, one facing north and one south (mapped roof:direction 5 and 185); the
-// mall podium (26 m) and its five-storey wing. Built from the mapped outlines (site.parts), made safe to draw
-// together by kit.resolve.
+// mall podium (26 m, over its five-storey wing's footprint too). Built from the mapped outlines (site.parts), made
+// safe to draw together by kit.resolve. info.height is the mapped top of Tower 1 (283 m; documented as 280 m).
 export const info = { name: 'One Raffles Place', height: 283 };
 
 const T1_TALL = 325793773, T1_SHORT = 325793737;
 const T2_TALL = 407705559, T2_LOW = 407705505;
-const PODIUM = 171999293, WING = 407705492;
+const PODIUM = 171999293;
 
 export function build(kit, site) {
   const P = (id) => site.parts.find((p) => p.id === id);
@@ -23,8 +23,7 @@ export function build(kit, site) {
   const t2a = P(T2_TALL), t2b = P(T2_LOW);
   if (t2a) items.push({ ring: t2a.ring, y0: -0.3, y1: kit.sloped(t2a.ring, t2a.height || 209, 30, 185), material: glass, top: roofGlass, name: 'tower2-tall' });
   if (t2b) items.push({ ring: t2b.ring, y0: -0.3, y1: kit.sloped(t2b.ring, t2b.height || 179, 30, 5), material: glass, top: roofGlass, name: 'tower2-low' });
-  const podium = P(PODIUM), wing = P(WING);
+  const podium = P(PODIUM);
   if (podium) items.push({ ring: podium.ring, y0: -0.3, y1: podium.height || 26, material: stone, name: 'podium' });
-  if (wing) items.push({ ring: wing.ring, y0: -0.3, y1: 18, material: stone, name: 'podium-wing' });
   for (const it of kit.resolve(items)) kit.prism(it);
 }

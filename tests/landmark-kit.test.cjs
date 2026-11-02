@@ -18,7 +18,34 @@ const chain = () => new Proxy(function node() {}, {
 });
 class Chain { constructor(o) { const c = chain(); if (o && typeof o === 'object') Object.assign(c, o); return c; } }
 class Group { constructor() { this.children = []; this.position = { set: (x, y, z) => Object.assign(this.position, { x, y, z }) }; } add(...o) { this.children.push(...o); return this; } }
-const THREE = { Group, Mesh: Chain, BufferGeometry: Chain, Float32BufferAttribute: Chain, MeshStandardNodeMaterial: Chain, MeshLambertNodeMaterial: Chain, Color: Chain, FrontSide: 0, DoubleSide: 2 };
+// a geometry that keeps what the kit emits, so the triangles can be checked
+class BufferGeometry { constructor() { this.attributes = {}; } setAttribute(name, a) { this.attributes[name] = a; } computeBoundingSphere() {} }
+class Float32BufferAttribute { constructor(array, itemSize) { this.array = Float32Array.from(array); this.itemSize = itemSize; } }
+class Mesh { constructor(geometry, material) { this.geometry = geometry; this.material = material; } }
+const THREE = { Group, Mesh, BufferGeometry, Float32BufferAttribute, MeshStandardNodeMaterial: Chain, MeshLambertNodeMaterial: Chain, Color: Chain, FrontSide: 0, DoubleSide: 2 };
+// the triangles of a finished mesh: corners, the stored normal, the normal its winding gives, its area and centroid
+const trianglesOf = (mesh) => {
+  const p = mesh.geometry.attributes.position.array, n = mesh.geometry.attributes.normal.array;
+  const out = [];
+  for (let i = 0; i < p.length; i += 9) {
+    const a = [p[i], p[i + 1], p[i + 2]], b = [p[i + 3], p[i + 4], p[i + 5]], c = [p[i + 6], p[i + 7], p[i + 8]];
+    const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const g = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    const L = Math.hypot(...g);
+    out.push({ a, b, c, stored: [n[i], n[i + 1], n[i + 2]], normal: L ? g.map((k) => k / L) : [0, 0, 0], area: L / 2, centroid: [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3] });
+  }
+  return out;
+};
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+// whether (x, z) lies inside a ring (crossings)
+const insideRing = ([x, z], ring) => {
+  let c = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, zi] = ring[i], [xj, zj] = ring[j];
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) c = !c;
+  }
+  return c;
+};
 const tsl = new Proxy({}, { get: () => chain() });
 const paired = [];
 const tinyLook = { pairMaterial: (a, b) => { paired.push([a, b]); return b; }, createTinyFlatMaterial: (hex) => new Chain({ color: hex }), blendHex: (a) => a, hexToRgb: () => [1, 1, 1] };
@@ -121,4 +148,96 @@ test('resolve: mapped parts made safe to draw together: one inside another dropp
   assert.ok(flush.ring.every(([x]) => x > 0.05));
   for (const it of out) kit.prism(it);
   assert.equal(kit.flicker().length, 0);
+});
+
+test('what is emitted: every triangle has area, its stored normal is its winding, roofs face up, undersides down', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 0, z: 0 } });
+  const walls = kit.material(0xffffff);
+  kit.box({ x: 0, z: 0, y: 0, w: 10, h: 20, d: 6, material: walls, name: 'box' });
+  kit.loft({ ring: [[20, -5], [30, -5], [30, 5], [20, 5]], y0: 30, y1: 50, scale: 0.5, material: walls, name: 'loft' });
+  kit.cylinder({ x: 0, z: 20, y0: 0, y1: 10, r: 4, segments: 8, material: walls, name: 'drum' });
+  const { group } = kit.finish();
+  const roofMesh = group.children.find((m) => m.material === kit.roofMaterial());
+  const wallMesh = group.children.find((m) => m.material === walls);
+  assert.ok(roofMesh && wallMesh);
+  const roofs = trianglesOf(roofMesh);
+  assert.equal(roofs.length, 2 + 2 + 6, 'the box top, the loft top, the drum top');
+  for (const t of roofs) {
+    assert.ok(t.area > 0.5, 'a real triangle, not a sliver: ' + t.area);
+    assert.ok(dot(t.normal, t.stored) > 0.999, 'the stored normal is the one its winding gives');
+    assert.ok(t.normal[1] > 0.999, 'a roof faces up');
+  }
+  const wallTris = trianglesOf(wallMesh);
+  assert.equal(wallTris.length, 8 + 8 + 2 + 16, 'the walls, and the loft underside');
+  for (const t of wallTris) {
+    assert.ok(t.area > 0.5);
+    assert.ok(dot(t.normal, t.stored) > 0.999);
+  }
+  const under = wallTris.filter((t) => t.a[1] === 30 && t.b[1] === 30 && t.c[1] === 30);
+  assert.equal(under.length, 2, 'the loft stands in the air: its underside is drawn');
+  for (const t of under) assert.ok(t.normal[1] < -0.999, 'an underside faces down');
+  assert.equal(kit.triangles, roofs.length + wallTris.length, 'the count is of the triangles really emitted');
+});
+
+test('walls face outward on a concave ring, whichever way round the ring is given', () => {
+  const { createKit } = load();
+  const L = [[0, 0], [20, 0], [20, 10], [10, 10], [10, 20], [0, 20]];
+  for (const ring of [L, [...L].reverse()]) {
+    const kit = createKit({ anchor: { x: 0, z: 0 } });
+    const m = kit.material(0xffffff);
+    kit.prism({ ring, y0: 0, y1: 15, material: m, name: 'L' });
+    const { group } = kit.finish();
+    const wallMesh = group.children.find((o) => o.material === m);
+    const tris = trianglesOf(wallMesh).filter((t) => Math.abs(t.normal[1]) < 1e-6);
+    assert.equal(tris.length, 12, 'six walls of two');
+    for (const t of tris) {
+      const out = [t.centroid[0] + t.normal[0] * 0.1, t.centroid[2] + t.normal[2] * 0.1];
+      const inn = [t.centroid[0] - t.normal[0] * 0.1, t.centroid[2] - t.normal[2] * 0.1];
+      assert.ok(!insideRing(out, ring) && insideRing(inn, ring), 'a wall faces out of the ring: ' + JSON.stringify(t.normal));
+    }
+  }
+});
+
+test('inset: every edge moves inward by the distance, on a concave ring too', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 0, z: 0 } });
+  const L = [[0, 0], [20, 0], [20, 10], [10, 10], [10, 20], [0, 20]];
+  const inset = kit.inset(L, 0.1);
+  assert.equal(inset.length, L.length);
+  // each new edge lies 0.1 m inside the old one, along the old edge's own outward normal
+  for (let i = 0; i < L.length; i++) {
+    const [ax, az] = L[i], [bx, bz] = L[(i + 1) % L.length];
+    const len = Math.hypot(bx - ax, bz - az);
+    const nx = (bz - az) / len, nz = -(bx - ax) / len; // (this ring is wound so that this is outward)
+    for (const [px, pz] of [inset[i], inset[(i + 1) % L.length]]) {
+      const d = (px - ax) * nx + (pz - az) * nz;
+      assert.ok(Math.abs(d + 0.1) < 1e-6, 'edge ' + i + ' moved ' + d);
+    }
+  }
+  assert.ok(insideRing(inset[3], L) && insideRing(inset[0], L));
+});
+
+test('a sloped slab against a podium is seen by flicker and resolve, and triangles and concave footprints get wall colliders', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 100, z: 200 } });
+  const m = kit.material(0xffffff);
+  const podium = [[0, 0], [40, 0], [40, 30], [0, 30]];
+  const slab = [[0, 0], [15, 0], [15, 30], [0, 30]]; // sharing the podium's west wall
+  kit.prism({ ring: podium, y0: 0, y1: 26, material: m, name: 'podium' });
+  kit.prism({ ring: slab, y0: 0, y1: kit.sloped(slab, 200, 30, 0), material: m, name: 'slab' });
+  assert.ok(kit.flicker().some(([a, b]) => [a, b].includes('slab')), 'the slab\'s walls are vertical planes even under a sloped top');
+  const kit2 = createKit({ anchor: { x: 0, z: 0 } });
+  const items = kit2.resolve([{ ring: podium, y0: 0, y1: 26, material: m, name: 'podium' }, { ring: slab, y0: 0, y1: kit2.sloped(slab, 200, 30, 0), material: m, name: 'slab' }]);
+  for (const it of items) kit2.prism(it);
+  assert.equal(kit2.flicker().length, 0, 'the slab drawn inset from the podium wall');
+  // colliders: a rectangle is one turned box; a triangle or a concave footprint, thin boxes along its walls
+  const kit3 = createKit({ anchor: { x: 0, z: 0 } });
+  kit3.prism({ ring: podium, y0: 0, y1: 26, material: m, name: 'rect' });
+  kit3.prism({ ring: [[60, 0], [100, 0], [60, 40]], y0: 0, y1: 100, material: m, name: 'tri' });
+  kit3.prism({ ring: [[0, 60], [20, 60], [20, 70], [10, 70], [10, 80], [0, 80]], y0: 0, y1: 15, material: m, name: 'L' });
+  const { colliders } = kit3.finish();
+  assert.equal(colliders.length, 1 + 3 + 6);
+  const thin = colliders.filter((c) => c.obb.hz <= 0.4 + 1e-9);
+  assert.equal(thin.length, 9, 'a thin box along every wall of the triangle and the L');
 });
