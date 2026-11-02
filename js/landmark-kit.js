@@ -156,6 +156,14 @@ function ringsOverlap(A, B) {
 // Whether two solids (walls, caps) have faces that would flicker: walls on one plane the same way out, overlapping
 // along it and in height; tops at one height sharing area
 function flickerBetween(A, B) {
+  // Detailed landmarks have thousands of small, spatially separate mouldings and window frames. Reject their
+  // disjoint bounds before comparing individual planes; keep 1 cm for the coplanarity tolerance below. The
+  // resolve() descriptions have no bounds and continue through the exact checks unchanged.
+  if (A.bounds && B.bounds) {
+    for (const axis of ['X', 'Y', 'Z']) {
+      if (A.bounds[`max${axis}`] < B.bounds[`min${axis}`] - 0.01 || B.bounds[`max${axis}`] < A.bounds[`min${axis}`] - 0.01) return false;
+    }
+  }
   for (const w of A.walls) for (const v of B.walls) {
     if (Math.abs(w.nx * v.nx + w.nz * v.nz - 1) > 1e-6 || Math.abs(w.off - v.off) > 0.01) continue;
     if (Math.min(w.a1, v.a1) - Math.max(w.a0, v.a0) > 0.05 && Math.min(w.y1, v.y1) - Math.max(w.y0, v.y0) > 0.05) return true;
@@ -167,6 +175,7 @@ function flickerBetween(A, B) {
 /** A kit about the anchor `{ x, z }` (world metres) of the landmark `name` */
 function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
   const parts = []; // what was built: { name, type, material, y0, y1, ring, bounds, walls, caps }
+  const collisionParts = []; // explicit altitude-aware volumes, without render geometry
   const batches = new Map(); // material -> { pos, nrm, uvs }
   const materials = new Map();
   const kit = { anchor, parts, triangles: 0, bearingDeg: 0 };
@@ -195,14 +204,15 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
    * ring scaled toward its centre by `scale` (a loft), walls in `material` and the top in `top` (the roof grey unless
    * named). Below 0.5 m from the ground no underside is drawn. -> the part record
    */
-  function solid({ ring, y0 = 0, y1, scale = 1, material, top = kit.roofMaterial(), name = '', type = 'prism' }) {
+  function solid({ ring, y0 = 0, y1, scale = 1, upperRing, material, top = kit.roofMaterial(), name = '', type = 'prism' }) {
     if (!ring || ring.length < 3) throw new Error(`landmark kit: ${type} needs a ring of 3 points or more`);
     if (!(y1 > y0) && typeof y1 !== 'function') throw new Error(`landmark kit: ${type} ${name} is not taller than its base`);
     const n = ring.length;
+    if (upperRing && (upperRing.length !== n || upperRing.some((p) => p.length !== 2 || !p.every(Number.isFinite)))) throw new Error('landmark kit: loft topRing needs one finite point per base point');
     let cx = 0, cz = 0;
     for (const [x, z] of ring) { cx += x; cz += z; }
     cx /= n; cz /= n;
-    const topRing = ring.map(([x, z]) => [cx + (x - cx) * scale, cz + (z - cz) * scale]);
+    const topRing = upperRing || ring.map(([x, z]) => [cx + (x - cx) * scale, cz + (z - cz) * scale]);
     const topY = (x, z) => (typeof y1 === 'function' ? y1(x, z) : y1);
     const N = outwardNormals(ring);
     const B = batch(material);
@@ -224,7 +234,7 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
       [p0, p1, p2, p3].forEach(grow);
       along += L;
     }
-    if (scale === 1) part.walls = wallsOf(ring, y0, y1);
+    if (scale === 1 && !upperRing) part.walls = wallsOf(ring, y0, y1);
     // the top (and, up in the air, the underside)
     const tris = triangulate(topRing);
     const T = batch(top);
@@ -253,8 +263,15 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
   };
   /** A prism over a ring [[x, z], ...] from y0 to y1 (y1 may be a function of (x, z): a sloped top, kit.sloped) */
   kit.prism = ({ ring, y0 = 0, y1, material, top, name = '' }) => solid({ ring, y0, y1, material, top, name, type: 'prism' });
-  /** A loft: the ring at y0, scaled toward its centre by `scale` at y1 (a taper, a setback crown, a spire at ~0) */
-  kit.loft = ({ ring, y0 = 0, y1, scale = 0.5, material, top, name = '' }) => solid({ ring, y0, y1, scale, material, top, name, type: 'loft' });
+  /** A collision/map volume without visible geometry, for wings, bridges or roofs above the ground cutoff. */
+  kit.collisionPrism = ({ ring, y0 = 0, y1 }) => {
+    if (!ring || ring.length < 3 || ring.some((p) => p.length !== 2 || !p.every(Number.isFinite)) || !Number.isFinite(y0) || !Number.isFinite(y1) || y1 <= y0) {
+      throw new Error('landmark kit: collisionPrism needs a finite ring and heights y1 > y0');
+    }
+    collisionParts.push({ ring: ring.map((p) => [...p]), y0, y1, filled: true });
+  };
+  /** A loft: scale the base ring at y1, or supply a corresponding topRing for a translated/inclined facade. */
+  kit.loft = ({ ring, topRing, y0 = 0, y1, scale = 0.5, material, top, name = '' }) => solid({ ring, upperRing: topRing, y0, y1, scale, material, top, name, type: 'loft' });
   /** A cylinder about (x, z) from y0 to y1, radius r, in `segments` sides */
   kit.cylinder = ({ x = 0, z = 0, y0 = 0, y1, r, segments = 12, material, top, name = '' }) => {
     const ring = Array.from({ length: segments }, (_, i) => { const a = (i / segments) * Math.PI * 2; return [x + Math.cos(a) * r, z + Math.sin(a) * r]; });
@@ -501,7 +518,7 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
   };
 
   /** Merges what was built into one mesh per material in a group at the anchor; colliders (js/open-city-buildings.js
-   *  obbCollider) for every part standing on the ground — one turned box where the footprint nearly fills it, else
+   *  obbCollider) for ground parts and explicit collision prisms — one turned box where the footprint nearly fills it, else
    *  a thin box along each wall — and their footprints for the maps */
   kit.finish = () => {
     const group = new THREE.Group();
@@ -520,8 +537,7 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
       group.add(mesh);
     }
     const colliders = [], footprints = [];
-    for (const p of parts) {
-      if (p.y0 > 0.5 || p.type === 'sign') continue;
+    for (const p of [...parts.filter((p) => p.y0 <= 0.5 && p.type !== 'sign'), ...collisionParts]) {
       const box = orientedBox(p.ring);
       if (box && ringArea(p.ring) > box.area * 0.85) {
         colliders.push(obbCollider(box.cx + anchor.x, box.cz + anchor.z, box.hx, box.hz, box.ux, box.uz, p.y0, p.y1));
@@ -533,6 +549,30 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
           if (L < 0.4) continue;
           const [nx, nz] = N[i];
           colliders.push(obbCollider((ax + bx) / 2 - nx * 0.4 + anchor.x, (az + bz) / 2 - nz * 0.4 + anchor.z, L / 2, 0.4, (bx - ax) / L, (bz - az) / L, p.y0, p.y1));
+        }
+        if (p.filled && box) {
+          // Fill explicit volumes with scanline strips, so aircraft cannot descend through roof interiors. The
+          // 2 m bands approximate the boundary to within 1 m; separate crossing pairs preserve concave openings.
+          // Split at every vertex height as well, avoiding a strip that bridges a change in polygon topology.
+          const local = p.ring.map(([x, z]) => [x * box.ux + z * box.uz, -x * box.uz + z * box.ux]);
+          const rows = [...new Set(local.map((q) => q[1]))].sort((a, b) => a - b);
+          for (let row = 0; row + 1 < rows.length; row++) {
+            const count = Math.max(1, Math.ceil((rows[row + 1] - rows[row]) / 2));
+            const height = (rows[row + 1] - rows[row]) / count;
+            for (let band = 0; band < count; band++) {
+              const v = rows[row] + (band + 0.5) * height, crosses = [];
+              for (let i = 0, j = local.length - 1; i < local.length; j = i++) {
+                const [ax, az] = local[j], [bx, bz] = local[i];
+                if ((az > v) !== (bz > v)) crosses.push(ax + (bx - ax) * (v - az) / (bz - az));
+              }
+              crosses.sort((a, b) => a - b);
+              for (let i = 0; i + 1 < crosses.length; i += 2) {
+                const u = (crosses[i] + crosses[i + 1]) / 2, half = (crosses[i + 1] - crosses[i]) / 2;
+                if (half < 1e-6 || height < 1e-6) continue;
+                colliders.push(obbCollider(u * box.ux - v * box.uz + anchor.x, u * box.uz + v * box.ux + anchor.z, half, height / 2, box.ux, box.uz, p.y0, p.y1));
+              }
+            }
+          }
         }
       }
       footprints.push({ pts: Float32Array.from(p.ring.flatMap(([x, z]) => [x + anchor.x, z + anchor.z])), h: p.y1 });

@@ -230,6 +230,7 @@ export async function buildCity(cityOrId, { out, data } = {}) {
     const els = JSON.parse(fs.readFileSync(path.join(dir, 'osm_buildings.json'), 'utf8')).elements;
     // the outlines of the landmarks the city models by hand (config.landmarks: way ids)
     const hidden = new Set((city.landmarks || []).flatMap((l) => l.hide || []));
+    const hiddenRelations = new Set((city.landmarks || []).flatMap((l) => l.hideRelations || []));
     // A landmark built by a model program (config landmarks with `model`: js/landmark-models/<model>.js) gets an
     // anchor: its centre and the outlines it replaces, each with its mapped height, floors and name, for the program
     // to build on (GEO.landmarks: [{ id, name, model, x, z, parts: [{ id, name, ring: [x, z, ... m, world], height m,
@@ -240,6 +241,13 @@ export async function buildCity(cityOrId, { out, data } = {}) {
     const items = [];
     for (const e of els) {
       const t = e.tags || {};
+      // Relation and way IDs occupy separate OSM namespaces. A model may replace a relation's generic mass
+      // without treating its member ways as independent buildings or changing the model's existing way anchor.
+      if (e.type === 'relation' && hiddenRelations.has(e.id)) {
+        if (!(num(t.min_height) > 0)) for (const { outer } of areaPolygons(e, toWorld, 8)) groundFootprints.push(outer);
+        hiddenCount++;
+        continue;
+      }
       if (e.type === 'way' && hidden.has(e.id)) {
         // (no trees where the modelled landmark stands either)
         if (!(num(t.min_height) > 0)) for (const { outer } of areaPolygons(e, toWorld, 8)) groundFootprints.push(outer);

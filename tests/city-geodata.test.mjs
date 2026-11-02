@@ -134,7 +134,10 @@ test('a city builds from OSM layers: land, blocks with lots, parks, the road gra
       square(62, -150, -150, 15, { building: 'yes', height: '20' }),
       square(63, -150, -150, 8, { 'building:part': 'yes', height: '50', 'roof:shape': 'gabled', 'roof:height': '4', 'roof:orientation': 'across' }),
       square(64, -60, -220, 6, { building: 'roof' }),
-      square(65, 150, -60, 12, { building: 'hotel', height: '193' }) // a landmark modelled by hand: left out
+      square(65, 150, -60, 12, { building: 'hotel', height: '193' }), // a landmark modelled by hand: left out
+      { type: 'relation', id: 60, tags: { type: 'multipolygon', building: 'yes', height: '99' }, members: [
+        { type: 'way', ref: 999, role: 'outer', geometry: square(999, -120, 140, 8, {}).geometry }
+      ] } // the same numeric ID as the apartment way; only the relation is hidden
     ]);
     // An ERP gantry on North Road, a speed camera by East Street, a red light camera on North Road's southern approach
     const node = (id, [lon, lat], tags) => ({ type: 'node', id, lon, lat, tags });
@@ -150,7 +153,7 @@ test('a city builds from OSM layers: land, blocks with lots, parks, the road gra
       id: 'testcity', name: 'Test City', origin: { lat: LAT0, lon: LON0, label: 'the crossing' }, bearing: 'auto',
       detail: [LAT0 - 0.0032, LON0 - 0.0032, LAT0 + 0.0032, LON0 + 0.0032], margin: 0.001, sidewalk: 5, strip: 6, driveSide: 'left',
       trees: { credit: 'test', shapes: { 'Fabaceae (Leguminosae)': 'locust' } },
-      landmarks: [{ id: 'tower', name: 'Test Tower', model: 'test-tower', hide: [65] }]
+      landmarks: [{ id: 'tower', name: 'Test Tower', model: 'test-tower', hide: [65], hideRelations: [60] }]
     };
     const out = path.join(dir, 'testcity-geodata.js');
     await buildCity(city, { out, data: dir });
@@ -202,6 +205,7 @@ test('a city builds from OSM layers: land, blocks with lots, parks, the road gra
     }
     assert.equal(built.length, 3, JSON.stringify(built.map((b) => [b.type, b.top])));
     assert.ok(!built.some((b) => b.top === 193), 'the modelled landmark is left out');
+    assert.ok(!built.some((b) => b.top === 99), 'a modelled relation is left out independently of way IDs');
     // ...and anchored for its model program: its centre and the outline it replaces, with the mapped height
     assert.equal(GEO.landmarks.length, 1);
     const L = GEO.landmarks[0];

@@ -62,3 +62,216 @@ for (const [model, documented] of [['uob-plaza', 280], ['one-raffles-place', 283
     for (const c of colliders) assert.ok(c.maxY > c.minY && c.maxX > c.minX && c.maxZ > c.minZ && c.obb);
   });
 }
+
+async function fullertonModel() {
+  const { GEO } = await geodata;
+  const L = GEO.landmarks.find((l) => l.id === 'fullerton-hotel');
+  assert.ok(L, 'the Fullerton Hotel has its own mapped landmark anchor');
+  const { build } = await import(pathToFileURL(join(__dirname, '../js/landmark-models/fullerton-hotel.js')).href);
+  const kit = createKit({ anchor: L, name: L.id });
+  kit.bearingDeg = GEO.frame.bearingDeg;
+  build(kit, siteOf(L));
+  return { kit, L };
+}
+
+test('Fullerton replaces the hotel footprint, preserving the separate One Fullerton building', async () => {
+  const { kit, L } = await fullertonModel();
+  assert.deepEqual(L.parts.map((p) => p.id).sort((a, b) => a - b), [46595395,407926378,407926385]);
+  assert.ok(kit.triangles > 1000 && kit.triangles < 65000, `detailed but bounded geometry: ${kit.triangles} triangles`);
+  const b = kit.bounds();
+  assert.ok(b.maxY >= 36 && b.maxY <= 44, `heritage massing and rooftop flag: ${b.maxY} m`);
+  assert.ok(b.minY >= -0.5 && b.minY <= 0.1);
+  for (const axis of ['X', 'Z']) {
+    const values = L.parts.find((p) => p.id === 46595395).ring.filter((_, i) => i % 2 === (axis === 'X' ? 0 : 1)).map((v) => v - L[axis.toLowerCase()]);
+    assert.ok(b[`min${axis}`] >= Math.min(...values) - 20 && b[`max${axis}`] <= Math.max(...values) + 20, `${axis}: attached to the mapped hotel and adjacent pool terrace`);
+  }
+});
+
+function covers(ring, x, z) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [a, b] = ring[i], [c, d] = ring[j];
+    if ((b > z) !== (d > z) && x < (c - a) * (z - b) / (d - b) + a) inside = !inside;
+  }
+  return inside;
+}
+
+test('Fullerton has an actual atrium below the roof rather than a solid hotel block', async () => {
+  const { kit, L } = await fullertonModel();
+  const { GEO } = await geodata;
+  const { makeFrame } = await import('../tools/city/frame.mjs');
+  const frame = makeFrame({ lat0: GEO.frame.lat0, lon0: GEO.frame.lon0, theta: GEO.frame.bearingDeg * Math.PI / 180 });
+  // The mapped way's vertex-average anchor is on the east wing, not at the atrium's physical centre.
+  const { colliders } = kit.finish();
+  for (const lat of [1.28603, 1.28643]) {
+    // Test both atrium bays, clear of the central rooftop pavilion/link.
+    const [wx, wz] = frame.toWorld(103.85298, lat);
+    const x = wx - L.x, z = wz - L.z;
+    const enclosing = kit.parts.filter((p) => p.y0 < 31 && p.y1 > 31 && covers(p.ring, x, z));
+    assert.equal(enclosing.length, 0, 'the upper atrium stays open between the hotel wings');
+    const below = kit.parts.filter((p) => p.y1 >= 15 && covers(p.ring, x, z));
+    assert.ok(below.some((p) => p.y1 < 30), 'a lower atrium skylight is present');
+    assert.ok(!colliders.some((c) => {
+      const o = c.obb, dx = wx - o.cx, dz = wz - o.cz;
+      return c.minY < 31 && c.maxY > 31 && Math.abs(dx * o.cs - dz * o.sn) < o.hx && Math.abs(dx * o.sn + dz * o.cs) < o.hz;
+    }), 'wing colliders leave the upper atrium bays clear');
+  }
+  assert.ok(kit.parts.filter((p) => p.type === 'cylinder' && p.y1 - p.y0 >= 9).length >= 12, 'the giant-order colonnade has individual shafts');
+  const pool = kit.parts.find((p) => p.name === 'infinity-pool-water');
+  assert.ok(pool && pool.y1 < 5, 'the river-side pool terrace stays below the colonnade');
+});
+
+test('Fullerton details merge into a few materials without coplanar flicker', async () => {
+  const { kit } = await fullertonModel();
+  const start = performance.now();
+  const flicker = kit.flicker();
+  assert.ok(performance.now() - start < 2000, 'detail validation must not stall city startup for multiple seconds');
+  assert.equal(flicker.length, 0, 'no overlapping coplanar detail surfaces: ' + JSON.stringify(flicker));
+  const { group, colliders, footprints } = kit.finish();
+  assert.ok(group.children.length <= 16, `${group.children.length} material batches`);
+  assert.ok(colliders.length > 0 && footprints.length > 0);
+  assert.ok(colliders.some((c) => c.maxY >= 33), 'the upper hotel wings remain solid to aircraft, not just the low plinth');
+  assert.ok(footprints.some((p) => p.h >= 33), 'the map records the actual hotel height');
+  for (const name of ['atrium-skylight', 'lighthouse-pavilion']) {
+    const part = kit.parts.find((p) => p.name === name);
+    const x = kit.anchor.x + part.ring.reduce((sum, p) => sum + p[0] / part.ring.length, 0);
+    const z = kit.anchor.z + part.ring.reduce((sum, p) => sum + p[1] / part.ring.length, 0);
+    const y = (part.y0 + part.y1) / 2;
+    assert.ok(colliders.some((c) => {
+      const o = c.obb, dx = x - o.cx, dz = z - o.cz;
+      return c.minY <= y && c.maxY >= y && Math.abs(dx * o.cs - dz * o.sn) <= o.hx && Math.abs(dx * o.sn + dz * o.cs) <= o.hz;
+    }), `${name} stops descent through its interior`);
+  }
+  for (const p of kit.parts) for (const n of Object.values(p.bounds)) assert.ok(Number.isFinite(n), `finite bounds for ${p.name}`);
+});
+
+async function fullertonBayModel() {
+  const { GEO } = await geodata;
+  const L = GEO.landmarks.find((l) => l.id === 'fullerton-bay-hotel');
+  assert.ok(L, 'Fullerton Bay has its own landmark anchor');
+  const { build, info } = await import(pathToFileURL(join(__dirname, '../js/landmark-models/fullerton-bay-hotel.js')).href);
+  const kit = createKit({ anchor: L, name: L.id });
+  kit.bearingDeg = GEO.frame.bearingDeg;
+  build(kit, siteOf(L));
+  return { kit, L, info };
+}
+
+test('Fullerton Bay replaces only its hotel and low link at the mapped six-storey height', async () => {
+  const { kit, L, info } = await fullertonBayModel();
+  assert.deepEqual(L.parts.map((p) => p.id).sort((a, b) => a - b), [184297025,406900561,986973997]);
+  assert.equal(info.height, 25);
+  const main = L.parts.find((p) => p.id === 406900561);
+  assert.equal(main.levels, 6);
+  assert.equal(main.height, 25);
+  const b = kit.bounds();
+  assert.ok(b.maxY >= 26 && b.maxY <= 34, 'roof furniture and street-side spine above the 25 m block');
+  assert.ok(b.minY >= -0.5 && b.minY <= 0.1);
+  for (const axis of ['X', 'Z']) {
+    const values = L.parts.find((p) => p.id === 184297025).ring.filter((_, i) => i % 2 === (axis === 'X' ? 0 : 1)).map((v) => v - L[axis.toLowerCase()]);
+    assert.ok(b[`min${axis}`] >= Math.min(...values) - 8 && b[`max${axis}`] <= Math.max(...values) + 8, `${axis}: hotel stays on the mapped site`);
+  }
+});
+
+test('Fullerton Bay has sloping glass, a roof pool and a genuinely low pier link', async () => {
+  const { kit } = await fullertonBayModel();
+  const tilted = kit.parts.filter((p) => p.type === 'loft' && p.y1 - p.y0 > 10 && p.caps.some((c) => c.ring.some((q, i) => Math.hypot(q[0] - p.ring[i][0], q[1] - p.ring[i][1]) > 1)));
+  assert.ok(tilted.length >= 4, 'corner glass is inclined geometry rather than a printed texture');
+  const pool = kit.parts.find((p) => p.name === 'rooftop-pool-water');
+  assert.ok(pool && pool.y0 >= 24 && pool.y1 < 27, 'pool on the rooftop');
+  const roof = kit.parts.find((p) => p.name === 'roof-deck');
+  assert.ok(pool.ring.every(([x,z]) => covers(roof.ring,x,z)), 'pool stays within the guestroom roof');
+  const upperLetters = kit.parts.filter((p) => p.name.startsWith('hotel-sign-') && p.y1 > roof.y0);
+  assert.ok(upperLetters.length > 0 && upperLetters.every((p) => p.ring.every(([x,z]) => !covers(roof.ring,x,z))), 'roof lettering stays in front of the solid roof slab');
+  assert.ok(kit.parts.find((p) => p.name === 'north-pier-link').y1 <= 7, 'link stays below the guestroom floors');
+  assert.equal(kit.parts.filter((p) => /^jacuzzi-water-/.test(p.name)).length, 2);
+});
+
+test('Fullerton Bay is batched, finite, free of flicker and solid beneath the rooftop pool', async () => {
+  const { kit } = await fullertonBayModel();
+  assert.ok(kit.triangles > 1500 && kit.triangles < 65000, `${kit.triangles} triangles`);
+  const start = performance.now(), flicker = kit.flicker();
+  assert.ok(performance.now() - start < 2000);
+  assert.equal(flicker.length, 0, JSON.stringify(flicker));
+  const { group, colliders, footprints } = kit.finish();
+  assert.ok(group.children.length <= 16 && footprints.length > 0);
+  const pool = kit.parts.find((p) => p.name === 'rooftop-pool-water');
+  const [x,z] = pool.ring.reduce(([x,z],p) => [x+p[0]/pool.ring.length,z+p[1]/pool.ring.length],[kit.anchor.x,kit.anchor.z]);
+  assert.ok(colliders.some((c) => {
+    const o=c.obb,dx=x-o.cx,dz=z-o.cz;
+    return c.minY <= 24.9 && c.maxY >= 24.9 && Math.abs(dx*o.cs-dz*o.sn) <= o.hx && Math.abs(dx*o.sn+dz*o.cs) <= o.hz;
+  }), 'roof interior stops vertical descent');
+  for (const p of kit.parts) for (const v of Object.values(p.bounds)) assert.ok(Number.isFinite(v), p.name);
+});
+
+test('Fullerton Bay Lantern canopy stops descent through both tent halves', async () => {
+  const { kit } = await fullertonBayModel(), { colliders } = kit.finish();
+  const halves = kit.parts.filter((p) => p.name.startsWith('lantern-tent-roof-'));
+  assert.equal(halves.length, 2);
+  for (const part of halves) {
+    const [x,z] = part.ring.reduce(([x,z],p) => [x+p[0]/part.ring.length,z+p[1]/part.ring.length],[kit.anchor.x,kit.anchor.z]);
+    assert.ok(colliders.some((c) => {
+      const o=c.obb,dx=x-o.cx,dz=z-o.cz;
+      return c.minY <= 28.2 && c.maxY >= 28.2 && Math.abs(dx*o.cs-dz*o.sn) <= o.hx && Math.abs(dx*o.sn+dz*o.cs) <= o.hz;
+    }), `${part.name} has collision above the deck, inside its visible roof`);
+  }
+});
+
+async function rafflesMrtModel() {
+  const { GEO } = await geodata;
+  const L = GEO.landmarks.find((l) => l.id === 'raffles-place-mrt');
+  assert.ok(L, 'the two Raffles Place MRT pavilions have a landmark anchor');
+  const { build, info } = await import(pathToFileURL(join(__dirname, '../js/landmark-models/raffles-place-mrt.js')).href);
+  const kit = createKit({ anchor: L, name: L.id });
+  kit.bearingDeg = GEO.frame.bearingDeg;
+  build(kit, siteOf(L));
+  const { makeFrame } = await import('../tools/city/frame.mjs');
+  const frame = makeFrame({ lat0:GEO.frame.lat0,lon0:GEO.frame.lon0,theta:GEO.frame.bearingDeg*Math.PI/180 });
+  return { kit, L, info, frame };
+}
+
+const colliderAt = (colliders,x,y,z) => colliders.some((c) => {
+  const o=c.obb,dx=x-o.cx,dz=z-o.cz;
+  return c.minY < y && c.maxY > y && Math.abs(dx*o.cs-dz*o.sn) < o.hx && Math.abs(dx*o.sn+dz*o.cs) < o.hz;
+});
+
+test('Raffles Place MRT replaces exactly its two park pavilions, with low roofs and taller finials', async () => {
+  const { kit, L, info } = await rafflesMrtModel();
+  assert.deepEqual(L.parts.map(p=>p.id).sort((a,b)=>a-b),[106193387,106193391]);
+  assert.equal(info.height,7);
+  const b=kit.bounds();
+  assert.ok(b.maxY >= 9 && b.maxY <= 12, 'photo-guided gables and finials above the nominal 7 m roof');
+  for(const axis of ['X','Z']){
+    const values=L.parts.flatMap(p=>p.ring.filter((_,i)=>i%2===(axis==='X'?0:1))).map(v=>v-L[axis.toLowerCase()]);
+    assert.ok(b[`min${axis}`]>=Math.min(...values)-6 && b[`max${axis}`]<=Math.max(...values)+6, 'each pavilion stays on its own mapped footprint');
+  }
+});
+
+test('Raffles Place MRT keeps both entrance bays and the park gap physically open', async () => {
+  const { kit, L, frame } = await rafflesMrtModel(), { colliders } = kit.finish();
+  for(const [name,lon,lat]of [['A front',103.8514598,1.2840541],['A inside',103.851458,1.284045],['B front',103.85149915,1.2844800],['B inside',103.851501,1.284493],['park',103.85148,1.28428]]){
+    const [x,z]=frame.toWorld(lon,lat);
+    const obstructing=kit.parts.filter(p=>p.y0<1.5&&p.y1>1.5&&covers(p.ring,x-L.x,z-L.z));
+    assert.equal(obstructing.length,0, `${name}: no invented ground-level slab across the entrance or lawn`);
+    assert.ok(!colliderAt(colliders,x,1.5,z), `${name}: clear of invisible collision walls`);
+  }
+});
+
+test('Raffles Place MRT roofs stop descent and both façades have real ornamental geometry', async () => {
+  const { kit, frame } = await rafflesMrtModel(), { colliders } = kit.finish();
+  for(const [lon,lat]of [[103.851453,1.283954],[103.851509,1.284578]]){
+    const [x,z]=frame.toWorld(lon,lat);
+    assert.ok(colliderAt(colliders,x,4.6,z), 'solid roof interior above the open doorway');
+  }
+  assert.ok(kit.parts.filter(p=>p.name.includes('gable-masonry')).length>=60, 'shaped gable masonry rather than a flat sign texture');
+  assert.ok(kit.parts.filter(p=>p.name.includes('clerestory-glass')).length>=6, 'three glazed entrance bays per pavilion');
+});
+
+test('Raffles Place MRT stays finite, batched and free of coplanar flicker', async () => {
+  const { kit } = await rafflesMrtModel();
+  assert.ok(kit.triangles>2000 && kit.triangles<65000, `${kit.triangles} triangles`);
+  const start=performance.now(),flicker=kit.flicker();
+  assert.ok(performance.now()-start<2000);
+  assert.equal(flicker.length,0,JSON.stringify(flicker));
+  assert.ok(kit.finish().group.children.length<=16);
+  for(const p of kit.parts)for(const v of Object.values(p.bounds))assert.ok(Number.isFinite(v),p.name);
+});
