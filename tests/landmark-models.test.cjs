@@ -215,3 +215,63 @@ test('Fullerton Bay Lantern canopy stops descent through both tent halves', asyn
     }), `${part.name} has collision above the deck, inside its visible roof`);
   }
 });
+
+async function rafflesMrtModel() {
+  const { GEO } = await geodata;
+  const L = GEO.landmarks.find((l) => l.id === 'raffles-place-mrt');
+  assert.ok(L, 'the two Raffles Place MRT pavilions have a landmark anchor');
+  const { build, info } = await import(pathToFileURL(join(__dirname, '../js/landmark-models/raffles-place-mrt.js')).href);
+  const kit = createKit({ anchor: L, name: L.id });
+  kit.bearingDeg = GEO.frame.bearingDeg;
+  build(kit, siteOf(L));
+  const { makeFrame } = await import('../tools/city/frame.mjs');
+  const frame = makeFrame({ lat0:GEO.frame.lat0,lon0:GEO.frame.lon0,theta:GEO.frame.bearingDeg*Math.PI/180 });
+  return { kit, L, info, frame };
+}
+
+const colliderAt = (colliders,x,y,z) => colliders.some((c) => {
+  const o=c.obb,dx=x-o.cx,dz=z-o.cz;
+  return c.minY < y && c.maxY > y && Math.abs(dx*o.cs-dz*o.sn) < o.hx && Math.abs(dx*o.sn+dz*o.cs) < o.hz;
+});
+
+test('Raffles Place MRT replaces exactly its two park pavilions, with low roofs and taller finials', async () => {
+  const { kit, L, info } = await rafflesMrtModel();
+  assert.deepEqual(L.parts.map(p=>p.id).sort((a,b)=>a-b),[106193387,106193391]);
+  assert.equal(info.height,7);
+  const b=kit.bounds();
+  assert.ok(b.maxY >= 9 && b.maxY <= 12, 'photo-guided gables and finials above the nominal 7 m roof');
+  for(const axis of ['X','Z']){
+    const values=L.parts.flatMap(p=>p.ring.filter((_,i)=>i%2===(axis==='X'?0:1))).map(v=>v-L[axis.toLowerCase()]);
+    assert.ok(b[`min${axis}`]>=Math.min(...values)-6 && b[`max${axis}`]<=Math.max(...values)+6, 'each pavilion stays on its own mapped footprint');
+  }
+});
+
+test('Raffles Place MRT keeps both entrance bays and the park gap physically open', async () => {
+  const { kit, L, frame } = await rafflesMrtModel(), { colliders } = kit.finish();
+  for(const [name,lon,lat]of [['A front',103.8514598,1.2840541],['A inside',103.851458,1.284045],['B front',103.85149915,1.2844800],['B inside',103.851501,1.284493],['park',103.85148,1.28428]]){
+    const [x,z]=frame.toWorld(lon,lat);
+    const obstructing=kit.parts.filter(p=>p.y0<1.5&&p.y1>1.5&&covers(p.ring,x-L.x,z-L.z));
+    assert.equal(obstructing.length,0, `${name}: no invented ground-level slab across the entrance or lawn`);
+    assert.ok(!colliderAt(colliders,x,1.5,z), `${name}: clear of invisible collision walls`);
+  }
+});
+
+test('Raffles Place MRT roofs stop descent and both façades have real ornamental geometry', async () => {
+  const { kit, frame } = await rafflesMrtModel(), { colliders } = kit.finish();
+  for(const [lon,lat]of [[103.851453,1.283954],[103.851509,1.284578]]){
+    const [x,z]=frame.toWorld(lon,lat);
+    assert.ok(colliderAt(colliders,x,4.6,z), 'solid roof interior above the open doorway');
+  }
+  assert.ok(kit.parts.filter(p=>p.name.includes('gable-masonry')).length>=60, 'shaped gable masonry rather than a flat sign texture');
+  assert.ok(kit.parts.filter(p=>p.name.includes('clerestory-glass')).length>=6, 'three glazed entrance bays per pavilion');
+});
+
+test('Raffles Place MRT stays finite, batched and free of coplanar flicker', async () => {
+  const { kit } = await rafflesMrtModel();
+  assert.ok(kit.triangles>2000 && kit.triangles<65000, `${kit.triangles} triangles`);
+  const start=performance.now(),flicker=kit.flicker();
+  assert.ok(performance.now()-start<2000);
+  assert.equal(flicker.length,0,JSON.stringify(flicker));
+  assert.ok(kit.finish().group.children.length<=16);
+  for(const p of kit.parts)for(const v of Object.values(p.bounds))assert.ok(Number.isFinite(v),p.name);
+});
