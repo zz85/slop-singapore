@@ -78,6 +78,20 @@ test('explicit collision fills an irregular roof interior while leaving its conc
   assert.ok(!hits(8, 8), 'the courtyard opening remains clear');
 });
 
+test('a loft can follow an explicit upper ring for an outward-inclined glass facade', () => {
+  const { createKit } = load(), kit = createKit();
+  const ring = [[-2,-1],[2,-1],[2,1],[-2,1]];
+  const topRing = [[-3,-1],[4,-1],[4,1],[-3,1]];
+  const part = kit.loft({ ring, topRing, y0: 2, y1: 25, material: kit.material(0x5a8393) });
+  assert.equal(part.bounds.minX, -3);
+  assert.equal(part.bounds.maxX, 4);
+  assert.equal(part.bounds.minZ, -1, 'only the intended facade direction tilts');
+  const triangles = kit.finish().group.children.flatMap(trianglesOf);
+  assert.ok(triangles.every((t) => t.area > 0 && dot(t.normal, t.stored) > 0.999));
+  assert.ok(triangles.some((t) => t.normal[1] < -0.01 && Math.abs(t.normal[0]) > 0.9), 'the inclined wall has an actual tilted surface normal');
+  assert.throws(() => kit.loft({ ring, topRing: [[0,0]], y1: 5 }), /topRing/);
+});
+
 test('solids about the anchor: a box, a prism, a loft and a cylinder, with their triangles and bounds', () => {
   const { createKit } = load();
   const kit = createKit({ anchor: { x: 1000, z: -500 } });

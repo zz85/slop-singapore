@@ -203,14 +203,15 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
    * ring scaled toward its centre by `scale` (a loft), walls in `material` and the top in `top` (the roof grey unless
    * named). Below 0.5 m from the ground no underside is drawn. -> the part record
    */
-  function solid({ ring, y0 = 0, y1, scale = 1, material, top = kit.roofMaterial(), name = '', type = 'prism' }) {
+  function solid({ ring, y0 = 0, y1, scale = 1, upperRing, material, top = kit.roofMaterial(), name = '', type = 'prism' }) {
     if (!ring || ring.length < 3) throw new Error(`landmark kit: ${type} needs a ring of 3 points or more`);
     if (!(y1 > y0) && typeof y1 !== 'function') throw new Error(`landmark kit: ${type} ${name} is not taller than its base`);
     const n = ring.length;
+    if (upperRing && (upperRing.length !== n || upperRing.some((p) => p.length !== 2 || !p.every(Number.isFinite)))) throw new Error('landmark kit: loft topRing needs one finite point per base point');
     let cx = 0, cz = 0;
     for (const [x, z] of ring) { cx += x; cz += z; }
     cx /= n; cz /= n;
-    const topRing = ring.map(([x, z]) => [cx + (x - cx) * scale, cz + (z - cz) * scale]);
+    const topRing = upperRing || ring.map(([x, z]) => [cx + (x - cx) * scale, cz + (z - cz) * scale]);
     const topY = (x, z) => (typeof y1 === 'function' ? y1(x, z) : y1);
     const N = outwardNormals(ring);
     const B = batch(material);
@@ -232,7 +233,7 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
       [p0, p1, p2, p3].forEach(grow);
       along += L;
     }
-    if (scale === 1) part.walls = wallsOf(ring, y0, y1);
+    if (scale === 1 && !upperRing) part.walls = wallsOf(ring, y0, y1);
     // the top (and, up in the air, the underside)
     const tris = triangulate(topRing);
     const T = batch(top);
@@ -268,8 +269,8 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     }
     collisionParts.push({ ring: ring.map((p) => [...p]), y0, y1, filled: true });
   };
-  /** A loft: the ring at y0, scaled toward its centre by `scale` at y1 (a taper, a setback crown, a spire at ~0) */
-  kit.loft = ({ ring, y0 = 0, y1, scale = 0.5, material, top, name = '' }) => solid({ ring, y0, y1, scale, material, top, name, type: 'loft' });
+  /** A loft: scale the base ring at y1, or supply a corresponding topRing for a translated/inclined facade. */
+  kit.loft = ({ ring, topRing, y0 = 0, y1, scale = 0.5, material, top, name = '' }) => solid({ ring, upperRing: topRing, y0, y1, scale, material, top, name, type: 'loft' });
   /** A cylinder about (x, z) from y0 to y1, radius r, in `segments` sides */
   kit.cylinder = ({ x = 0, z = 0, y0 = 0, y1, r, segments = 12, material, top, name = '' }) => {
     const ring = Array.from({ length: segments }, (_, i) => { const a = (i / segments) * Math.PI * 2; return [x + Math.cos(a) * r, z + Math.sin(a) * r]; });

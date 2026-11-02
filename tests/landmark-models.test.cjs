@@ -144,3 +144,74 @@ test('Fullerton details merge into a few materials without coplanar flicker', as
   }
   for (const p of kit.parts) for (const n of Object.values(p.bounds)) assert.ok(Number.isFinite(n), `finite bounds for ${p.name}`);
 });
+
+async function fullertonBayModel() {
+  const { GEO } = await geodata;
+  const L = GEO.landmarks.find((l) => l.id === 'fullerton-bay-hotel');
+  assert.ok(L, 'Fullerton Bay has its own landmark anchor');
+  const { build, info } = await import(pathToFileURL(join(__dirname, '../js/landmark-models/fullerton-bay-hotel.js')).href);
+  const kit = createKit({ anchor: L, name: L.id });
+  kit.bearingDeg = GEO.frame.bearingDeg;
+  build(kit, siteOf(L));
+  return { kit, L, info };
+}
+
+test('Fullerton Bay replaces only its hotel and low link at the mapped six-storey height', async () => {
+  const { kit, L, info } = await fullertonBayModel();
+  assert.deepEqual(L.parts.map((p) => p.id).sort((a, b) => a - b), [184297025,406900561,986973997]);
+  assert.equal(info.height, 25);
+  const main = L.parts.find((p) => p.id === 406900561);
+  assert.equal(main.levels, 6);
+  assert.equal(main.height, 25);
+  const b = kit.bounds();
+  assert.ok(b.maxY >= 26 && b.maxY <= 34, 'roof furniture and street-side spine above the 25 m block');
+  assert.ok(b.minY >= -0.5 && b.minY <= 0.1);
+  for (const axis of ['X', 'Z']) {
+    const values = L.parts.find((p) => p.id === 184297025).ring.filter((_, i) => i % 2 === (axis === 'X' ? 0 : 1)).map((v) => v - L[axis.toLowerCase()]);
+    assert.ok(b[`min${axis}`] >= Math.min(...values) - 8 && b[`max${axis}`] <= Math.max(...values) + 8, `${axis}: hotel stays on the mapped site`);
+  }
+});
+
+test('Fullerton Bay has sloping glass, a roof pool and a genuinely low pier link', async () => {
+  const { kit } = await fullertonBayModel();
+  const tilted = kit.parts.filter((p) => p.type === 'loft' && p.y1 - p.y0 > 10 && p.caps.some((c) => c.ring.some((q, i) => Math.hypot(q[0] - p.ring[i][0], q[1] - p.ring[i][1]) > 1)));
+  assert.ok(tilted.length >= 4, 'corner glass is inclined geometry rather than a printed texture');
+  const pool = kit.parts.find((p) => p.name === 'rooftop-pool-water');
+  assert.ok(pool && pool.y0 >= 24 && pool.y1 < 27, 'pool on the rooftop');
+  const roof = kit.parts.find((p) => p.name === 'roof-deck');
+  assert.ok(pool.ring.every(([x,z]) => covers(roof.ring,x,z)), 'pool stays within the guestroom roof');
+  const upperLetters = kit.parts.filter((p) => p.name.startsWith('hotel-sign-') && p.y1 > roof.y0);
+  assert.ok(upperLetters.length > 0 && upperLetters.every((p) => p.ring.every(([x,z]) => !covers(roof.ring,x,z))), 'roof lettering stays in front of the solid roof slab');
+  assert.ok(kit.parts.find((p) => p.name === 'north-pier-link').y1 <= 7, 'link stays below the guestroom floors');
+  assert.equal(kit.parts.filter((p) => /^jacuzzi-water-/.test(p.name)).length, 2);
+});
+
+test('Fullerton Bay is batched, finite, free of flicker and solid beneath the rooftop pool', async () => {
+  const { kit } = await fullertonBayModel();
+  assert.ok(kit.triangles > 1500 && kit.triangles < 65000, `${kit.triangles} triangles`);
+  const start = performance.now(), flicker = kit.flicker();
+  assert.ok(performance.now() - start < 2000);
+  assert.equal(flicker.length, 0, JSON.stringify(flicker));
+  const { group, colliders, footprints } = kit.finish();
+  assert.ok(group.children.length <= 16 && footprints.length > 0);
+  const pool = kit.parts.find((p) => p.name === 'rooftop-pool-water');
+  const [x,z] = pool.ring.reduce(([x,z],p) => [x+p[0]/pool.ring.length,z+p[1]/pool.ring.length],[kit.anchor.x,kit.anchor.z]);
+  assert.ok(colliders.some((c) => {
+    const o=c.obb,dx=x-o.cx,dz=z-o.cz;
+    return c.minY <= 24.9 && c.maxY >= 24.9 && Math.abs(dx*o.cs-dz*o.sn) <= o.hx && Math.abs(dx*o.sn+dz*o.cs) <= o.hz;
+  }), 'roof interior stops vertical descent');
+  for (const p of kit.parts) for (const v of Object.values(p.bounds)) assert.ok(Number.isFinite(v), p.name);
+});
+
+test('Fullerton Bay Lantern canopy stops descent through both tent halves', async () => {
+  const { kit } = await fullertonBayModel(), { colliders } = kit.finish();
+  const halves = kit.parts.filter((p) => p.name.startsWith('lantern-tent-roof-'));
+  assert.equal(halves.length, 2);
+  for (const part of halves) {
+    const [x,z] = part.ring.reduce(([x,z],p) => [x+p[0]/part.ring.length,z+p[1]/part.ring.length],[kit.anchor.x,kit.anchor.z]);
+    assert.ok(colliders.some((c) => {
+      const o=c.obb,dx=x-o.cx,dz=z-o.cz;
+      return c.minY <= 28.2 && c.maxY >= 28.2 && Math.abs(dx*o.cs-dz*o.sn) <= o.hx && Math.abs(dx*o.sn+dz*o.cs) <= o.hz;
+    }), `${part.name} has collision above the deck, inside its visible roof`);
+  }
+});
