@@ -117,8 +117,11 @@ function bindTreeDetail({ buttons, apply, storage = null, level = 'auto' }) {
   return { set, get: () => current };
 }
 
-/** The look to start in: the URL's ?look=<id> when it is one of `looks` (case does not matter), else `fallback` */
-function initialLook({ search = '', looks = [], fallback = 'golden' } = {}) {
+/**
+ * The look to start in: the URL's ?look=<id> when it is one of `looks` (case does not matter), else `fallback`: the
+ * tiny look, the default since the UI follows tinywarsaw.app (?look=golden for the photoreal golden hour)
+ */
+function initialLook({ search = '', looks = [], fallback = 'tiny' } = {}) {
   const fromUrl = (new URLSearchParams(search).get('look') || '').toLowerCase();
   return looks.includes(fromUrl) ? fromUrl : fallback;
 }

@@ -41,15 +41,16 @@ import { createAirForce } from './air-force.js';
 import { Binoculars } from './binoculars.js';
 import { BoomWatcher } from './jet-acoustics.js';
 import { GEO } from './geodata.js';
+import { placeEntries, bindPlaceSearch } from './place-search.js';
 
 // js/main.js
 // Main entry point for the city simulation (Singapore by default, ?city=nyc for New York) in Three.js WebGPURenderer &
 // TSL (three.js dev, see index.html)
 
-// The page's words for the simulated city: index.html is written for Singapore, the default city; New York keeps the
-// page it always had
+// The page's words for the simulated city: index.html is written for Singapore, the default city (Tiny Singapore, after
+// tinywarsaw.app); New York keeps the page it always had
 function nameThePage() {
-  const title = `Slop ${CITY.name}`;
+  const title = `${CITY.open ? 'Tiny' : 'Slop'} ${CITY.name}`;
   const text = CITY.open
     ? {
       description: `A ${CITY.name} city simulation built with three.js: walk, drive, cycle or fly through its real streets.`,
@@ -77,6 +78,8 @@ function nameThePage() {
   set('.fullmap-title h2', (el) => (el.textContent = text.atlas));
   set('.map-compass', (el) => (el.title = text.compass));
   set('#map-view-all', (el) => { el.title = text.all; el.setAttribute('aria-label', text.fit); });
+  // (New York's streets are not OpenStreetMap's)
+  if (!CITY.open) set('.credit-osm', (el) => el.remove());
 }
 
 async function initApp() {
@@ -405,6 +408,7 @@ async function initApp() {
   const timeButtons = document.querySelectorAll('[data-time]');
   const hudToggleBtn = document.getElementById('btn-toggle-hud');
   const modeSwitch = document.getElementById('mode-switch');
+  const mapViewButton = document.getElementById('mode-map');
   touchControls.onAvailabilityChange = placeModeIndicator;
 
   const elFps = document.getElementById('hud-fps');
@@ -431,13 +435,13 @@ async function initApp() {
 
   // Keyboard guide for each mode: [keys, action]
   const controlHints = {
-    person: [[['W', 'S'], 'Walk / Run'], [['A', 'D'], 'Turn'], [['Space'], 'Jump'], [['Drag'], 'Orbit']],
-    car: [[['W', 'S'], 'Drive / Reverse'], [['A', 'D'], 'Steer'], [['B'], 'Horn'], [['[', ']'], 'How to go'], [['G'], 'Where to'], [['Drag'], 'Orbit']],
-    cyclist: [[['W', 'S'], 'Pedal / Brake'], [['A', 'D'], 'Lean & Turn'], [['Drag'], 'Orbit']],
-    helicopter: [[['W', 'S'], 'Pitch'], [['A', 'D'], 'Yaw'], [['Space', 'E'], 'Ascend'], [['Q', 'C'], 'Descend']],
+    person: [[['W', 'S'], 'Walk / Run'], [['A', 'D'], 'Turn'], [['Space'], 'Jump'], [['Drag'], 'Orbit'], [['Esc'], 'Map']],
+    car: [[['W', 'S'], 'Drive / Reverse'], [['A', 'D'], 'Steer'], [['B'], 'Horn'], [['[', ']'], 'How to go'], [['G'], 'Where to'], [['Drag'], 'Orbit'], [['Esc'], 'Map']],
+    cyclist: [[['W', 'S'], 'Pedal / Brake'], [['A', 'D'], 'Lean & Turn'], [['Drag'], 'Orbit'], [['Esc'], 'Map']],
+    helicopter: [[['W', 'S'], 'Pitch'], [['A', 'D'], 'Yaw'], [['Space', 'E'], 'Ascend'], [['Q', 'C'], 'Descend'], [['Esc'], 'Map']],
     jet: [[['W', 'S'], 'Nose down / up'], [['A', 'D'], 'Roll'], [['Space', 'E'], 'Throttle'], [['Q', 'C'], 'Idle / Brake'], [['T'], 'Cockpit · mouse looks']],
     // (the map view's, while it is the camera: js/cameras.js moveMapView)
-    map: [[['Drag'], 'Pan'], [['Right-drag'], 'Orbit'], [['Wheel'], 'Zoom'], [['V'], 'Cameras']]
+    map: [[['Drag'], 'Pan'], [['Right-drag'], 'Orbit'], [['Wheel'], 'Zoom'], [['/'], 'Search'], [['V'], 'Cameras']]
   };
   // Top speeds in mph (controllers.js caps them at 8.2, 36, 19 & 52 m/s; the jet Mach 1.1, jet-flight.js): full scale
   // of the speed meter
@@ -467,12 +471,15 @@ async function initApp() {
     elControlsHint.replaceChildren(...items);
   }
 
-  // The taxi-yellow pill under the selected mode glides from button to button
+  // The dock's highlight glides to the map view while it is the camera, else to the ride (the dock wraps onto two rows
+  // on a phone, so down as well as across)
   function placeModeIndicator() {
-    const active = modeSwitch ? modeSwitch.querySelector('.mode-btn.active') : null;
+    const active = !modeSwitch ? null : cameraSystem.activePresetId === 'map' && mapViewButton ? mapViewButton : modeSwitch.querySelector('.mode-btn.active[data-mode]');
     if (!active) return;
     modeSwitch.style.setProperty('--ind-x', `${active.offsetLeft}px`);
+    modeSwitch.style.setProperty('--ind-y', `${active.offsetTop}px`);
     modeSwitch.style.setProperty('--ind-w', `${active.offsetWidth}px`);
+    modeSwitch.style.setProperty('--ind-h', `${active.offsetHeight}px`);
   }
 
   function selectMode(mode) {
@@ -505,6 +512,11 @@ async function initApp() {
     const preset = cameraSystem.getActivePreset();
     if (elCamera) elCamera.textContent = preset.name;
     renderControlHints(camId === 'map' ? 'map' : controllerManager.activeMode);
+    // (the map view puts the ride's instruments away, as tinywarsaw.app's map does: css/style.css body.is-map-view)
+    document.body.classList.toggle('is-map-view', camId === 'map');
+    mapViewButton?.classList.toggle('active', camId === 'map');
+    mapViewButton?.setAttribute('aria-pressed', String(camId === 'map'));
+    placeModeIndicator();
     applyTiltShift();
   }
 
@@ -536,7 +548,28 @@ async function initApp() {
     timeButtons.forEach((btn) => {
       btn.classList.toggle('active', btn.getAttribute('data-time') === timeId);
     });
+    renderSunButton([...timeButtons].find((btn) => btn.dataset.time === lightingSystem.activePresetId));
     applyTiltShift();
+  }
+
+  // The dock's sun button: the look's name and clock, and the sun's way round the day on its dial
+  const sunButton = document.getElementById('btn-time');
+  const sunTime = document.getElementById('sun-time');
+  const sunName = document.getElementById('sun-name');
+  const sunArc = document.getElementById('sun-dial-arc');
+  const sunDot = document.getElementById('sun-dial-dot');
+  function renderSunButton(btn) {
+    if (!btn) return;
+    const clock = btn.dataset.clock || '';
+    const name = btn.querySelector('.pop-name')?.textContent || '';
+    const [h, m] = clock.split(':').map(Number);
+    const day = Number.isFinite(h) ? (h + (m || 0) / 60) / 24 : 0;
+    if (sunTime) sunTime.textContent = clock;
+    if (sunName) sunName.textContent = name;
+    sunArc?.setAttribute('stroke-dasharray', `${(day * 100).toFixed(1)} 100`);
+    sunDot?.setAttribute('cx', (20 + 15 * Math.sin(day * 2 * Math.PI)).toFixed(2));
+    sunDot?.setAttribute('cy', (20 - 15 * Math.cos(day * 2 * Math.PI)).toFixed(2));
+    sunButton?.setAttribute('aria-label', `Look and time of day: ${name}, ${clock}. Choose another`);
   }
 
   // Graphics: the island's tree detail (js/graphics-settings.js), saved; the menu hidden where there are no island tiles
@@ -574,7 +607,8 @@ async function initApp() {
   }
 
   // Popovers (native [popover]: light dismiss & Esc for free) open against the control that toggles them: data-anchor
-  // names the element they sit above / below, data-align the one whose right edge they line up with
+  // names the element they sit above / below, data-align the one whose right edge they line up with (data-align-start:
+  // whose left edge, for a control at the dock's start)
   const popovers = document.querySelectorAll('.popover[popover]');
   const supportsPopover = typeof HTMLElement.prototype.togglePopover === 'function';
   function closePopovers() {
@@ -598,7 +632,13 @@ async function initApp() {
       let above = pop.dataset.side === 'above';
       // The camera control moves to the top on touch screens; open toward the available space.
       if ((above ? spaceAbove : spaceBelow) < 160) above = spaceAbove > spaceBelow;
-      pop.style.right = `${Math.max(8, window.innerWidth - align.getBoundingClientRect().right)}px`;
+      const start = document.getElementById(pop.dataset.alignStart);
+      if (start) {
+        pop.style.right = 'auto';
+        pop.style.left = `${Math.max(8, start.getBoundingClientRect().left)}px`;
+      } else {
+        pop.style.right = `${Math.max(8, window.innerWidth - align.getBoundingClientRect().right)}px`;
+      }
       if (above) {
         pop.style.top = 'auto';
         pop.style.bottom = `${window.innerHeight - r.top + 8}px`;
@@ -616,6 +656,7 @@ async function initApp() {
       selectMode(btn.getAttribute('data-mode'));
     });
   });
+  mapViewButton?.addEventListener('click', () => selectCamera('map', false));
 
   cameraButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -1010,6 +1051,28 @@ async function initApp() {
         break;
     }
   });
+  // Esc: from a ride back to the map view (tinywarsaw.app's "Map · Esc"), unless it closes something first: a menu, the
+  // full map, the binoculars. (Before the full map's own Esc, which would have closed it by then.)
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'Escape' || e.repeat || isTypingInField(e) || mapSystem.isFullMapOpen || binoculars.active) return;
+    if (cameraSystem.activePresetId === 'map' || (supportsPopover && document.querySelector('.popover:popover-open'))) return;
+    selectCamera('map', false);
+  }, { capture: true });
+
+  // The top bar's search (js/place-search.js): the map view flies to the place, landmark or street picked
+  bindPlaceSearch({
+    input: document.getElementById('place-search'),
+    list: document.getElementById('place-results'),
+    entries: placeEntries({ places: GEO.places || NYC_LANDMARKS, landmarks: GEO.landmarks, roads: ROADS }),
+    onPick: (entry) => {
+      closePopovers();
+      selectCamera('map', false);
+      const m = cameraSystem.map;
+      m.target.set(entry.x, 0, entry.z);
+      m.fresh = false;
+      m.distance = Math.max(MAP_VIEW.minDistance, Math.min(MAP_VIEW.maxDistance, entry.distance));
+    }
+  });
 
   window.addEventListener('resize', () => {
     cameraSystem.onResize(window.innerWidth, window.innerHeight);
@@ -1024,9 +1087,10 @@ async function initApp() {
 
   // Initialize the UI and chase camera around the restored player, or the default taxi on a first visit.
   selectMode(controllerManager.activeMode);
-  // The golden hour, or the look ?look=<id> names (?look=tiny: the flat miniature look, js/graphics-settings.js); the
-  // chase camera, or ?camera=<id>'s. The tiny look lands in its map view unless a camera is named.
-  const startLook = initialLook({ search: location.search, looks: Object.keys(TIME_PRESETS) });
+  // The tiny look (New York: its golden hour), or the look ?look=<id> names (?look=golden: the photoreal golden hour,
+  // js/graphics-settings.js); the chase camera, or ?camera=<id>'s. The tiny look lands in its map view unless a camera
+  // is named.
+  const startLook = initialLook({ search: location.search, looks: Object.keys(TIME_PRESETS), fallback: CITY.open ? 'tiny' : 'golden' });
   const startCamera = new URLSearchParams(location.search).get('camera');
   selectCamera(cameraOffered(startCamera) ? startCamera : (startLook === 'tiny' ? 'map' : 'chase'), true);
   selectTime(startLook);
