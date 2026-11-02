@@ -412,3 +412,74 @@ test('hang: a sign on the wall facing the bay under the roofline, or on the face
   assert.equal(kit.flicker().length, 0);
   assert.throws(() => kit.hang({ top: 10, toward: 0, text: 'x' }), /ring/);
 });
+
+test('the honeycomb facade: a hexagon per bay and storey, pointed or flat-topped, its frame in the memo key', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 0, z: 0 } });
+  const pointed = kit.facadeMaterial({ wall: 0xe6e8e6, window: 0x50606a, pattern: 'honeycomb', bayWidth: 3.5, floorHeight: 6 });
+  assert.ok(Object.hasOwn(pointed, 'colorNode'), 'painted in a node');
+  assert.equal(kit.facadeMaterial({ wall: 0xe6e8e6, window: 0x50606a, pattern: 'honeycomb', bayWidth: 3.5, floorHeight: 6 }), pointed);
+  const flat = kit.facadeMaterial({ wall: 0xe6e8e6, window: 0x50606a, pattern: 'honeycomb', bayWidth: 3.5, floorHeight: 6, honeycomb: { flat: true } });
+  assert.notEqual(flat, pointed, 'flat-topped hexagons: another material');
+  assert.notEqual(kit.facadeMaterial({ wall: 0xe6e8e6, window: 0x50606a, pattern: 'honeycomb', bayWidth: 3.5, floorHeight: 6, honeycomb: { frame: 0.14 } }), pointed, 'a heavier frame: another material');
+});
+
+test('a prism can give each wall its own material: a concave face in one, the flat ends in another', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 0, z: 0 } });
+  const face = kit.material(0xe6e8e6), ends = kit.material(0x9aa0a4), roof = kit.material(0x7a8a6a);
+  const ring = [[-10, -5], [10, -5], [10, 5], [-10, 5]];
+  const part = kit.prism({ ring, y0: 0, y1: 30, material: ends, top: roof, edgeMaterial: (i) => (i === 0 ? face : null), name: 'tower' });
+  assert.equal(part.walls.length, 4, 'its walls still recorded for the flicker check');
+  const { group } = kit.finish();
+  const count = (m) => trianglesOf(group.children.find((o) => o.material === m)).length;
+  assert.equal(count(face), 2, 'the first wall in its own material');
+  assert.equal(count(ends), 6, 'the other three in the solid\'s');
+  assert.equal(count(roof), 2, 'the top in its own');
+});
+
+test('a beam: a sloped box between two points, its faces outward, structure in the bounds but nothing to walk into', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 0, z: 0 } });
+  const m = kit.material(0x55595c);
+  const before = kit.triangles;
+  const rafter = kit.beam({ from: [0, 200, -10], to: [0, 212, 30], w: 0.4, h: 0.6, material: m, name: 'rafter' });
+  assert.equal(kit.triangles, before + 12, 'six faces');
+  assert.equal(rafter.type, 'beam');
+  assert.ok(rafter.bounds.minY < 200 && rafter.bounds.maxY > 212 && near(rafter.bounds.maxX - rafter.bounds.minX, 0.4), JSON.stringify(rafter.bounds));
+  kit.beam({ from: [5, 0, 0], to: [5, 10, 0], w: 0.3, h: 0.3, material: m, name: 'post' }); // straight up
+  assert.ok(near(kit.bounds().maxY, rafter.bounds.maxY), 'counted in the bounds');
+  assert.equal(kit.flicker().length, 0);
+  assert.throws(() => kit.beam({ from: [0, 0, 0], to: [0, 0, 0], material: m }), /length/);
+  const { group, colliders } = kit.finish();
+  assert.equal(colliders.length, 0, 'a post or a rafter is nothing to walk into');
+  const tris = trianglesOf(group.children[0]);
+  assert.equal(tris.length, 24);
+  for (const [i, t] of tris.entries()) {
+    assert.ok(t.area > 0 && dot(t.normal, t.stored) > 0.999, 'stored normal is the winding');
+    const beam = i < 12 ? { from: [0, 200, -10], to: [0, 212, 30] } : { from: [5, 0, 0], to: [5, 10, 0] };
+    const mid = beam.from.map((v, k) => (v + beam.to[k]) / 2);
+    assert.ok(dot(t.normal, t.centroid.map((v, k) => v - mid[k])) > 0, 'faces out of the beam');
+  }
+});
+
+test('a vertical sign: the text running down a narrow panel, reading right from both sides', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 0, z: 0 } });
+  const sign = kit.sign({ text: 'andaz', x: 0, z: 0, yTop: 170, yaw: Math.PI / 2, height: 2.4, width: 11, vertical: true, color: 0x3a3d40 });
+  assert.ok(near(sign.bounds.maxY, 170) && near(sign.bounds.minY, 159), 'as tall as the text runs');
+  assert.ok(near(sign.bounds.maxZ - sign.bounds.minZ, 2.4), 'as wide as the letters are tall');
+  const tall = kit.sign({ text: 'andaz', x: 10, z: 0, y: 0, yaw: Math.PI / 2, height: 2, vertical: true, maxWidth: 4 });
+  assert.ok(near(tall.bounds.maxY - tall.bounds.minY, 4) && near(tall.bounds.maxZ - tall.bounds.minZ, 2 * 4 / (2 * 0.62 * 5)), 'a run longer than maxWidth shrinks, keeping its shape');
+  const { group } = kit.finish();
+  const mesh = group.children.find((o) => o.material === sign.material);
+  const uvs = mesh.geometry.attributes.uv.array;
+  trianglesOf(mesh).slice(0, 4).forEach((t, k) => {
+    const corners = [t.a, t.b, t.c].map((p, i) => ({ y: p[1], z: p[2], u: uvs[k * 6 + i * 2], v: uvs[k * 6 + i * 2 + 1] }));
+    const start = corners.filter((c) => c.u === 0), end = corners.filter((c) => c.u === 1);
+    assert.ok(start.length && end.length && start.every((c) => end.every((d) => c.y > d.y)), 'the text starts at the top');
+    // the letters' tops toward the viewer's right: -z in front of a +x face, +z behind it
+    const tops = corners.filter((c) => c.v === 1), feet = corners.filter((c) => c.v === 0);
+    assert.ok(tops.length && feet.length && tops.every((c) => feet.every((d) => (t.normal[0] > 0 ? c.z < d.z : c.z > d.z))), 'reads right from ' + (t.normal[0] > 0 ? 'the front' : 'the back'));
+  });
+});
