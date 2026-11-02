@@ -117,4 +117,10 @@ function bindTreeDetail({ buttons, apply, storage = null, level = 'auto' }) {
   return { set, get: () => current };
 }
 
-export { TREE_LEVELS, TREE_CHOICES, TREE_KEY, initialTreeDetail, bindTreeDetail, createAutoTreeDetail };
+/** The look to start in: the URL's ?look=<id> when it is one of `looks` (case does not matter), else `fallback` */
+function initialLook({ search = '', looks = [], fallback = 'golden' } = {}) {
+  const fromUrl = (new URLSearchParams(search).get('look') || '').toLowerCase();
+  return looks.includes(fromUrl) ? fromUrl : fallback;
+}
+
+export { TREE_LEVELS, TREE_CHOICES, TREE_KEY, initialTreeDetail, bindTreeDetail, createAutoTreeDetail, initialLook };

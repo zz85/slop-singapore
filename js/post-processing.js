@@ -17,17 +17,28 @@ import {
   screenSize
 } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+import { gaussianBlur } from 'three/addons/tsl/display/GaussianBlurNode.js';
 
-// Scene-linear color grading and lens bloom, composed in the existing final render pass.
+// Scene-linear color grading and lens bloom, composed in the existing final render pass. A second output graph,
+// `tiltShiftNode`, adds the miniature's tilt-shift (tinywarsaw.app's "band" mode: sharp across the middle of the
+// screen, blurred towards its top and bottom) for the tiny look's map view; main.js swaps the RenderPipeline's
+// outputNode between the two, so the blur passes only run while it is on.
 
 // Exposure and white balance belong to the camera, independently of the physical lighting presets.
 // Keep exposure restrained for ACES; stronger bloom stays selective so midtones retain their contrast.
+// `tiny` (TIME_PRESETS.tiny in js/lighting.js, ?look=tiny) is the tinywarsaw.app look: no tone mapping at all, so
+// pastels reach the screen as painted and the brightest faces simply clip; no bloom, no cool-shadow / warm-highlight
+// split, no screen-space reflections; a touch more saturation and the miniature's heavier vignette.
 const LOOKS = {
   golden:   { exposure: 1.04, contrast: 1.12, saturation: 1.08, balance: [1.045, 1.00, 0.955], bloom: 0.24, threshold: 1.20 },
   midday:   { exposure: 1.00, contrast: 1.10, saturation: 1.06, balance: [1.015, 1.00, 0.985], bloom: 0.18, threshold: 1.35 },
   twilight: { exposure: 1.06, contrast: 1.10, saturation: 1.08, balance: [1.025, 0.995, 1.015], bloom: 0.28, threshold: 1.05 },
-  midnight: { exposure: 1.04, contrast: 1.08, saturation: 1.06, balance: [0.985, 1.00, 1.035], bloom: 0.30, threshold: 1.00 }
+  midnight: { exposure: 1.04, contrast: 1.08, saturation: 1.06, balance: [0.985, 1.00, 1.035], bloom: 0.30, threshold: 1.00 },
+  tiny:     { exposure: 1.00, contrast: 1.00, saturation: 1.12, balance: [1, 1, 1], bloom: 0, threshold: 1.20,
+              toning: 0, vignette: 0.25, reflections: 0, toneMapping: THREE.NoToneMapping }
 };
+// What the filmic looks leave unsaid: full split toning, the subtle lens vignette, half-strength SSR, ACES
+const LOOK_DEFAULTS = { toning: 1, vignette: 0.12, reflections: 0.5, toneMapping: THREE.ACESFilmicToneMapping };
 
 function createPostProcessing(renderer, sceneColor, reflections) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -39,6 +50,8 @@ function createPostProcessing(renderer, sceneColor, reflections) {
   const contrast = uniform(1.0);
   const saturation = uniform(1.0);
   const balance = uniform(new THREE.Vector3(1, 1, 1));
+  const toning = uniform(1.0);
+  const vignetteAmount = uniform(0.12);
   const exposed = max(sceneColor.rgb.add(reflections.rgb), vec3(0)).mul(exposure).mul(balance);
 
   // Limit only bloom's peak radiance, scaling RGB together to retain neon and lamp colors.
@@ -49,14 +62,24 @@ function createPostProcessing(renderer, sceneColor, reflections) {
   bloomPass.smoothWidth.value = 0.30;
   bloomPass.setResolutionScale(0.5);
 
-  const outputNode = Fn(() => {
-    const color = exposed.add(bloomPass.rgb).toVar();
+  // The tilt-shift: the scene blurred at half resolution, mixed in by how far a pixel is from the band across the
+  // middle of the screen (sharp within `tiltBand` of the centre, fully blurred by `tiltBand` + `tiltRamp`)
+  const tiltBand = uniform(0.12);
+  const tiltRamp = uniform(0.30);
+  const tiltBlur = gaussianBlur(sceneColor, vec2(1.0), 4, { resolutionScale: 0.5 });
+  const tiltMask = smoothstep(tiltBand, tiltBand.add(tiltRamp), screenUV.y.sub(0.5).abs());
+  const tiltColor = mix(sceneColor.rgb, tiltBlur.rgb, tiltMask);
+  const exposedTilt = max(tiltColor.add(reflections.rgb), vec3(0)).mul(exposure).mul(balance);
+
+  // The grade, over the exposed scene (with the bloom from the sharp image on top)
+  const grade = (exposedNode) => Fn(() => {
+    const color = exposedNode.add(bloomPass.rgb).toVar();
     const luma = dot(color, vec3(0.2126, 0.7152, 0.0722)).toVar();
 
     // Gentle cool shadow / warm highlight separation; multiply rather than lifting the black level.
     const shadows = mix(vec3(0.965, 1.005, 1.045), vec3(1), smoothstep(0.02, 0.60, luma));
     const highlights = mix(vec3(1), vec3(1.035, 1.005, 0.965), smoothstep(0.60, 3.0, luma));
-    color.mulAssign(shadows.mul(highlights));
+    color.mulAssign(mix(vec3(1), shadows.mul(highlights), toning));
 
     // Contrast pivots around middle gray and scales RGB together, avoiding per-channel gamma shifts.
     color.mulAssign(pow(max(luma, 0.0001).div(0.18), contrast.sub(1.0)));
@@ -68,22 +91,32 @@ function createPostProcessing(renderer, sceneColor, reflections) {
     // Normalize by the corner radius so the lens falloff remains subtle in portrait and landscape.
     const aspect = screenSize.x.div(screenSize.y);
     const radius = length(screenUV.sub(0.5).mul(vec2(aspect, 1))).div(length(vec2(aspect, 1).mul(0.5)));
-    const vignette = float(1).sub(smoothstep(0.35, 1.0, radius).mul(0.12));
+    const vignette = float(1).sub(smoothstep(0.35, 1.0, radius).mul(vignetteAmount));
     return vec4(color.mul(vignette), 1.0);
   })();
+  const outputNode = grade(exposed);
+  const tiltShiftNode = grade(exposedTilt);
 
+  /** Grades for the look `id` (LOOKS, with LOOK_DEFAULTS filled in) and returns it: `reflections` is the SSR strength the
+   *  caller sets on its pass */
   function applyPreset(id) {
-    const look = LOOKS[id] || LOOKS.golden;
+    const look = { ...LOOK_DEFAULTS, ...(LOOKS[id] || LOOKS.golden) };
     exposure.value = look.exposure;
     contrast.value = look.contrast;
     saturation.value = look.saturation;
     balance.value.set(...look.balance);
     bloomPass.strength.value = look.bloom;
     bloomPass.threshold.value = look.threshold;
+    toning.value = look.toning;
+    vignetteAmount.value = look.vignette;
+    // The RenderPipeline sees the renderer's tone mapping change and rebuilds its output pass (renderOutput bakes the
+    // tone mapper into the shader)
+    renderer.toneMapping = look.toneMapping;
+    return look;
   }
 
   applyPreset('golden');
-  return { outputNode, applyPreset };
+  return { outputNode, tiltShiftNode, applyPreset };
 }
 
-export { createPostProcessing };
+export { createPostProcessing, LOOKS, LOOK_DEFAULTS };

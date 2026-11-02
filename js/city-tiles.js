@@ -3,6 +3,7 @@ import { Fn, uv, float, vec2, vec3, vec4, color, mix, step, fract, floor, sin, d
 import { cityUniforms } from './tsl-materials.js';
 import { buildTileArrays, createLandMask, islandGround } from './city-tiles-build.js';
 import { decodePNG } from './png-decode.js';
+import { pairMaterial, createTinyTileWallMaterial, createTinyTileRoofMaterial, createTinyFlatMaterial, createTinyTreeMaterial, GROUND as TINY } from './tiny-look.js';
 
 // js/city-tiles.js
 // The rest of the island beyond the detailed city: its land, and its buildings and main roads streamed in tiles around
@@ -56,8 +57,8 @@ const vnoise = Fn(([p]) => {
 // parks as concrete, beaches as sand, and the rest (estates, verges, schools...) a mix of grass and paving in patches of
 // a couple of hundred metres. In the city's colours (its lawns, asphalt and pavements), so the island carries on from
 // it. Without the image, all of it the mix.
-function landMaterial(lu = null, tex = null) {
-  const m = new THREE.MeshStandardNodeMaterial({ roughness: 1, metalness: 0 });
+function landMaterial(lu = null, tex = null, flat = false) {
+  const m = flat ? new THREE.MeshLambertNodeMaterial() : new THREE.MeshStandardNodeMaterial({ roughness: 1, metalness: 0 });
   const p = positionWorld.xz;
   const big = vnoise(p.mul(1 / 190));
   const mid = vnoise(p.mul(1 / 47).add(13.1));
@@ -69,13 +70,18 @@ function landMaterial(lu = null, tex = null) {
       p.y.add(fine.sub(0.5).mul(18)).sub(lu.z0).div(lu.h * lu.res)
     ))
     : vec4(0);
-  const urban = mix(mix(color(0x30422a), color(0x46583a), fine), mix(color(0x4c4d48), color(0x5e5d57), fine), smoothstep(0.52, 0.8, big.mul(0.7).add(mid.mul(0.3))).mul(0.85));
-  const grass = mix(color(0x2a5424), color(0x47772f), mid.mul(0.55).add(fine.mul(0.45)));
-  const wood = mix(color(0x142e15), color(0x2a4a1f), smoothstep(0.3, 0.8, fine.mul(0.65).add(mid.mul(0.35))));
-  const paved = mix(color(0x55554f), color(0x75736b), mid.mul(0.5).add(fine.mul(0.5)));
-  const sand = mix(color(0xcdbb92), color(0xe2d4b0), mid.mul(0.6).add(fine.mul(0.4)));
+  // (flat: the tiny look's painted-map colours, js/tiny-look.js, in the same patches)
+  const C = flat
+    ? { urban: [0x9fb37c, 0xb1c08e, 0xc4c0b6, 0xd3cfc5], grass: [0x7ca057, 0x8cc063], wood: [0x4a7a3a, 0x5e8f45], paved: [0xc4c0b6, 0xd8d2c6], sand: [0xe2d4b0, 0xefe6c8] }
+    : { urban: [0x30422a, 0x46583a, 0x4c4d48, 0x5e5d57], grass: [0x2a5424, 0x47772f], wood: [0x142e15, 0x2a4a1f], paved: [0x55554f, 0x75736b], sand: [0xcdbb92, 0xe2d4b0] };
+  const urban = mix(mix(color(C.urban[0]), color(C.urban[1]), fine), mix(color(C.urban[2]), color(C.urban[3]), fine), smoothstep(0.52, 0.8, big.mul(0.7).add(mid.mul(0.3))).mul(0.85));
+  const grass = mix(color(C.grass[0]), color(C.grass[1]), mid.mul(0.55).add(fine.mul(0.45)));
+  const wood = mix(color(C.wood[0]), color(C.wood[1]), smoothstep(0.3, 0.8, fine.mul(0.65).add(mid.mul(0.35))));
+  const paved = mix(color(C.paved[0]), color(C.paved[1]), mid.mul(0.5).add(fine.mul(0.5)));
+  const sand = mix(color(C.sand[0]), color(C.sand[1]), mid.mul(0.6).add(fine.mul(0.4)));
   const rest = float(1).sub(share.r).sub(share.g).sub(share.b).sub(share.a).max(0);
   m.colorNode = urban.mul(rest).add(wood.mul(share.r)).add(grass.mul(share.g)).add(paved.mul(share.b)).add(sand.mul(share.a));
+  if (flat) return m;
   m.roughnessNode = float(1).sub(share.b.mul(0.12)).sub(share.a.mul(0.05));
   // grass and leaves don't mirror the sky at a grazing angle (as the city's lawns, js/tsl-materials.js)
   m.setupSpecular = function () {
@@ -257,6 +263,15 @@ class CityTiles {
     this.group.name = 'CityTiles';
     scene.add(this.group);
     this.materials = { walls: wallMaterial(), roofs: roofMaterial(), roads: roadMaterial(), trees: treeMaterial() };
+    // the tiny look's flat stand-ins (js/tiny-look.js), paired so applyTinyLook swaps the tiles already built, and used
+    // for the tiles built while the look is on (setLook)
+    this.tinyMaterials = {
+      walls: pairMaterial(this.materials.walls, createTinyTileWallMaterial()),
+      roofs: pairMaterial(this.materials.roofs, createTinyTileRoofMaterial()),
+      roads: pairMaterial(this.materials.roads, createTinyFlatMaterial(TINY.asphalt)),
+      trees: pairMaterial(this.materials.trees, createTinyTreeMaterial())
+    };
+    this.lookMaterials = this.materials;
     this.treeGeometries = [treeGeometry(1), treeGeometry(0), treeGeometry(-1)];
     this.treeDetail = 'medium';
     this.treeLodParams = TREE_DETAIL.medium;
@@ -310,10 +325,13 @@ class CityTiles {
       return false;
     }
     const seawall = new THREE.MeshStandardNodeMaterial({ color: 0x5c5a55, roughness: 0.82, metalness: 0.1 });
+    pairMaterial(seawall, createTinyFlatMaterial(TINY.seawall));
     // the ground's land use: read by the worker (which plants the tiles' trees by it) and handed back for the texture
     const lu = this.index.landuse;
     this.landuse = lu ? landuseTexture(lu) : null;
-    this.land = buildLand(this.index.land, landMaterial(lu || null, this.landuse), seawall);
+    const land = landMaterial(lu || null, this.landuse);
+    pairMaterial(land, landMaterial(lu || null, this.landuse, true));
+    this.land = buildLand(this.index.land, land, seawall);
     if (lu) {
       const ground = { type: 'ground', url: new URL(`${this.url}${lu.file}`, location.href).href, landuse: { x0: lu.x0, z0: lu.z0, res: lu.res, w: lu.w, h: lu.h }, land: this.index.land, coreRing: this.index.coreRing, tile: this.index.tile };
       this.groundMessage = ground;
@@ -347,6 +365,11 @@ class CityTiles {
   }
 
   /** The trees' detail: 'off', 'low', 'medium' or 'high' (TREE_DETAIL); applied from the next frame */
+  /** The tiny look (js/tiny-look.js) on or off for the tiles built from now on (the ones built: applyTinyLook) */
+  setLook(flat) {
+    this.lookMaterials = flat ? this.tinyMaterials : this.materials;
+  }
+
   setTreeDetail(name) {
     if (!TREE_DETAIL[name]) return false;
     this.treeDetail = name;
@@ -439,13 +462,13 @@ class CityTiles {
     // add at most one built tile a frame (a few typed arrays: cheap)
     const job = this.queue.shift();
     if (job && this.loaded.has(job.key)) {
-      const group = tileMeshes(job.built, this.materials);
+      const group = tileMeshes(job.built, this.lookMaterials);
       group.position.set(job.t.i * T, 0, job.t.j * T);
       group.name = `tile_${job.key}`;
       let trees = null;
       if (job.built.trees && job.built.trees.count) {
         trees = job.built.trees.chunks.map((c) => {
-          const mesh = treeMesh(job.built.trees, c, this.treeGeometries[2], this.materials.trees);
+          const mesh = treeMesh(job.built.trees, c, this.treeGeometries[2], this.lookMaterials.trees);
           group.add(mesh);
           return { mesh, x0: job.t.i * T + c.sphere[0] - 250, z0: job.t.j * T + c.sphere[2] - 250, total: c.count, drawn: 0, tris: 0 };
         });
@@ -498,4 +521,4 @@ class CityTiles {
   }
 }
 
-export { CityTiles, tileMeshes, tileColliders, treeLod, TREE_RANGE, TREE_DETAIL };
+export { CityTiles, tileMeshes, tileColliders, treeLod, treeGeometry, TREE_RANGE, TREE_DETAIL };

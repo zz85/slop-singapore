@@ -57,13 +57,13 @@ function cameraHarness(entity = {
   };
   window.innerWidth = 1600;
   window.innerHeight = 900;
-  const { CameraSystem, headTarget, HEAD } = loadModule(source, {
+  const { CameraSystem, CAMERA_PRESETS, headTarget, HEAD } = loadModule(source, {
     globals: { window, document },
     imports: { 'three/webgpu': { Vector3, PerspectiveCamera }, './landmarks.js': {} }
   });
   const camera = new CameraSystem(canvas, { getActiveEntity: () => entity });
   return {
-    camera, canvas, controls, window, document, captured, entity, headTarget, HEAD,
+    camera, canvas, controls, window, document, captured, entity, headTarget, HEAD, CAMERA_PRESETS,
     pointer(target, type, id, x, y = 0, pointerType = 'touch', button = 0) {
       const event = {
         pointerId: id, clientX: x, clientY: y, pointerType, button,
@@ -348,4 +348,87 @@ test('the Crazy Taxi cam turns its head with the mouse, no click, and only while
   close(sys.head.target.yaw, 0);
   h.pointer(h.canvas, 'pointermove', 1, 0, 450, 'mouse');
   close(sys.head.target.yaw, 0);
+});
+
+test('the map view: a free camera over the city that the mouse pans, orbits and zooms, following no one', () => {
+  const h = cameraHarness();
+  const { camera, canvas, entity } = h;
+  assert.ok(h.CAMERA_PRESETS.some((p) => p.id === 'map' && p.category === 'free'), 'a free camera, not a follow or scenic one');
+  camera.setCameraPreset('map', true);
+  camera.update(1 / 60, 0);
+  // picked: over where the player is, looking down at it from well above the rooftops
+  close(camera.currentLookAt.x, entity.position.x);
+  close(camera.currentLookAt.z, entity.position.z);
+  assert.ok(camera.currentPos.y > 150, `${camera.currentPos.y} m up`);
+  const distance0 = camera.map.distance;
+  // the player drives off: the view stays where it was
+  entity.position.set(300, 0, -400);
+  for (let i = 0; i < 60; i++) camera.update(1 / 60, i / 60);
+  close(camera.currentLookAt.x, 0);
+  close(camera.currentLookAt.z, 100);
+  // a left drag pans across the ground: dragged 100 px left, the city slides left, so the view looks further east (+x)
+  h.pointer(canvas, 'pointerdown', 1, 800, 450, 'mouse', 0);
+  h.pointer(canvas, 'pointermove', 1, 700, 450, 'mouse', 0);
+  h.pointer(canvas, 'pointerup', 1, 700, 450, 'mouse', 0);
+  for (let i = 0; i < 240; i++) camera.update(1 / 60, 1 + i / 60);
+  assert.ok(camera.currentLookAt.x > 5, `looks ${camera.currentLookAt.x} m east`);
+  close(camera.currentLookAt.y, 0);
+  close(camera.map.distance, distance0);
+  // dragged 100 px down, the ground slides down the screen: the camera moves forward, the way it faces along the
+  // ground (-sin yaw, -cos yaw), as driving forward does
+  const ax = camera.map.target.x, az = camera.map.target.z;
+  h.pointer(canvas, 'pointerdown', 1, 800, 450, 'mouse', 0);
+  h.pointer(canvas, 'pointermove', 1, 800, 550, 'mouse', 0);
+  h.pointer(canvas, 'pointerup', 1, 800, 550, 'mouse', 0);
+  const mx = camera.map.target.x - ax, mz = camera.map.target.z - az;
+  assert.ok(mx * -Math.sin(camera.map.yaw) + mz * -Math.cos(camera.map.yaw) > 5, `moved (${mx}, ${mz}) for yaw ${camera.map.yaw}`);
+  assert.ok(Math.abs(mx * Math.cos(camera.map.yaw) - mz * Math.sin(camera.map.yaw)) < 1e-9, 'straight ahead, not sideways');
+  close(camera.orbitYawOffset, 0, 'the chase orbit left alone');
+  // a right drag orbits about the same spot: round with a sideways drag, up and over or down to the ground with a
+  // vertical one, within bounds
+  const yaw0 = camera.map.yaw, pitch0 = camera.map.pitch;
+  const tx = camera.map.target.x, tz = camera.map.target.z;
+  h.pointer(canvas, 'pointerdown', 2, 800, 450, 'mouse', 2);
+  assert.equal(camera.isDragging, true, 'the right button drags the map view');
+  h.pointer(canvas, 'pointermove', 2, 900, 450, 'mouse', 2);
+  assert.notEqual(camera.map.yaw, yaw0);
+  close(camera.map.pitch, pitch0);
+  h.pointer(canvas, 'pointermove', 2, 900, 5000, 'mouse', 2);
+  assert.ok(camera.map.pitch >= 0.3 && camera.map.pitch <= 1.5, `pitch ${camera.map.pitch}`);
+  h.pointer(canvas, 'pointerup', 2, 900, 5000, 'mouse', 2);
+  close(camera.map.target.x, tx);
+  close(camera.map.target.z, tz);
+  // the wheel zooms in and out, within bounds, and leaves the chase zoom alone
+  canvas.dispatch('wheel', { deltaY: -300, preventDefault() {} });
+  assert.ok(camera.map.distance < distance0, 'wheel up: closer');
+  canvas.dispatch('wheel', { deltaY: 100000, preventDefault() {} });
+  assert.ok(camera.map.distance <= 6000 && camera.map.distance > 1000, `far: ${camera.map.distance}`);
+  canvas.dispatch('wheel', { deltaY: -100000, preventDefault() {} });
+  assert.ok(camera.map.distance >= 20 && camera.map.distance < 100, `near: ${camera.map.distance}`);
+  close(camera.zoomMultiplier, 1);
+  // two fingers apart: closer too
+  const near = camera.map.distance;
+  canvas.dispatch('wheel', { deltaY: 3000, preventDefault() {} });
+  const mid = camera.map.distance;
+  assert.ok(mid > near);
+  h.pointer(canvas, 'pointerdown', 10, 700, 450);
+  h.pointer(canvas, 'pointerdown', 11, 900, 450);
+  h.pointer(canvas, 'pointermove', 11, 1000, 450);
+  assert.ok(camera.map.distance < mid, 'pinched out: closer');
+  h.pointer(canvas, 'pointerup', 10, 700, 450);
+  h.pointer(canvas, 'pointerup', 11, 1000, 450);
+  // the camera sits at that distance from the spot it looks at, above it
+  for (let i = 0; i < 240; i++) camera.update(1 / 60, 6 + i / 60);
+  const dx = camera.currentPos.x - camera.currentLookAt.x, dy = camera.currentPos.y - camera.currentLookAt.y, dz = camera.currentPos.z - camera.currentLookAt.z;
+  assert.ok(Math.abs(Math.hypot(dx, dy, dz) - camera.map.distance) < 1e-6);
+  assert.ok(dy > 0);
+  // back on the chase camera the right button is nothing again, and picking the map view again starts over the player
+  camera.setCameraPreset('chase', true);
+  camera.update(1 / 60, 10);
+  h.pointer(canvas, 'pointerdown', 3, 0, 0, 'mouse', 2);
+  assert.equal(camera.isDragging, false);
+  camera.setCameraPreset('map', true);
+  camera.update(1 / 60, 11);
+  close(camera.currentLookAt.x, 300);
+  close(camera.currentLookAt.z, -400);
 });

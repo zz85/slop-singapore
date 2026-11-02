@@ -203,3 +203,41 @@ export function traceRegions(R, minArea, eps = 1.5) {
   }
   return regions;
 }
+
+// OSM colours (building:colour, roof:colour): #rrggbb or #rgb, or a CSS colour name (the ones mappers use, and the
+// odd spelling), as one packed 0xrrggbb integer; -1 for none or anything else
+const CSS_COLOURS = {
+  white: 0xffffff, black: 0x000000, grey: 0x808080, gray: 0x808080, darkgrey: 0xa9a9a9, darkgray: 0xa9a9a9, lightgrey: 0xd3d3d3,
+  lightgray: 0xd3d3d3, dimgrey: 0x696969, dimgray: 0x696969, silver: 0xc0c0c0, gainsboro: 0xdcdcdc, whitesmoke: 0xf5f5f5,
+  red: 0xff0000, darkred: 0x8b0000, maroon: 0x800000, brown: 0xa52a2a, saddlebrown: 0x8b4513, sienna: 0xa0522d, chocolate: 0xd2691e,
+  peru: 0xcd853f, tan: 0xd2b48c, burlywood: 0xdeb887, wheat: 0xf5deb3, beige: 0xf5f5dc, biege: 0xf5f5dc, bisque: 0xffe4c4,
+  ivory: 0xfffff0, cream: 0xfffdd0, linen: 0xfaf0e6, antiquewhite: 0xfaebd7, khaki: 0xf0e68c, gold: 0xffd700, yellow: 0xffff00,
+  lightyellow: 0xffffe0, orange: 0xffa500, darkorange: 0xff8c00, coral: 0xff7f50, salmon: 0xfa8072, tomato: 0xff6347,
+  pink: 0xffc0cb, lightpink: 0xffb6c1, hotpink: 0xff69b4, purple: 0x800080, violet: 0xee82ee, lavender: 0xe6e6fa, indigo: 0x4b0082,
+  blue: 0x0000ff, navy: 0x000080, darkblue: 0x00008b, royalblue: 0x4169e1, steelblue: 0x4682b4, lightblue: 0xadd8e6, skyblue: 0x87ceeb,
+  lightskyblue: 0x87cefa, powderblue: 0xb0e0e6, cyan: 0x00ffff, aqua: 0x00ffff, teal: 0x008080, turquoise: 0x40e0d0,
+  green: 0x008000, darkgreen: 0x006400, lightgreen: 0x90ee90, lime: 0x00ff00, olive: 0x808000, seagreen: 0x2e8b57,
+  forestgreen: 0x228b22, limegreen: 0x32cd32, palegreen: 0x98fb98, yellowgreen: 0x9acd32, mint: 0x98ff98, aquamarine: 0x7fffd4
+};
+export function osmColour(value) {
+  if (value == null) return -1;
+  const v = String(value).trim().toLowerCase().replace(/[ _-]+/g, '');
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(v);
+  if (hex) {
+    const h = hex[1].length === 3 ? hex[1].split('').map((c) => c + c).join('') : hex[1];
+    return parseInt(h, 16);
+  }
+  return CSS_COLOURS[v] ?? -1;
+}
+
+// A compass direction as OSM maps it (roof:direction, direction): degrees, or a cardinal point (N, NE, ... NNW), as
+// degrees clockwise from north; -1 for none or anything else
+const POINTS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+export function osmDirection(value) {
+  if (value == null) return -1;
+  const v = String(value).trim();
+  const n = Number(v);
+  if (v !== '' && Number.isFinite(n)) return ((n % 360) + 360) % 360;
+  const i = POINTS.indexOf(v.toUpperCase());
+  return i < 0 ? -1 : i * 22.5;
+}

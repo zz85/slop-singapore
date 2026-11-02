@@ -1076,6 +1076,7 @@ function createTreeField(scene, sites) {
   scene.onBeforeRender = function (renderer, scn, camera, target) {
     prevBeforeRender.call(this, renderer, scn, camera, target);
     if (camera.isOrthographicCamera === true || camera.isArrayCamera === true) return;
+    if (!group.visible) return; // (hidden by the tiny look, js/tiny-look.js: nothing to keep up to date)
     update(viewPos.setFromMatrixPosition(camera.matrixWorld));
   };
 

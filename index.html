@@ -25,6 +25,10 @@
   <link rel="modulepreload" href="./js/open-city-config.js" />
   <link rel="modulepreload" href="./js/city-config.js" />
   <link rel="modulepreload" href="./js/tsl-materials.js" />
+  <link rel="modulepreload" href="./js/tiny-look.js" />
+  <link rel="modulepreload" href="./js/roofs.js" />
+  <link rel="modulepreload" href="./js/landmark-kit.js" />
+  <link rel="modulepreload" href="./js/landmark-models.js" />
   <link rel="modulepreload" href="./js/trees.js" />
   <link rel="modulepreload" href="./js/actor-models.js" />
   <link rel="modulepreload" href="./js/vehicle-lights.js" />
@@ -102,6 +106,7 @@
       <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.5 5.5 7 7M17 17l1.5 1.5M5.5 18.5 7 17M17 7l1.5-1.5"/></symbol>
       <symbol id="i-twilight" viewBox="0 0 24 24"><path d="M3 15.5h18M7.5 19h9M8 15.5a4 4 0 0 1 8 0M17.5 4v3.2M15.9 5.6h3.2M7 7.4v1.8M6.1 8.3h1.8"/></symbol>
       <symbol id="i-storm" viewBox="0 0 24 24"><path d="M7 16.5H6a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 16.2 7.1 4.2 4.2 0 0 1 17.8 15.4M12.6 11.5l-2.4 4.2h3.2l-2.2 4.3"/></symbol>
+      <symbol id="i-tiny" viewBox="0 0 24 24"><path d="M12 3.2 20 7.6v8.8L12 20.8 4 16.4V7.6L12 3.2z"/><path d="M4 7.6 12 12l8-4.4M12 12v8.8"/></symbol>
       <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.6A7.8 7.8 0 0 1 9.4 4.5a7.8 7.8 0 1 0 10.1 10.1z"/></symbol>
       <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21.2s-6.6-5.7-6.6-11.2a6.6 6.6 0 0 1 13.2 0c0 5.5-6.6 11.2-6.6 11.2z"/><circle cx="12" cy="10" r="2.4"/></symbol>
       <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8.2 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.8"/></symbol>
@@ -173,6 +178,9 @@
         </button>
         <button id="time-midnight" class="time-btn" data-time="midnight" type="button" title="Night 23:00">
           <svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg><span class="seg-label">Night</span>
+        </button>
+        <button id="time-tiny" class="time-btn" data-time="tiny" type="button" title="Tiny: a flat, painted miniature look">
+          <svg class="icon" aria-hidden="true"><use href="#i-tiny"/></svg><span class="seg-label">Tiny</span>
         </button>
       </div>
       <button id="btn-storm" class="time-btn" type="button" aria-pressed="false" title="Thunderstorm [R]">
@@ -367,13 +375,15 @@
     </div>
   </section>
 
-  <!-- All Cameras: 4 Follow Cameras + 7 Iconic NYC Vantage Cameras (?city=nyc only) + Auto-Director Drone -->
+  <!-- All Cameras: 4 Follow Cameras + the free Map View + 7 Iconic NYC Vantage Cameras (?city=nyc only) + Auto-Director Drone -->
   <div id="camera-popover" class="popover" popover data-side="above" data-anchor="hud-cluster" data-align="hud-cluster" aria-label="Multiple Camera Angles">
     <div class="pop-title">Follow</div>
     <button id="cam-chase" class="pop-item cam-btn active" data-camera="chase" type="button"><span class="pop-name">3rd-Person Chase</span><kbd>5</kbd></button>
     <button id="cam-action" class="pop-item cam-btn" data-camera="action" type="button"><span class="pop-name">Low-Angle Action</span><kbd>6</kbd></button>
     <button id="cam-pov" class="pop-item cam-btn" data-camera="pov" type="button"><span class="pop-name">First-Person / Cockpit</span><kbd>7</kbd></button>
     <button id="cam-taxi" class="pop-item cam-btn" data-camera="taxi" type="button"><span class="pop-name">Crazy Taxi Cam</span><kbd>T</kbd></button>
+    <div class="pop-title">Free</div>
+    <button id="cam-map" class="pop-item cam-btn" data-camera="map" type="button"><span class="pop-name">Tiny Map View</span><span class="pop-sub">Drag to pan, right-drag to orbit, wheel to zoom</span></button>
     <div class="pop-title">Scenic</div>
     <button id="cam-centralPark" class="pop-item cam-btn" data-camera="centralPark" type="button"><span class="pop-name">Central Park Oasis</span></button>
     <button id="cam-fifthAve" class="pop-item cam-btn" data-camera="fifthAve" type="button"><span class="pop-name">5th Ave &amp; Empire State</span><kbd>8</kbd></button>

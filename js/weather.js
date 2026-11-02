@@ -74,7 +74,9 @@ class Weather {
       env: this.scene.environmentIntensity ?? 1,
       wet: cityUniforms.uRoadWetness.value,
       clouds: L.sky?.cloudCoverage?.value ?? 0,
-      cloudDensity: L.sky?.cloudDensity?.value ?? 0
+      cloudDensity: L.sky?.cloudDensity?.value ?? 0,
+      // the tiny look's painted sky (lighting.js uFlatSky): the storm's clouds are behind it
+      flat: L.uFlatSky?.value ?? 0
     };
   }
 
@@ -119,6 +121,8 @@ class Weather {
       cityUniforms.uRoadWetness.value = Math.max(B.wet, 0.95 * s);
       if (L.sky?.cloudCoverage) L.sky.cloudCoverage.value = B.clouds + (0.95 - B.clouds) * s;
       if (L.sky?.cloudDensity) L.sky.cloudDensity.value = B.cloudDensity + (0.9 - B.cloudDensity) * s;
+      // the painted sky gives way to the physical one and its storm clouds, and comes back as it clears
+      if (L.uFlatSky) L.uFlatSky.value = B.flat * (1 - s);
     }
 
     // rain streaks around the camera

@@ -9,6 +9,7 @@ import { buildLandmarks } from './landmarks.js';
 import { buildCityBlocks } from './buildings.js';
 import { buildOpenCityBuildings } from './open-city-buildings.js';
 import { buildSingaporeLandmarks } from './singapore-landmarks.js';
+import { buildLandmarkModels } from './landmark-models.js';
 import { CityTiles } from './city-tiles.js';
 import { loadIslandRoads } from './island-roads.js';
 import { createIslandTraffic } from './island-traffic.js';
@@ -22,13 +23,14 @@ import { buildRoadPaint } from './road-paint.js';
 import { ThirdPersonControllerManager } from './controllers.js';
 import { TouchControls } from './touch-controls.js';
 import { GamepadControls } from './gamepad-controls.js';
-import { CameraSystem, CAMERA_PRESETS } from './cameras.js';
-import { LightingSystem } from './lighting.js';
+import { CameraSystem, CAMERA_PRESETS, MAP as MAP_VIEW } from './cameras.js';
+import { LightingSystem, TIME_PRESETS } from './lighting.js';
+import { applyTinyLook, pairedMaterial } from './tiny-look.js';
 import { NYCMapSystem } from './nyc-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { CityAudioSystem } from './audio-system.js';
 import { Weather } from './weather.js';
-import { initialTreeDetail, bindTreeDetail, createAutoTreeDetail } from './graphics-settings.js';
+import { initialTreeDetail, bindTreeDetail, createAutoTreeDetail, initialLook } from './graphics-settings.js';
 import { Navigator } from './navigation.js';
 import { setupNavigationUI } from './navigation-ui.js';
 import { PerceptionOverlay } from './perception-overlay.js';
@@ -144,6 +146,10 @@ async function initApp() {
   const cityLandmarks = CITY.open && CITY.id === 'singapore' ? buildSingaporeLandmarks(scene) : null;
   if (cityLandmarks && cityBlocks.allBlocks[0]) cityBlocks.allBlocks[0].footprints.push(...cityLandmarks.footprints);
   markInit('cityLandmarks');
+  // The landmarks built by model programs (js/landmark-models/<model>.js, anchored by tools/city/build.mjs)
+  const landmarkModels = CITY.open && GEO.landmarks?.length ? await buildLandmarkModels(scene) : null;
+  if (landmarkModels && cityBlocks.allBlocks[0]) cityBlocks.allBlocks[0].footprints.push(...landmarkModels.footprints);
+  markInit('landmarkModels');
   // The rest of the island (tools/city/tiles.mjs), streamed in tiles of buildings & main roads around the camera
   const cityTiles = CITY.open ? new CityTiles(scene, { url: `./tiles/${CITY.id}/` }) : null;
   if (cityTiles && !(await cityTiles.init())) cityTiles.index = null;
@@ -164,7 +170,7 @@ async function initApp() {
     }).catch((e) => { console.warn(`[island] no roads: ${e.message}`); return null; })
     : Promise.resolve(null);
   markInit('islandTiles');
-  const allColliders = [...landmarkColliders, ...(cityLandmarks?.colliders || []), ...cityBlocks.colliders, ...boroughs.colliders, ...(cityGrid.colliders || [])];
+  const allColliders = [...landmarkColliders, ...(cityLandmarks?.colliders || []), ...(landmarkModels?.colliders || []), ...cityBlocks.colliders, ...boroughs.colliders, ...(cityGrid.colliders || [])];
 
   const streetDetails = CITY.open ? buildOpenCityDetails(scene) : buildStreetDetails(scene);
   markInit('streetDetails');
@@ -301,7 +307,7 @@ async function initApp() {
 
   // Island-wide static geometry: chunk & distance-cull the small props, shadow stand-ins for the big casters
   // (scene-culling.js)
-  const cullingRoots = ['ManhattanCityGrid', 'CityGrid', 'ManhattanCityBlocks', 'ManhattanStreetDetails', 'ManhattanLandmarks', 'Boroughs']
+  const cullingRoots = ['ManhattanCityGrid', 'CityGrid', 'ManhattanCityBlocks', 'ManhattanStreetDetails', 'ManhattanLandmarks', 'Boroughs', 'LandmarkModels']
     .map((name) => scene.getObjectByName(name))
     .filter(Boolean);
   setupSceneCulling(scene, cullingRoots, lightingSystem.sunLight.shadow);
@@ -389,9 +395,9 @@ async function initApp() {
 
   // 6. Wire UI Controls (Strictly using safe DOM APIs: textContent, classList, addEventListener)
   // The Navigate menu (navigation-ui.js) lists the city's destinations and teleports there too. A city built from
-  // OpenStreetMap offers only the cameras following the player and the auto-director (the scenic ones look at New
-  // York's landmarks).
-  const CAMERAS = CITY.open ? CAMERA_PRESETS.filter((p) => p.category === 'follow' || p.id === 'drone') : CAMERA_PRESETS;
+  // OpenStreetMap offers only the cameras following the player, the free map view and the auto-director (the scenic
+  // ones look at New York's landmarks).
+  const CAMERAS = CITY.open ? CAMERA_PRESETS.filter((p) => p.category === 'follow' || p.category === 'free' || p.id === 'drone') : CAMERA_PRESETS;
   const cameraOffered = (id) => CAMERAS.some((p) => p.id === id);
   for (const btn of document.querySelectorAll('[data-camera]')) if (!cameraOffered(btn.dataset.camera)) btn.remove();
   const modeButtons = document.querySelectorAll('[data-mode]');
@@ -429,7 +435,9 @@ async function initApp() {
     car: [[['W', 'S'], 'Drive / Reverse'], [['A', 'D'], 'Steer'], [['B'], 'Horn'], [['[', ']'], 'How to go'], [['G'], 'Where to'], [['Drag'], 'Orbit']],
     cyclist: [[['W', 'S'], 'Pedal / Brake'], [['A', 'D'], 'Lean & Turn'], [['Drag'], 'Orbit']],
     helicopter: [[['W', 'S'], 'Pitch'], [['A', 'D'], 'Yaw'], [['Space', 'E'], 'Ascend'], [['Q', 'C'], 'Descend']],
-    jet: [[['W', 'S'], 'Nose down / up'], [['A', 'D'], 'Roll'], [['Space', 'E'], 'Throttle'], [['Q', 'C'], 'Idle / Brake'], [['T'], 'Cockpit · mouse looks']]
+    jet: [[['W', 'S'], 'Nose down / up'], [['A', 'D'], 'Roll'], [['Space', 'E'], 'Throttle'], [['Q', 'C'], 'Idle / Brake'], [['T'], 'Cockpit · mouse looks']],
+    // (the map view's, while it is the camera: js/cameras.js moveMapView)
+    map: [[['Drag'], 'Pan'], [['Right-drag'], 'Orbit'], [['Wheel'], 'Zoom'], [['V'], 'Cameras']]
   };
   // Top speeds in mph (controllers.js caps them at 8.2, 36, 19 & 52 m/s; the jet Mach 1.1, jet-flight.js): full scale
   // of the speed meter
@@ -496,6 +504,18 @@ async function initApp() {
     });
     const preset = cameraSystem.getActivePreset();
     if (elCamera) elCamera.textContent = preset.name;
+    renderControlHints(camId === 'map' ? 'map' : controllerManager.activeMode);
+    applyTiltShift();
+  }
+
+  // The miniature's tilt-shift (post-processing.js tiltShiftNode): on in the tiny look's map view, off otherwise, so
+  // its blur passes only run then (the pipeline rebuilds its output pass on the swap)
+  function applyTiltShift() {
+    const on = lightingSystem.activePresetId === 'tiny' && cameraSystem.activePresetId === 'map';
+    const node = on ? colorGrade.tiltShiftNode : colorGrade.outputNode;
+    if (renderPipeline.outputNode === node) return;
+    renderPipeline.outputNode = node;
+    renderPipeline.needsUpdate = true;
   }
 
   // Steps through the cameras offered (V / Shift+V, and the arrows either side of the camera name)
@@ -507,10 +527,16 @@ async function initApp() {
 
   function selectTime(timeId) {
     lightingSystem.applyPreset(timeId);
-    colorGrade.applyPreset(lightingSystem.activePresetId);
+    const look = colorGrade.applyPreset(lightingSystem.activePresetId);
+    ssrPass.intensity.value = look.reflections; // (0 in the flat tiny look)
+    // the flat look's materials over the city (js/tiny-look.js), and for the island tiles still to be built
+    const flat = !!TIME_PRESETS[lightingSystem.activePresetId]?.flat;
+    applyTinyLook(scene, flat);
+    if (cityTiles) cityTiles.setLook(flat);
     timeButtons.forEach((btn) => {
       btn.classList.toggle('active', btn.getAttribute('data-time') === timeId);
     });
+    applyTiltShift();
   }
 
   // Graphics: the island's tree detail (js/graphics-settings.js), saved; the menu hidden where there are no island tiles
@@ -998,8 +1024,30 @@ async function initApp() {
 
   // Initialize the UI and chase camera around the restored player, or the default taxi on a first visit.
   selectMode(controllerManager.activeMode);
-  selectCamera('chase', true);
-  selectTime('golden');
+  // The golden hour, or the look ?look=<id> names (?look=tiny: the flat miniature look, js/graphics-settings.js); the
+  // chase camera, or ?camera=<id>'s. The tiny look lands in its map view unless a camera is named.
+  const startLook = initialLook({ search: location.search, looks: Object.keys(TIME_PRESETS) });
+  const startCamera = new URLSearchParams(location.search).get('camera');
+  selectCamera(cameraOffered(startCamera) ? startCamera : (startLook === 'tiny' ? 'map' : 'chase'), true);
+  selectTime(startLook);
+  // ?at=<id>: the map view over a landmark or place (GEO.landmarks, GEO.places), to look a model over; with
+  // &yaw=<degrees>, &pitch=<degrees> and &dist=<m> for a view that can be taken again (the same four sides every time)
+  const params = new URLSearchParams(location.search);
+  const at = params.get('at');
+  const spot = at && [...(GEO.landmarks || []), ...(GEO.places || [])].find((p) => p.id === at);
+  if (spot) {
+    selectCamera('map', true);
+    const m = cameraSystem.map;
+    m.target.set(spot.x, 0, spot.z);
+    m.fresh = false;
+    // (far enough to take a tall landmark in whole)
+    const tall = Math.max(0, ...(spot.parts || []).map((p) => p.height || 0));
+    m.distance = Math.max(350, tall * 2.4);
+    const num = (k) => { const v = parseFloat(params.get(k)); return Number.isFinite(v) ? v : null; };
+    if (num('yaw') !== null) m.yaw = (num('yaw') * Math.PI) / 180;
+    if (num('pitch') !== null) m.pitch = Math.max(MAP_VIEW.minPitch, Math.min(MAP_VIEW.maxPitch, (num('pitch') * Math.PI) / 180));
+    if (num('dist') !== null) m.distance = Math.max(MAP_VIEW.minDistance, Math.min(MAP_VIEW.maxDistance, num('dist')));
+  }
   // the web fonts change the buttons' widths once they arrive
   if (document.fonts) document.fonts.ready.then(placeModeIndicator);
   markInit('ui');
@@ -1056,6 +1104,22 @@ async function initApp() {
       }
       job.push(o);
     });
+    // The other look too (js/tiny-look.js): a stand-in with the paired material for every mesh that has one, and the
+    // meshes hidden because they belong to the other look, so switching looks later finds its pipelines compiled
+    const seen = new Set();
+    for (const job of jobs) for (const o of job) seen.add(o.material);
+    scene.traverse((o) => {
+      if (!o.isMesh || o.userData.shadowProxy) return;
+      for (const material of [o.material, pairedMaterial(o.material)]) {
+        if (!material || seen.has(material)) continue;
+        seen.add(material);
+        const standIn = o.isInstancedMesh ? new THREE.InstancedMesh(o.geometry, material, 1) : new THREE.Mesh(o.geometry, material);
+        standIn.frustumCulled = false;
+        standIn.matrixWorld.copy(o.matrixWorld);
+        standIn.matrixAutoUpdate = false;
+        jobs.push([standIn]);
+      }
+    });
 
     renderer.setRenderTarget(scenePass.renderTarget);
     renderer.setMRT(sceneMRT);
@@ -1089,7 +1153,7 @@ async function initApp() {
   }
 
   // For poking at from the console (and the browser checks): the simulation's main systems
-  globalThis.slop = { scene, autoTrees, airForce, binoculars, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
+  globalThis.slop = { scene, autoTrees, airForce, binoculars, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, landmarkModels, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
 
   await precompileShaders();
   markInit('compile');
@@ -1140,7 +1204,8 @@ async function initApp() {
     cityBlocks.update(cameraSystem.currentPos.x, cameraSystem.currentPos.z);
     if (cityBlocks.updateLights) cityBlocks.updateLights(cameraSystem.camera);
     if (streetDetails.update) streetDetails.update(cameraSystem.camera, controllerManager.getActiveEntity());
-    lightingSystem.update(cameraSystem.currentPos);
+    // (the map view looks across the city from high up: its shadows reach much further)
+    lightingSystem.update(cameraSystem.currentPos, cameraSystem.activePresetId === 'map' ? 2600 : 720);
     mapSystem.update();
     if (weather) weather.update(dt, cameraSystem.camera);
     if (cityTiles) cityTiles.update(cameraSystem.camera);

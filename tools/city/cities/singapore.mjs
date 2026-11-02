@@ -90,7 +90,29 @@ export default {
       572839867, 572839868, 572839869, 572839870, 572839876, 572839877, 572839878, 572839879, 572839880,
       572839881, 591619300, 591619301, 591619302, 681695787, 681695788, 681695789, 681695790] },
     // the Esplanade's two shells (the podium, annexe & outdoor theatre stand as mapped)
-    { id: 'esplanade', name: 'Esplanade', hide: [256163011, 256163012] }
+    { id: 'esplanade', name: 'Esplanade', hide: [256163011, 256163012] },
+    // The CBD towers built by model programs (js/landmark-models/<model>.js, from their mapped outlines and documented
+    // dimensions): UOB Plaza's two towers and podium; One Raffles Place's two towers and podium; Guoco Tower, its hotel
+    // block and podium
+    { id: 'uob-plaza', name: 'UOB Plaza', model: 'uob-plaza', hide: [106193385, 171999282, 335167827,
+      // Tower 1's mapped parts (the stack of offset squares) and Tower 2's
+      335167781, 335167782, 335167783, 335167784, 335167786, 335167809, 335167814, 335167823, 335167824, 335167825, 335167826,
+      1075244649, 1566728320, 1566728321, 1566728322, 1566728323, 1566728324, 1566728325, 1566728326, 1566728327, 1566728328,
+      1566728329, 1566728330, 1566728331, 1566728332, 1566728333, 1566728334, 1566728335,
+      335167785, 335167790, 335167791, 335167792, 335167794, 335167796, 335167812, 335167813, 335167816, 335167818, 335167819,
+      335167821, 335167822, 1075244650, 1479638475] },
+    { id: 'one-raffles-place', name: 'One Raffles Place', model: 'one-raffles-place', hide: [171999293, 325793737, 325793773, 407705492, 407705505, 407705559, 852006883] },
+    { id: 'guoco-tower', name: 'Guoco Tower', model: 'guoco-tower', hide: [393100845, 393100848, 393100849, 393100850] },
+    // The second batch: Republic Plaza (its octagonal shaft, the sloped corner parts and the crown slivers, its podium
+    // outline), Asia Square's two towers (outlines and their stepped parts), Marina Bay Financial Centre (the three
+    // office towers, Marina Bay Residences and Suites, the podium and the Link Mall)
+    { id: 'republic-plaza', name: 'Republic Plaza', model: 'republic-plaza', hide: [171999304, 407705511, 407705516, 407705520, 407705531,
+      407705532, 407705537, 407705543, 407705558, 407705560, 407705561, 407705562, 407705565, 407705571, 463857990, 463857991, 463857992] },
+    { id: 'asia-square', name: 'Asia Square', model: 'asia-square', hide: [407941850, 407941851, 407941832, 407941833, 407941834, 407941835,
+      407941836, 407941837, 407941838, 407941839, 407941840, 407941841, 407941842, 407941843, 407941844, 407941845, 407941847, 407941848,
+      679388852, 1566584724] },
+    { id: 'marina-bay-financial-centre', name: 'Marina Bay Financial Centre', model: 'marina-bay-financial-centre', hide: [116905040, 116905041,
+      116905042, 116905045, 116905047, 509003525, 509003526, 509003527, 509003528, 509003529, 728243729] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]
