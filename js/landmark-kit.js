@@ -1,12 +1,13 @@
 import * as THREE from 'three/webgpu';
-import { Fn, uv, float, color, mix, fract, smoothstep, fwidth } from 'three/tsl';
+import { Fn, uv, float, color, mix, fract, floor, step, hash, smoothstep, fwidth } from 'three/tsl';
 import { pairMaterial, createTinyFlatMaterial, blendHex } from './tiny-look.js';
 
 // js/landmark-kit.js
 // The kit the landmark model programs are written against (js/landmark-models/<model>.js, loaded by
 // js/landmark-models.js for the anchors tools/city/build.mjs writes into GEO.landmarks), after tinywarsaw.app's: a
 // model is a few dozen solids in metres about its anchor (x east, z south, y up from the ground) in a few colours —
-// box, prism, loft, cylinder — in a matte colour, a glass, or a painted facade with a window per bay and storey; then
+// box, prism, loft, cylinder — in a matte colour, a glass, or a painted facade with a window per bay and storey, and
+// signs with a tenant's name painted on them hung on the towers' crowns, as Tiny Warsaw's towers carry logos; then
 // finish() merges them into one mesh per material, placed at the anchor, with colliders for what stands on the
 // ground and footprints for the maps. Every material is paired with its tiny-look stand-in (js/tiny-look.js), so a
 // model looks right in every look. The kit keeps a record of what it built (parts, bounds, triangles) and can list
@@ -15,7 +16,7 @@ import { pairMaterial, createTinyFlatMaterial, blendHex } from './tiny-look.js';
 // without three.js (tests/landmark-kit.test.cjs, tests/landmark-models.test.cjs).
 
 const SKY_BLUE = 0x9db9d3;
-const PATTERNS = ['punched', 'ribbon', 'curtain', 'strips'];
+const PATTERNS = ['punched', 'ribbon', 'curtain', 'strips', 'scatter'];
 const band = (lo, hi, x, fw) => smoothstep(float(lo).sub(fw), float(lo).add(fw), x).mul(float(1).sub(smoothstep(float(hi).sub(fw), float(hi).add(fw), x)));
 
 // --- rings [[x, z], ...] ----------------------------------------------------------------------------------------------
@@ -290,8 +291,115 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     const a = (deg * Math.PI) / 180, e = Math.sin(a), n = Math.cos(a);
     return [e * c - n * s, -(e * s + n * c)];
   };
+  /** The yaw (radians, for sign() and box()) that faces a compass bearing in this city's frame */
+  kit.yawToward = (deg) => { const [dx, dz] = kit.compass(deg); return Math.atan2(dx, dz); };
   /** A ring moved inward by d m (insetRing) */
   kit.inset = insetRing;
+  /** The smallest turned box holding a ring: { cx, cz, hx, hz, ux, uz } (half sizes hx along (ux, uz), hz across) */
+  kit.boxOf = orientedBox;
+
+  /**
+   * A sign: `text` painted in `color` on a see-through panel `height` m tall (and `width` wide: as wide as the
+   * painted text unless given; a sign wider than `maxWidth` is scaled down to it, keeping its shape) with its bottom
+   * at `y` (or its top at `yTop`) at (x, z), facing `yaw` (radians; 0 faces +z, south), the text reading right from
+   * the back too; on a low bar in `bar` colour when one is given (a sign standing on a roof — hang() is the usual
+   * way). The letters are drawn on a canvas in a browser; in node the panel stands blank. Signs are decoration: left
+   * out of bounds() unless asked, and of the flicker check. -> the part record
+   */
+  kit.sign = ({ text, x = 0, z = 0, y, yTop, yaw = 0, width, maxWidth = Infinity, height = 6, color = 0xffffff, bar = false, font = 'bold 110px Helvetica, Arial, sans-serif', name = '' }) => {
+    if (!text) throw new Error('landmark kit: a sign needs its text');
+    if (!Number.isFinite(y) && !Number.isFinite(yTop)) throw new Error(`landmark kit: sign ${text} needs its height y (or yTop)`);
+    const material = signMaterial(text, color, font);
+    if (!(width > 0)) width = height * (signAspect.get(material) || 0.62 * text.length);
+    if (width > maxWidth) { height *= maxWidth / width; width = maxWidth; }
+    if (!Number.isFinite(y)) y = yTop - height;
+    const nx = Math.sin(yaw), nz = Math.cos(yaw); // the face
+    const rx = Math.cos(yaw), rz = -Math.sin(yaw); // its right
+    const B = batch(material);
+    const bl = [x - rx * width / 2, y, z - rz * width / 2], br = [x + rx * width / 2, y, z + rz * width / 2];
+    const tr = [br[0], y + height, br[2]], tl = [bl[0], y + height, bl[2]];
+    triangle(B, bl, br, tr, [0, 0], [1, 0], [1, 1], [nx, 0, nz]);
+    triangle(B, bl, tr, tl, [0, 0], [1, 1], [0, 1], [nx, 0, nz]);
+    // the back: the same panel facing the other way, u running the other way, so the text is not mirrored
+    triangle(B, br, bl, tl, [0, 0], [1, 0], [1, 1], [-nx, 0, -nz]);
+    triangle(B, br, tl, tr, [0, 0], [1, 1], [0, 1], [-nx, 0, -nz]);
+    const part = { name: name || `sign:${text}`, type: 'sign', material, y0: y, y1: y + height, ring: [[bl[0], bl[2]], [br[0], br[2]]], walls: [], caps: [], bounds: { minX: Math.min(bl[0], br[0]), maxX: Math.max(bl[0], br[0]), minY: y, maxY: y + height, minZ: Math.min(bl[2], br[2]), maxZ: Math.max(bl[2], br[2]) } };
+    parts.push(part);
+    if (bar !== false && bar !== null) kit.box({ x, z, y: y - 0.6, w: width, h: 0.6, d: 0.8, yaw, material: kit.material(bar), name: `${part.name}:bar` });
+    return part;
+  };
+  /**
+   * A sign hung on a building's crown, as the real ones are: on the wall of `ring` facing compass `toward` best,
+   * `out` m off it, its top `below` m under the roofline (`top` a height, or a function of (x, z) for a slanted
+   * crown: the roofline's low end over that wall), no wider than the wall less `margin`. A crown too round or
+   * many-sided for a wall that long (under 8 m) takes the sign on its face toward the bearing, within its width.
+   * The rest as sign(). -> the part record
+   */
+  kit.hang = ({ ring, top, toward, below = 1.5, out = 0.4, margin = 6, ...sign }) => {
+    if (!ring || ring.length < 3) throw new Error(`landmark kit: hang ${sign.text || ''} needs a ring`);
+    const w = kit.wallToward(ring, toward);
+    const line = typeof top === 'function' ? Math.min(top(...w.a), top(...w.b)) : top;
+    if (w.length - margin >= 8) {
+      return kit.sign({ ...sign, x: w.x + w.nx * out, z: w.z + w.nz * out, yTop: line - below, yaw: w.yaw, maxWidth: Math.min(sign.maxWidth ?? Infinity, w.length - margin), bar: false });
+    }
+    const [dx, dz] = kit.compass(toward), rx = -dz, rz = dx; // along the bearing, and across it
+    let hi = -Infinity, lo = Infinity, cLo = Infinity, cHi = -Infinity;
+    for (const [px, pz] of ring) { const t = px * dx + pz * dz, c = px * rx + pz * rz; hi = Math.max(hi, t); lo = Math.min(lo, t); cLo = Math.min(cLo, c); cHi = Math.max(cHi, c); }
+    const c = (cLo + cHi) / 2, t = hi + out;
+    const crown = typeof top === 'function' ? Math.min(...ring.map(([px, pz]) => top(px, pz))) : top;
+    return kit.sign({ ...sign, x: c * rx + t * dx, z: c * rz + t * dz, yTop: crown - below, yaw: Math.atan2(dx, dz), maxWidth: Math.min(sign.maxWidth ?? Infinity, (cHi - cLo) * 0.6), bar: false });
+  };
+  /**
+   * The wall of a ring that faces a compass bearing best — the longest of those within 45° of it, else the one
+   * turned nearest: { x, z } its midpoint, nx, nz its outward normal, yaw (for sign()), length, and its ends a, b
+   */
+  kit.wallToward = (ring, deg) => {
+    const [dx, dz] = kit.compass(deg);
+    const N = outwardNormals(ring);
+    let best = null;
+    ring.forEach(([ax, az], i) => {
+      const [bx, bz] = ring[(i + 1) % ring.length];
+      const length = Math.hypot(bx - ax, bz - az);
+      if (length < 1e-6) return;
+      const [nx, nz] = N[i];
+      const dot = nx * dx + nz * dz;
+      const score = dot > 0.7 ? 10 + length : dot;
+      if (!best || score > best.score) best = { score, x: (ax + bx) / 2, z: (az + bz) / 2, nx, nz, yaw: Math.atan2(nx, nz), length, a: [ax, az], b: [bx, bz] };
+    });
+    if (!best) throw new Error('landmark kit: wallToward needs a ring with an edge');
+    return best;
+  };
+  // the text as a texture on a cut-out material (alpha-tested, so neither sorted nor drawn twice as a transparent
+  // one would be; and its tiny-look stand-in), one per text and colour
+  const signAspect = new Map(); // material -> the painted text's width over its height
+  const signMaterial = (text, color, font) => remember(`s${text}:${color}:${font}`, () => {
+    const options = { alphaTest: 0.5 };
+    if (typeof document !== 'undefined') {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      ctx.font = font;
+      const w = Math.ceil(ctx.measureText(text).width) + 40;
+      canvas.width = Math.max(64, w);
+      canvas.height = 160;
+      ctx.font = font;
+      ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, 20, 80);
+      const map = new THREE.CanvasTexture(canvas);
+      map.colorSpace = THREE.SRGBColorSpace;
+      map.anisotropy = 8;
+      options.map = map;
+      options.aspect = canvas.width / canvas.height;
+    }
+    const aspect = options.aspect; delete options.aspect;
+    const m = new THREE.MeshBasicNodeMaterial(options);
+    if (aspect) signAspect.set(m, aspect);
+    m.name = `landmark.sign.${text}`;
+    const tiny = new THREE.MeshLambertNodeMaterial(options);
+    tiny.name = `tinyLandmark.sign.${text}`;
+    pairMaterial(m, tiny);
+    return m;
+  });
 
   // --- materials, each paired with its tiny-look stand-in -------------------------------------------------------------
   const remember = (key, make) => {
@@ -314,15 +422,31 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     pairMaterial(m, createTinyFlatMaterial(blendHex(hex, SKY_BLUE, 0.3)));
     return m;
   });
-  /** A painted facade: the wall colour with a window per bay and storey (uv in metres: the kit's walls), in a
-   *  pattern (punched, ribbon, curtain, strips); glossy panes in the photoreal looks, flat in the tiny one */
-  kit.facadeMaterial = ({ wall, window = 0x3a4a56, floorHeight = 3.6, bayWidth = 2.6, windowWidth = 0.6, windowHeight = 0.55, pattern = 'punched', roughness = 0.78 } = {}) => {
+  /**
+   * A painted facade: the wall colour with a window per bay and storey (uv in metres: the kit's walls), in a pattern
+   * (punched, ribbon, curtain, strips, or scatter: glass with strips of the wall colour thrown over it a storey tall
+   * and `scatter.length` bays long, a share `scatter.density` of the storeys' cells, rising to `scatter.top` between
+   * the heights `scatter.ramp` (metres above the ground), seeded by `scatter.seed`); glossy panes in the photoreal
+   * looks, flat in the tiny one
+   */
+  kit.facadeMaterial = ({ wall, window = 0x3a4a56, floorHeight = 3.6, bayWidth = 2.6, windowWidth = 0.6, windowHeight = 0.55, pattern = 'punched', roughness = 0.78, scatter = null } = {}) => {
     if (!PATTERNS.includes(pattern)) throw new Error(`landmark kit: unknown facade pattern "${pattern}"`);
-    return remember(`f${JSON.stringify([wall, window, floorHeight, bayWidth, windowWidth, windowHeight, pattern, roughness])}`, () => {
+    const thrown = pattern === 'scatter' ? { density: 0.22, top: 0.22, ramp: [0, 1], length: 3, seed: 1, ...(scatter || {}) } : null;
+    return remember(`f${JSON.stringify([wall, window, floorHeight, bayWidth, windowWidth, windowHeight, pattern, roughness, thrown])}`, () => {
       const panes = () => {
         const p = uv();
         const cu = fract(p.x.div(bayWidth)), cv = fract(p.y.div(floorHeight));
         const fu = fwidth(p.x.div(bayWidth)), fv = fwidth(p.y.div(floorHeight));
+        if (pattern === 'scatter') {
+          const stripWidth = bayWidth * thrown.length;
+          const row = floor(p.y.div(floorHeight));
+          const shift = hash(row.add(thrown.seed * 7919)).mul(stripWidth); // each storey's strips start elsewhere
+          const su = p.x.add(shift).div(stripWidth);
+          const cell = hash(row.mul(1031).add(floor(su).mul(17)).add(thrown.seed * 104729));
+          const share = mix(float(thrown.density), float(thrown.top), smoothstep(float(thrown.ramp[0]), float(thrown.ramp[1]), p.y));
+          const strip = step(cell, share).mul(band(0.04, 0.96, fract(su), fwidth(su))).mul(band(0.08, 0.92, cv, fv));
+          return float(1).sub(strip).mul(band(0.05, 0.97, cv, fv)); // glass but for the strips, a hairline per storey
+        }
         if (pattern === 'punched') return band((1 - windowWidth) / 2, (1 + windowWidth) / 2, cu, fu).mul(band(0.28, 0.28 + windowHeight, cv, fv));
         if (pattern === 'ribbon') return band(0.3, 0.82, cv, fv).mul(float(1).sub(band(0.0, 0.035, cu, fu)));
         if (pattern === 'curtain') return band(0.12, 0.88, cu, fu).mul(band(0.16, 0.84, cv, fv));
@@ -342,10 +466,13 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
   };
 
   // --- records ---------------------------------------------------------------------------------------------------------
-  /** The bounds of everything built, about the anchor */
-  kit.bounds = () => {
+  /** The bounds of everything built, about the anchor (the signs and their bars left out unless `signs`) */
+  kit.bounds = ({ signs = false } = {}) => {
     const b = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity };
-    for (const p of parts) for (const k of Object.keys(b)) b[k] = k.startsWith('min') ? Math.min(b[k], p.bounds[k]) : Math.max(b[k], p.bounds[k]);
+    for (const p of parts) {
+      if (!signs && (p.type === 'sign' || p.name.endsWith(':bar'))) continue;
+      for (const k of Object.keys(b)) b[k] = k.startsWith('min') ? Math.min(b[k], p.bounds[k]) : Math.max(b[k], p.bounds[k]);
+    }
     return b;
   };
   /** Pairs of parts (by name, or index) with faces that would flicker against each other: vertical walls on one
@@ -353,7 +480,8 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
   kit.flicker = () => {
     const out = [];
     const label = (p) => p.name || `#${parts.indexOf(p)}`;
-    for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) if (flickerBetween(parts[i], parts[j])) out.push([label(parts[i]), label(parts[j])]);
+    const checked = parts.filter((p) => p.type !== 'sign' && !p.name.endsWith(':bar')); // decoration is not checked
+    for (let i = 0; i < checked.length; i++) for (let j = i + 1; j < checked.length; j++) if (flickerBetween(checked[i], checked[j])) out.push([label(checked[i]), label(checked[j])]);
     return out;
   };
   /**
@@ -409,7 +537,7 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
       group.add(mesh);
     }
     const colliders = [], footprints = [];
-    for (const p of [...parts.filter((p) => p.y0 <= 0.5), ...collisionParts]) {
+    for (const p of [...parts.filter((p) => p.y0 <= 0.5 && p.type !== 'sign'), ...collisionParts]) {
       const box = orientedBox(p.ring);
       if (box && ringArea(p.ring) > box.area * 0.85) {
         colliders.push(obbCollider(box.cx + anchor.x, box.cz + anchor.z, box.hx, box.hz, box.ux, box.uz, p.y0, p.y1));

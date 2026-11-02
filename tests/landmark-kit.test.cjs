@@ -22,7 +22,7 @@ class Group { constructor() { this.children = []; this.position = { set: (x, y, 
 class BufferGeometry { constructor() { this.attributes = {}; } setAttribute(name, a) { this.attributes[name] = a; } computeBoundingSphere() {} }
 class Float32BufferAttribute { constructor(array, itemSize) { this.array = Float32Array.from(array); this.itemSize = itemSize; } }
 class Mesh { constructor(geometry, material) { this.geometry = geometry; this.material = material; } }
-const THREE = { Group, Mesh, BufferGeometry, Float32BufferAttribute, MeshStandardNodeMaterial: Chain, MeshLambertNodeMaterial: Chain, Color: Chain, FrontSide: 0, DoubleSide: 2 };
+const THREE = { Group, Mesh, BufferGeometry, Float32BufferAttribute, MeshStandardNodeMaterial: Chain, MeshLambertNodeMaterial: Chain, MeshBasicNodeMaterial: Chain, CanvasTexture: Chain, SRGBColorSpace: 'srgb', Color: Chain, FrontSide: 0, DoubleSide: 2 };
 // the triangles of a finished mesh: corners, the stored normal, the normal its winding gives, its area and centroid
 const trianglesOf = (mesh) => {
   const p = mesh.geometry.attributes.position.array, n = mesh.geometry.attributes.normal.array;
@@ -315,4 +315,100 @@ test('a sloped top follows a compass bearing in the city\'s turned frame', () =>
   const east = ring.reduce((a, b) => (along(b) > along(a) ? b : a));
   const west = ring.reduce((a, b) => (along(b) < along(a) ? b : a));
   assert.ok(Math.abs(top(...east) - 90) < 1e-9 && Math.abs(top(...west) - 100) < 1e-9);
+});
+
+test('a rooftop sign: a cut-out panel reading right from both sides, on a bar, outside the bounds and the flicker check', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 0, z: 0 } });
+  const m = kit.material(0xffffff);
+  kit.box({ x: 0, z: 0, y: 0, w: 40, h: 200, d: 30, material: m, name: 'tower' });
+  const before = kit.triangles;
+  const sign = kit.sign({ text: 'citi', x: 0, z: 0, y: 200.6, yaw: Math.PI / 2, width: 24, height: 6, color: 0x003b70, bar: 0x55595c });
+  assert.equal(sign.type, 'sign');
+  assert.equal(kit.triangles, before + 4 + 12, 'a quad each way, and the bar (in the air: with its underside)');
+  assert.equal(sign.material.alphaTest, 0.5, 'cut out, not blended');
+  assert.ok(!Object.hasOwn(sign.material, 'transparent'), 'not in the transparent pass');
+  assert.equal(kit.sign({ text: 'citi', x: 0, z: 0, y: 200.6, yaw: Math.PI / 2, color: 0x003b70, bar: 0x55595c }).material, sign.material, 'one material per text and colour');
+  assert.equal(kit.bounds().maxY, 200, 'a sign does not count toward the building');
+  assert.ok(Math.abs(kit.bounds({ signs: true }).maxY - 206.6) < 1e-9);
+  assert.equal(kit.flicker().length, 0);
+  const { group, colliders } = kit.finish();
+  assert.equal(colliders.length, 1, 'nothing to walk into on a roof');
+  const signMesh = group.children.find((o) => o.material === sign.material);
+  const tris = trianglesOf(signMesh);
+  assert.equal(tris.length, 8, 'two quads a sign (yaw 90°: facing +x and back), two signs');
+  assert.equal(tris.filter((t) => t.normal[0] > 0.999).length, 4, 'the fronts face +x');
+  assert.equal(tris.filter((t) => t.normal[0] < -0.999).length, 4, 'the backs face -x');
+  // the text reads left to right on both faces: u = 0 at the viewer's left (+z in front of a +x face, -z behind it)
+  const uvs = signMesh.geometry.attributes.uv.array;
+  tris.forEach((t, k) => {
+    const corners = [t.a, t.b, t.c].map((p, i) => ({ z: p[2], u: uvs[k * 6 + i * 2] }));
+    const left = corners.find((c) => c.u === 0), right = corners.find((c) => c.u === 1);
+    assert.ok(left && right, 'u spans the panel');
+    assert.ok(t.normal[0] > 0 ? left.z > right.z : left.z < right.z, 'reads right from ' + (t.normal[0] > 0 ? 'the front' : 'the back'));
+  });
+  assert.throws(() => kit.sign({ x: 0, z: 0, y: 1 }), /text/);
+  assert.throws(() => kit.sign({ text: 'citi', x: 0, z: 0 }), /height y/);
+  // no bar unless asked; a sign wider than maxWidth shrinks, keeping its shape; yTop places its top edge
+  const hung = kit.sign({ text: 'Standard Chartered', x: 50, z: 0, yTop: 150, height: 6, maxWidth: 30 });
+  assert.ok(Math.abs(hung.bounds.maxX - hung.bounds.minX - 30) < 1e-9, 'capped at the wall');
+  const natural = 6 * 0.62 * 'Standard Chartered'.length;
+  assert.ok(near(hung.bounds.maxY - hung.bounds.minY, 6 * 30 / natural), 'the height scaled with the width');
+  assert.ok(near(hung.bounds.maxY, 150), 'its top at yTop');
+  assert.ok(!kit.parts.some((p) => p.name === hung.name + ':bar'), 'no bar');
+  // no width given: as wide as the text (no canvas in node: 0.62 m per letter and metre of height)
+  const wide = kit.sign({ text: 'WESTIN', x: 100, z: 0, y: 200.6, height: 5 });
+  assert.ok(Math.abs(wide.bounds.maxX - wide.bounds.minX - 5 * 0.62 * 6) < 1e-9, 'width from the text');
+});
+
+test('the scatter facade: one material per throw, its options in the memo key; an unknown pattern throws', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 0, z: 0 } });
+  const a = kit.facadeMaterial({ wall: 0xe8e8e4, window: 0x3f5f78, pattern: 'scatter', scatter: { density: 0.2, top: 0.8, ramp: [150, 220] } });
+  assert.ok(Object.hasOwn(a, 'colorNode'), 'painted in a node');
+  assert.equal(kit.facadeMaterial({ wall: 0xe8e8e4, window: 0x3f5f78, pattern: 'scatter', scatter: { density: 0.2, top: 0.8, ramp: [150, 220] } }), a, 'the same throw: the same material');
+  assert.notEqual(kit.facadeMaterial({ wall: 0xe8e8e4, window: 0x3f5f78, pattern: 'scatter', scatter: { density: 0.2, top: 0.8, ramp: [150, 220], seed: 2 } }), a, 'another seed: another material');
+  assert.notEqual(kit.facadeMaterial({ wall: 0xe8e8e4, window: 0x3f5f78, pattern: 'scatter' }), a, 'the defaults: another material');
+  assert.throws(() => kit.facadeMaterial({ wall: 0xffffff, pattern: 'confetti' }), /unknown facade pattern/);
+});
+
+test('wallToward: the wall of a ring facing a bearing best, for a sign hung under the roofline', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 0, z: 0 } });
+  kit.bearingDeg = 0;
+  const ring = [[-20, -10], [20, -10], [20, 10], [-20, 10]];
+  const north = kit.wallToward(ring, 0); // north is -z in an unturned frame
+  assert.ok(near(north.x, 0) && near(north.z, -10) && near(north.nx, 0) && near(north.nz, -1), JSON.stringify(north));
+  assert.equal(north.length, 40);
+  assert.ok(near(Math.abs(north.yaw), Math.PI), 'facing -z');
+  const east = kit.wallToward([...ring].reverse(), 90); // either winding
+  assert.ok(near(east.x, 20) && near(east.nx, 1) && east.length === 20, JSON.stringify(east));
+  const turned = kit.wallToward(ring, 20); // within 45° of north: still the long north wall
+  assert.ok(near(turned.z, -10) && turned.length === 40);
+  assert.throws(() => kit.wallToward([[0, 0]], 0), /edge/);
+});
+
+test('hang: a sign on the wall facing the bay under the roofline, or on the face of a round crown', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 0, z: 0 } });
+  kit.bearingDeg = 0;
+  const m = kit.material(0xffffff);
+  const ring = [[-20, -10], [20, -10], [20, 10], [-20, 10]];
+  kit.prism({ ring, y0: 0, y1: 200, material: m, name: 'tower' });
+  const s = kit.hang({ ring, top: 200, toward: 0, text: 'DBS', height: 7 }); // the north wall (-z), 40 m long
+  assert.ok(near(s.bounds.maxY, 198.5) && near(s.bounds.maxY - s.bounds.minY, 7), 'its top 1.5 m under the roofline');
+  assert.ok(near(s.bounds.minZ, -10.4) && near(s.bounds.maxZ, -10.4), '0.4 m off the wall');
+  assert.ok(s.bounds.minX > -17 && s.bounds.maxX < 17, 'within the wall less the margin');
+  // a slanted crown: under the roofline's low end over that wall
+  const roof = kit.sloped(ring, 200, 10, 90); // falling east: 200 at x = -20, 190 at x = 20
+  const t = kit.hang({ ring, top: roof, toward: 0, text: 'HSBC', height: 7, below: 2 });
+  assert.ok(near(t.bounds.maxY, 188), 'under the low end (190) by 2');
+  // a round crown: no wall long enough, so on its face toward the bearing, within its width
+  const round = Array.from({ length: 24 }, (_, i) => [15 * Math.cos((i / 24) * 2 * Math.PI), 15 * Math.sin((i / 24) * 2 * Math.PI)]);
+  const u = kit.hang({ ring: round, top: 280, toward: 90, text: 'UOB', height: 7 }); // east: +x
+  assert.ok(near(u.bounds.minX, 15.4) && near(u.bounds.maxX, 15.4), 'on the east face: ' + JSON.stringify(u.bounds));
+  assert.ok(u.bounds.maxZ - u.bounds.minZ <= 18 + 1e-9, 'no wider than 60% of the crown');
+  assert.ok(near(u.bounds.maxY, 278.5));
+  assert.equal(kit.flicker().length, 0);
+  assert.throws(() => kit.hang({ top: 10, toward: 0, text: 'x' }), /ring/);
 });
