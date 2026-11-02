@@ -19,6 +19,10 @@ The block follows the city grid, so its axes come from the offices' longest wall
 - The Green Heart: five terraces stepping down to a garden with a dark pond, paths and trees; the residents' lap pool along the first terrace; trees on the planted terraces; the way in from the portal paved; glazed two-storey podium blocks with green roofs in the gaps between the towers.
 - Colliders and map footprints for every tower to its full height, the bridge (not the portal under it), nothing over the heart.
 
+![Marina One from the east in the Tiny look: the residences in front, the bridge over the open portal, the bronze shafts and the roof pergola](images/marina-one-east.jpg)
+
+![Marina One in daylight from the east-north-east, the terraced heart between the residences](images/marina-one-day.jpg)
+
 ## Inspect and rebuild
 
 ```text
@@ -32,3 +36,9 @@ node --test tests/landmark-kit.test.cjs tests/landmark-models.test.cjs
 ```
 
 The model tests check the thirteen replaced ways, the portal open under the bridge, the offices at 200 m and the residences at 139 m, the heart open to the sky over its garden and terraces, the louvres and the pergola, the triangle and batch budget, no coplanar flicker, and colliders (the residences and the bridge solid, the portal and the air over the heart not).
+
+## Verification
+
+- `tests/landmark-kit.test.cjs`, `tests/landmark-models.test.cjs`, `tests/singapore-landmarks.test.mjs`, `tests/city-geodata.test.mjs` pass (63 checks, merged with main's Raffles Hotel). The full `node --test` run on Windows passed but for the existing "tile worker" case in `tests/city-tiles.test.mjs`.
+- 35,781 triangles in 11 material batches, no coplanar flicker; about 0.3 s to build and check in the browser.
+- Rendered in the preview (WebGL, Tiny and day looks) against HG Esch's photographs, and in the production city (WebGPU) from the east, west and above, without errors or flicker warnings. Regenerated geodata removes exactly the thirteen replaced ways.
