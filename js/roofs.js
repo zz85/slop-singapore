@@ -41,6 +41,27 @@ function roofHeightFor(shape, shortSide) {
 }
 
 /**
+ * Where a building's roof of `shape` goes: { eave, ridge, wallTop } (m), or null for none. Within a mapped height
+ * (`included`: a tagged height is the whole building) the ridge is the top and the walls stop at the eave; over
+ * storeys the roof sits on top. Its height is the mapped one (dm), else a share of the short side (roofHeightFor); a
+ * mapped height that is most of the building was tagged as its whole height and is replaced; a `heuristic` roof (one
+ * the city adds without a mapped shape) is never more than half the building. None on a building under 2.8 m, and
+ * the walls keep at least 2.5 m under the eave.
+ */
+function roofPlacement({ shape, included = false, heightDm = 0, top, bottom = 0, shortSide = 0, heuristic = false }) {
+  if (!shape || shape === ROOF_SHAPES.flat) return null;
+  const h = top - bottom;
+  if (!(h >= 2.8)) return null;
+  let rh = heightDm > 0 ? heightDm / 10 : roofHeightFor(shape, shortSide);
+  if (heightDm > 0 && rh >= h - 2.5) rh = roofHeightFor(shape, shortSide);
+  if (heuristic) rh = Math.min(rh, h / 2);
+  const ridge = included ? top : top + rh;
+  const eave = Math.max(bottom + 2.5, ridge - rh);
+  if (ridge - eave < 0.3) return null;
+  return { eave, ridge, wallTop: included ? eave : top };
+}
+
+/**
  * The roof over a building's turned box `{ cx, cz, hx, hz, ux, uz }` (half sizes hx along (ux, uz), hz across; as
  * js/open-city-buildings.js orientedBox gives it), from its `eave` height up to its `ridge`. The ridge runs along the
  * longer side unless `across`. Returns { positions: [x, y, z, ... three per vertex, triangles], ends: [per triangle,
@@ -107,4 +128,4 @@ function pitchedRoof({ shape, box, eave, ridge, across = false }) {
   return { positions, ends };
 }
 
-export { ROOF_SHAPES, roofShapeCode, packRoof, unpackRoof, roofHeightFor, pitchedRoof };
+export { ROOF_SHAPES, roofShapeCode, packRoof, unpackRoof, roofHeightFor, roofPlacement, pitchedRoof };

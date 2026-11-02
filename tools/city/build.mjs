@@ -197,11 +197,13 @@ export async function buildCity(cityOrId, { out, data } = {}) {
     // The roof OSM maps (js/roofs.js): its shape, whether its ridge runs across the long side, its height (roof:height,
     // else roof:levels of 3 m, else 0: decided from the footprint when built), and whether it is within the building's
     // mapped height (a tagged height is the whole building, roof included; storeys are not)
+    // (a tagged height is noted even without a shape: a roof the city adds by itself must fit under it too)
     const roofOf = (t) => {
       const shape = roofShapeCode(t['roof:shape']);
-      if (!shape) return 0;
+      const included = num(t.height) > 0;
+      if (!shape) return packRoof({ shape: 0, included });
       const rh = num(t['roof:height']) > 0 ? num(t['roof:height']) : num(t['roof:levels']) > 0 ? num(t['roof:levels']) * 3 : 0;
-      return packRoof({ shape, across: t['roof:orientation'] === 'across', included: num(t.height) > 0, heightDm: rh * 10 });
+      return packRoof({ shape, across: t['roof:orientation'] === 'across', included, heightDm: rh * 10 });
     };
     const districtStyle = (x, z) => {
       let best = null, bd = Infinity;

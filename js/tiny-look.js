@@ -113,7 +113,6 @@ function createTinyFacadeMaterial({ kind, pattern = 'punched', floorHeight = 3.5
   m.colorNode = Fn(() => {
     const box = attribute('box', 'vec4');
     const faces = attribute('faces', 'vec4');
-    const tone = fract(box.w).sub(0.1).div(0.8).clamp(0, 1);
     const wallKind = faces.w; // the quad is the box's +z wall: 0 shop, 1 entry, 2 rear, 3 lot line
     const wallW = box.x;
     const wallH = box.y;

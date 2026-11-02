@@ -17,7 +17,7 @@ const load = () => loadModule(source, {
     './city-config.js': { districtAt: () => 'generic' },
     './geodata.js': { GEO: {} },
     './tiny-look.js': { pairMaterial: noop, createTinyFacadeMaterial: noop, createTinyRoofMaterial: noop, createTinyFlatMaterial: noop, tinyRoofColor: () => [1, 1, 1], tinyWallColor: () => 0xffffff, blendHex: (a) => a, hexToRgb: () => [1, 1, 1] },
-    './roofs.js': { ROOF_SHAPES: { flat: 0, gabled: 1, hipped: 2, pyramidal: 3, skillion: 4 }, unpackRoof: noop, roofHeightFor: noop, pitchedRoof: noop }
+    './roofs.js': { ROOF_SHAPES: { flat: 0, gabled: 1, hipped: 2, pyramidal: 3, skillion: 4 }, unpackRoof: noop, roofPlacement: noop, pitchedRoof: noop }
   },
   globals: { Float32Array, Math },
   filename: 'open-city-buildings.js'

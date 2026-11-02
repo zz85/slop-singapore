@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ROOF_SHAPES, roofShapeCode, packRoof, unpackRoof, roofHeightFor, pitchedRoof } from '../js/roofs.js';
+import { ROOF_SHAPES, roofShapeCode, packRoof, unpackRoof, roofHeightFor, roofPlacement, pitchedRoof } from '../js/roofs.js';
 
 // js/roofs.js: the pitched roofs a city built from OpenStreetMap raises over its extruded footprints (Phase 3 of
 // docs/tiny-look-plan.md): OSM roof:shape values to the five kinds built, packed with the roof's height and
@@ -91,4 +91,31 @@ test('skillion: one slope from the low eave to the high side, two triangular sid
   assert.ok(within(r) && outward(r));
   assert.equal(r.ends.filter(Boolean).length, 4, 'the two sides and the high wall are vertical');
   assert.equal(pitchedRoof({ shape: ROOF_SHAPES.flat, box, eave: 20, ridge: 23 }), null);
+});
+
+test('where a roof goes: within a mapped height the walls stop at the eave, over storeys it sits on top', () => {
+  const G = ROOF_SHAPES.gabled;
+  // a mapped height of 20 m with a 4 m roof in it
+  assert.deepEqual(roofPlacement({ shape: G, included: true, heightDm: 40, top: 20, bottom: 0, shortSide: 9 }), { eave: 16, ridge: 20, wallTop: 16 });
+  // three storeys (9.6 m), no roof height: a third of the 9 m short side, on top
+  assert.deepEqual(roofPlacement({ shape: G, included: false, heightDm: 0, top: 9.6, bottom: 0, shortSide: 9 }), { eave: 9.6, ridge: 12.6, wallTop: 9.6 });
+  // a part standing above the ground keeps its bottom
+  assert.deepEqual(roofPlacement({ shape: G, included: false, heightDm: 0, top: 30, bottom: 20, shortSide: 6 }), { eave: 30, ridge: 32, wallTop: 30 });
+  assert.equal(roofPlacement({ shape: ROOF_SHAPES.flat, top: 20, bottom: 0, shortSide: 9 }), null);
+});
+
+test('where a roof goes: never taller than the building allows', () => {
+  const G = ROOF_SHAPES.gabled;
+  // a heuristic roof on a mapped 3.2 m shed 18 m wide: within the height, and never most of it
+  const shed = roofPlacement({ shape: G, included: true, heightDm: 0, top: 3.2, bottom: 0, shortSide: 18, heuristic: true });
+  assert.ok(shed && shed.ridge === 3.2 && shed.eave >= 2.5 && shed.wallTop === shed.eave, JSON.stringify(shed));
+  // a heuristic roof over storeys: at most half the building
+  const low = roofPlacement({ shape: G, included: false, heightDm: 0, top: 4, bottom: 0, shortSide: 18, heuristic: true });
+  assert.ok(low && low.ridge - low.eave <= 2 + 1e-9 && low.eave === 4, JSON.stringify(low));
+  // a mapped roof height that is most of the building was tagged as its whole height: a derived one instead
+  assert.deepEqual(roofPlacement({ shape: G, included: true, heightDm: 90, top: 10, bottom: 0, shortSide: 9 }), { eave: 7, ridge: 10, wallTop: 7 });
+  // too low a building for any roof, or nothing left between eave and ridge
+  assert.equal(roofPlacement({ shape: G, included: true, heightDm: 10, top: 2.6, bottom: 0, shortSide: 9 }), null);
+  assert.equal(roofPlacement({ shape: G, included: false, heightDm: 0, top: 2.4, bottom: 0, shortSide: 9 }), null);
+  assert.equal(roofPlacement({ shape: G, included: true, heightDm: 2, top: 20, bottom: 0, shortSide: 9 }), null, 'a 0.2 m roof is no roof');
 });

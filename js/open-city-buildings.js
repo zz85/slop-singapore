@@ -3,7 +3,7 @@ import { createPreWarBuildingMaterial, createCurtainWallMaterial, WALL_KINDS } f
 import { districtAt } from './city-config.js';
 import { GEO } from './geodata.js';
 import { pairMaterial, createTinyFacadeMaterial, createTinyRoofMaterial, createTinyFlatMaterial, tinyRoofColor, tinyWallColor, blendHex, hexToRgb } from './tiny-look.js';
-import { ROOF_SHAPES, unpackRoof, roofHeightFor, pitchedRoof } from './roofs.js';
+import { ROOF_SHAPES, unpackRoof, roofPlacement, pitchedRoof } from './roofs.js';
 
 // js/open-city-buildings.js
 // The real buildings of a city built from OpenStreetMap (GEO.buildings: footprints with courtyards, the heights of
@@ -53,6 +53,10 @@ const CIVIC = 9;
 const CIVIC_TYPES = new Set(['public', 'civic', 'government', 'church', 'cathedral', 'chapel', 'mosque', 'temple', 'museum', 'courthouse']);
 const HOME_TYPES = new Set(['residential', 'apartments', 'house', 'terrace', 'detached', 'dormitory', 'bungalow']);
 const HOUSE_TYPES = new Set(['house', 'terrace', 'detached', 'bungalow', 'semidetached_house']);
+// Buildings that never get a tile roof the city adds by itself (a mapped roof:shape still counts)
+const NO_TILE_ROOF = new Set(['industrial', 'warehouse', 'service', 'construction', 'train_station', 'transportation', 'garage', 'garages', 'parking', 'kiosk', 'toilets', 'shed', 'hut', 'hangar']);
+// A pitched roof only over a footprint that nearly fills its turned box (the share the colliders judge a box by)
+const ROOF_FIT = 0.85;
 
 const hash = (a, b) => {
   const s = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453;
@@ -193,22 +197,25 @@ function buildOpenCityBuildings(scene) {
     // one on a house without a shape, when the footprint is near enough one turned box; the walls stop at its eaves
     // when it is within the mapped height. Its colour as mapped, else terracotta on those, grey elsewhere.
     const houseLike = HOUSE_TYPES.has(b.type);
-    let roof = unpackRoof(b.roof);
-    if (!roof.shape && !canopy && b.rings.length === 1 && b.top - b.bottom < 20) {
-      if (SHOPHOUSE.includes(facade)) roof = { shape: ROOF_SHAPES.gabled, across: false, included: false, heightDm: 0 };
-      else if (houseLike) roof = { shape: ROOF_SHAPES.hipped, across: false, included: false, heightDm: 0 };
+    const roof = unpackRoof(b.roof);
+    let shape = roof.shape;
+    let heuristic = false;
+    if (!shape && !canopy && b.rings.length === 1 && b.top - b.bottom < 20 && !NO_TILE_ROOF.has(b.type)) {
+      if (SHOPHOUSE.includes(facade)) { shape = ROOF_SHAPES.gabled; heuristic = true; }
+      else if (houseLike) { shape = ROOF_SHAPES.hipped; heuristic = true; }
     }
     let wallTop = b.top;
     let pitched = null;
-    if (roof.shape && !canopy && b.rings.length === 1) {
+    if (shape && !canopy && b.rings.length === 1) {
       const obox = orientedBox(outer);
       const short = obox ? 2 * Math.min(obox.hx, obox.hz) : 0;
-      if (obox && Math.abs(ringArea(outer)) > obox.area * 0.7 && short >= 3) {
-        const rh = roof.heightDm > 0 ? roof.heightDm / 10 : roofHeightFor(roof.shape, short);
-        const ridge = roof.included ? b.top : b.top + rh;
-        const eave = Math.max(b.bottom + 2.5, ridge - rh);
-        pitched = pitchedRoof({ shape: roof.shape, box: obox, eave, ridge, across: roof.across });
-        if (pitched && roof.included) wallTop = eave;
+      if (obox && Math.abs(ringArea(outer)) > obox.area * ROOF_FIT && short >= 3) {
+        // (a roof the city adds fits under a mapped height too, and is never most of the building: roofPlacement)
+        const at = roofPlacement({ shape, included: roof.included, heightDm: heuristic ? 0 : roof.heightDm, top: b.top, bottom: b.bottom, shortSide: short, heuristic });
+        if (at) {
+          pitched = pitchedRoof({ shape, box: obox, eave: at.eave, ridge: at.ridge, across: !heuristic && roof.across });
+          wallTop = at.wallTop;
+        }
       }
     }
     const h = wallTop - b.bottom;
