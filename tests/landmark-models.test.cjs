@@ -96,6 +96,87 @@ function covers(ring, x, z) {
   return inside;
 }
 
+async function rafflesHotelModel() {
+  const { GEO } = await geodata;
+  const L = GEO.landmarks.find((l) => l.id === 'raffles-hotel');
+  assert.ok(L, 'Raffles Hotel has a dedicated landmark anchor');
+  const { build } = await import(pathToFileURL(join(__dirname, '../js/landmark-models/raffles-hotel.js')).href);
+  const kit = createKit({ anchor: L, name: L.id });
+  kit.bearingDeg = GEO.frame.bearingDeg;
+  build(kit, siteOf(L));
+  const { makeFrame } = await import('../tools/city/frame.mjs');
+  const frame = makeFrame({ lat0: GEO.frame.lat0, lon0: GEO.frame.lon0, theta: GEO.frame.bearingDeg * Math.PI / 180 });
+  // Independent drawing coordinates: north-east along the plan, north-west toward the Arcade.
+  const point = (u, v) => {
+    const a = 37.1 * Math.PI / 180;
+    const [x, z] = frame.toWorld(103.854565 + (u * Math.sin(a) - v * Math.cos(a)) / 111290,
+      1.294280 + (u * Math.cos(a) + v * Math.sin(a)) / 110574);
+    return [x - L.x, z - L.z];
+  };
+  return { kit, L, point };
+}
+
+test('Raffles Hotel replaces the hotel and Arcade at their mapped site within a bounded geometry budget', async () => {
+  const { kit, L, point } = await rafflesHotelModel();
+  const { default: config } = await import('../tools/city/cities/singapore.mjs');
+  const registered = config.landmarks.find((l) => l.id === L.id);
+  assert.deepEqual(registered.hideRelations, [3413910,3413596], 'both enclosing generic hotel masses are replaced');
+  for (const id of [164176023,164177177])assert.ok(!registered.hide.includes(id), 'separate Seah Street buildings remain');
+  assert.ok(L.parts.some((p) => p.id === 254815862));
+  assert.ok(L.parts.length >= 40, 'all suite-wing pieces are replaced');
+  assert.ok(!L.parts.some((p) => [39487263,172364973,172364975].includes(p.id)), 'Raffles City is separate');
+  assert.ok(kit.triangles > 10000 && kit.triangles < 65000, `${kit.triangles} triangles`);
+  const b = kit.bounds();
+  assert.ok(b.maxY >= 24 && b.maxY <= 29, 'roof crest and flagpole, not a tower');
+  for(const p of kit.parts)for(const value of Object.values(p.bounds))assert.ok(Number.isFinite(value), p.name + ' finite bounds');
+  const [x,z] = point(42,38);
+  assert.ok(covers(kit.parts.find((p) => p.name === 'main-body').ring,x,z), 'main building is on the independently located site');
+  const corners = [[-15,-15],[160,-15],[160,175],[-15,175]].map(([u,v]) => point(u,v));
+  for(const [axis,i] of [['X',0],['Z',1]]) {
+    assert.ok(b['min'+axis] >= Math.min(...corners.map((p) => p[i]))-2, 'within hotel property ' + axis);
+    assert.ok(b['max'+axis] <= Math.max(...corners.map((p) => p[i]))+2, 'within hotel property ' + axis);
+  }
+  const { group } = kit.finish();
+  assert.ok(group.children.length <= 16, `${group.children.length} merged material batches`);
+  const flicker = kit.flicker();
+  assert.equal(flicker.length, 0, JSON.stringify(flicker.slice(0, 20)));
+});
+
+test('Raffles Hotel keeps its gardens and Arcade square open in geometry and collision', async () => {
+  const { kit, L, point } = await rafflesHotelModel();
+  const { colliders } = kit.finish();
+  for (const [name, u, v] of [['Palm Garden',6,45],['Palm Court',78,35],['Fern Court',15,105],['The Lawn',76,97],['Arcade square',111,146]]) {
+    const [x, z] = point(u, v);
+    assert.equal(kit.parts.filter((p) => p.y0 < 8 && p.y1 > 8 && covers(p.ring, x, z)).length, 0, name + ' has no invented mass');
+    assert.ok(!colliderAt(colliders, x + L.x, 8, z + L.z), name + ' has no invisible building');
+  }
+});
+
+test('Raffles Hotel has a detailed main front, hipped roofs, shaded verandas and a collidable elevated pool deck', async () => {
+  const { kit, L, point } = await rafflesHotelModel();
+  for (const prefix of ['main-pediment','main-porch','main-corner','main-arch','veranda-column','pool-water','arcade-roof']) {
+    assert.ok(kit.parts.some((p) => p.name.startsWith(prefix)), prefix);
+  }
+  const { colliders } = kit.finish();
+  const [x, z] = point(37,100);
+  assert.ok(colliderAt(colliders,x + L.x,11.4,z + L.z), 'third-storey pool terrace stops descending players');
+  assert.ok(!colliderAt(colliders,x + L.x,17,z + L.z), 'pool terrace is open above');
+  for(const [u,v]of [[25.5,16.5],[59,17.5]]) {
+    const [x,z]=point(u,v);
+    assert.ok(colliderAt(colliders,x+L.x,19.1,z+L.z), 'projecting corner pavilion roof stops descent');
+  }
+  const [cx,cz]=point(135,102);
+  assert.ok(kit.parts.some((p)=>p.name.endsWith('-rooms')&&p.y0<13&&p.y1>13&&covers(p.ring,cx,cz)), 'Casuarina suite wing has the third level shown on the hotel plan');
+  const [sx,sz]=point(35.5,132);
+  assert.ok(kit.parts.some((p)=>p.y0<4.8&&p.y1>4.8&&covers(p.ring,sx,sz)), 'mapped rear stair link is retained');
+  for(const [name,u,v]of [['Lawn pavilion',97.8,96.2],['rear west canopy',17.6,141],['rear east canopy',54.4,141],['BBR rear canopy',0,36.5],['BBR side canopy',-8.8,45]]) {
+    const [x,z]=point(u,v);
+    assert.ok(kit.parts.some((p)=>p.y0<4.8&&p.y1>4.8&&covers(p.ring,x,z)), name+' has visible replacement geometry');
+    assert.ok(colliderAt(colliders,x+L.x,4.8,z+L.z), name+' has roof collision');
+    assert.ok(!colliderAt(colliders,x+L.x,1.8,z+L.z), name+' remains passable underneath');
+  }
+});
+
 test('Fullerton has an actual atrium below the roof rather than a solid hotel block', async () => {
   const { kit, L } = await fullertonModel();
   const { GEO } = await geodata;
