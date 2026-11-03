@@ -344,14 +344,17 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
    * the back too; on a low bar in `bar` colour when one is given (a sign standing on a roof — hang() is the usual
    * way). A `vertical` sign runs its text down the panel instead, the letters' tops to the right (as a hotel's name
    * down the edge of a tower): the panel is then `height` m across and `width` (capped at `maxWidth`) tall. The
-   * letters are drawn on a canvas in a browser; in node the panel stands blank. Signs are decoration: left out of
-   * bounds() unless asked, and of the flicker check. -> the part record
+   * letters are drawn on a canvas in a browser; in node the panel stands blank. Text with line breaks ('\n') runs on
+   * as many lines. A `logo` (as js/landmark-logos.js gives them: { id, aspect, draw(ctx, x, y, w, h) }) is painted
+   * left of the text, a little taller than its letters (or than its lines), or fills the panel with no text. Signs are
+   * decoration: left out of bounds() unless asked, and of the flicker check. -> the part record
    */
-  kit.sign = ({ text, x = 0, z = 0, y, yTop, yaw = 0, width, maxWidth = Infinity, height = 6, vertical = false, color = 0xffffff, bar = false, font = 'bold 110px Helvetica, Arial, sans-serif', name = '' }) => {
-    if (!text) throw new Error('landmark kit: a sign needs its text');
-    if (!Number.isFinite(y) && !Number.isFinite(yTop)) throw new Error(`landmark kit: sign ${text} needs its height y (or yTop)`);
-    const material = signMaterial(text, color, font);
-    if (!(width > 0)) width = height * (signAspect.get(material) || 0.62 * text.length);
+  kit.sign = ({ text = '', logo = null, x = 0, z = 0, y, yTop, yaw = 0, width, maxWidth = Infinity, height = 6, vertical = false, color = 0xffffff, bar = false, font = 'bold 110px Helvetica, Arial, sans-serif', name = '' }) => {
+    if (!text && !logo) throw new Error('landmark kit: a sign needs its text or a logo');
+    const label = text || logo.id;
+    if (!Number.isFinite(y) && !Number.isFinite(yTop)) throw new Error(`landmark kit: sign ${label} needs its height y (or yTop)`);
+    const material = signMaterial(text, color, font, logo);
+    if (!(width > 0)) width = height * (signAspect.get(material) || guessAspect(text, logo));
     if (width > maxWidth) { height *= maxWidth / width; width = maxWidth; }
     const across = vertical ? height : width, up = vertical ? width : height; // the panel along the wall and up it
     if (!Number.isFinite(y)) y = yTop - up;
@@ -368,7 +371,7 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     // the back: the same panel facing the other way, its corners swapped left for right, so the text is not mirrored
     triangle(B, br, bl, tl, p, q, r, [-nx, 0, -nz]);
     triangle(B, br, tl, tr, p, r, t, [-nx, 0, -nz]);
-    const part = { name: name || `sign:${text}`, type: 'sign', material, y0: y, y1: y + up, ring: [[bl[0], bl[2]], [br[0], br[2]]], walls: [], caps: [], bounds: { minX: Math.min(bl[0], br[0]), maxX: Math.max(bl[0], br[0]), minY: y, maxY: y + up, minZ: Math.min(bl[2], br[2]), maxZ: Math.max(bl[2], br[2]) } };
+    const part = { name: name || `sign:${label}`, type: 'sign', logo: logo?.id ?? null, material, y0: y, y1: y + up, ring: [[bl[0], bl[2]], [br[0], br[2]]], walls: [], caps: [], bounds: { minX: Math.min(bl[0], br[0]), maxX: Math.max(bl[0], br[0]), minY: y, maxY: y + up, minZ: Math.min(bl[2], br[2]), maxZ: Math.max(bl[2], br[2]) } };
     parts.push(part);
     if (bar !== false && bar !== null) kit.box({ x, z, y: y - 0.6, w: across, h: 0.6, d: 0.8, yaw, material: kit.material(bar), name: `${part.name}:bar` });
     return part;
@@ -381,7 +384,7 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
    * The rest as sign(). -> the part record
    */
   kit.hang = ({ ring, top, toward, below = 1.5, out = 0.4, margin = 6, ...sign }) => {
-    if (!ring || ring.length < 3) throw new Error(`landmark kit: hang ${sign.text || ''} needs a ring`);
+    if (!ring || ring.length < 3) throw new Error(`landmark kit: hang ${sign.text || sign.logo?.id || ''} needs a ring`);
     const w = kit.wallToward(ring, toward);
     const line = typeof top === 'function' ? Math.min(top(...w.a), top(...w.b)) : top;
     if (w.length - margin >= 8) {
@@ -414,22 +417,42 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     if (!best) throw new Error('landmark kit: wallToward needs a ring with an edge');
     return best;
   };
-  // the text as a texture on a cut-out material (alpha-tested, so neither sorted nor drawn twice as a transparent
-  // one would be; and its tiny-look stand-in), one per text and colour
-  const signAspect = new Map(); // material -> the painted text's width over its height
-  const signMaterial = (text, color, font) => remember(`s${text}:${color}:${font}`, () => {
+  // the sign's canvas (px): its height, the text's lines a line apart down its middle, and the logo's box left of them
+  // (a little taller than the letters; the panel less a margin for a logo alone or beside lines), padded 20 each side
+  const signLayout = (text, logo) => {
+    const lines = text ? text.split('\n') : [], line = 118;
+    const H = lines.length > 1 ? lines.length * line + 42 : 160;
+    const L = logo ? (lines.length === 1 ? 104 : H - 24) : 0;
+    return { lines, line, H, L, lw: logo ? Math.ceil(L * logo.aspect) : 0, gap: logo && lines.length ? 36 : 0 };
+  };
+  // the panel's width over its height without a canvas (in node): 0.62 of the height a letter
+  const guessAspect = (text, logo) => {
+    if (!logo && !text.includes('\n')) return 0.62 * text.length;
+    const { lines, H, lw, gap } = signLayout(text, logo);
+    return (40 + lw + gap + 0.62 * 160 * Math.max(0, ...lines.map((l) => l.length))) / H;
+  };
+  // the text (and logo) as a texture on a cut-out material (alpha-tested, so neither sorted nor drawn twice as a
+  // transparent one would be; and its tiny-look stand-in), one per text, colour and logo
+  const signAspect = new Map(); // material -> the painted panel's width over its height
+  const signMaterial = (text, color, font, logo) => remember(`s${text}:${color}:${font}:${logo?.id ?? ''}`, () => {
     const options = { alphaTest: 0.5 };
     if (typeof document !== 'undefined') {
+      const { lines, line, H, L, lw, gap } = signLayout(text, logo);
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       ctx.font = font;
-      const w = Math.ceil(ctx.measureText(text).width) + 40;
+      const w = 40 + lw + gap + Math.ceil(Math.max(0, ...lines.map((l) => ctx.measureText(l).width)));
       canvas.width = Math.max(64, w);
-      canvas.height = 160;
+      canvas.height = H;
+      if (logo) {
+        ctx.save();
+        logo.draw(ctx, 20, (H - L) / 2, lw, L);
+        ctx.restore();
+      }
       ctx.font = font;
       ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
       ctx.textBaseline = 'middle';
-      ctx.fillText(text, 20, 80);
+      lines.forEach((l, i) => ctx.fillText(l, 20 + lw + gap, H / 2 + (i - (lines.length - 1) / 2) * line));
       const map = new THREE.CanvasTexture(canvas);
       map.colorSpace = THREE.SRGBColorSpace;
       map.anisotropy = 8;
@@ -439,9 +462,9 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     const aspect = options.aspect; delete options.aspect;
     const m = new THREE.MeshBasicNodeMaterial(options);
     if (aspect) signAspect.set(m, aspect);
-    m.name = `landmark.sign.${text}`;
+    m.name = `landmark.sign.${text || logo.id}`;
     const tiny = new THREE.MeshLambertNodeMaterial(options);
-    tiny.name = `tinyLandmark.sign.${text}`;
+    tiny.name = `tinyLandmark.sign.${text || logo.id}`;
     pairMaterial(m, tiny);
     return m;
   });

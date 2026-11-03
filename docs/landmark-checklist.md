@@ -105,7 +105,7 @@ Columns are deliberately row-local: update your row rather than maintaining shar
 
 | ID | Done | Building / bounded scope | Recognition focus / existing evidence | State | Owner / branch / PR |
 | --- | --- | --- | --- | --- | --- |
-| SG-040 | [ ] | Marina Bay Financial Centre — three office towers, Residences, Suites and shared podium | Distinct tower heights and crowns; [existing model](../js/landmark-models/marina-bay-financial-centre.js); add source notes | audit | — |
+| SG-040 | [ ] | Marina Bay Financial Centre — three office towers, Residences and shared podium (Marina Bay Suites stands across Straits View, outside this site) | Offset glass slabs with slanted crowns, open plaza and pool deck, the banks' signs with their logos; [model](../js/landmark-models/marina-bay-financial-centre.js), [sources and verification](marina-bay-financial-centre.md), [render](images/marina-bay-financial-centre-mbs.jpg) | review | Claude Code / 778f1e79; `claude/marina-bay-financial-centre-model-b61e72`; 2026-11-03; [PR #8](https://github.com/datainvestor/tiny-singapore/pull/8) |
 | SG-041 | [ ] | Asia Square — both towers and shared podium, including Westin volume | Twin profiles, podium and roof; [existing model](../js/landmark-models/asia-square.js); add source notes | audit | — |
 | SG-042 | [ ] | Marina One — office/residential towers and Green Heart | Garden void, louvres and bridging; [source notes](marina-one.md) | audit | — |
 | SG-043 | [ ] | One Raffles Quay — North/South towers and podium | Different heights, curtain walls and connected base | todo | — |

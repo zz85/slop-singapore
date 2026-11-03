@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
+const { pathToFileURL } = require('node:url');
 const test = require('node:test');
 const { loadModule } = require('./helpers/module.cjs');
 
@@ -411,6 +412,66 @@ test('hang: a sign on the wall facing the bay under the roofline, or on the face
   assert.ok(near(u.bounds.maxY, 278.5));
   assert.equal(kit.flicker().length, 0);
   assert.throws(() => kit.hang({ top: 10, toward: 0, text: 'x' }), /ring/);
+});
+
+test('a sign with a logo: the mark left of the name, or alone, or beside a name on two lines', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 0, z: 0 } });
+  const mark = { id: 'mark', aspect: 2, draw() {} };
+  const wide = (p) => p.bounds.maxX - p.bounds.minX; // facing +z: the panel runs along x
+  const named = kit.sign({ text: 'HSBC', logo: mark, x: 0, z: 0, y: 100, height: 6 });
+  const plain = kit.sign({ text: 'HSBC', x: 0, z: 0, y: 100, height: 6 });
+  assert.equal(named.logo, 'mark');
+  assert.equal(plain.logo, null);
+  assert.equal(named.name, 'sign:HSBC');
+  assert.notEqual(named.material, plain.material, 'a logo: another material');
+  assert.equal(kit.sign({ text: 'HSBC', logo: mark, x: 5, z: 0, y: 120 }).material, named.material, 'one material per text, colour and logo');
+  assert.ok(wide(named) > wide(plain), 'the mark widens the sign');
+  const alone = kit.sign({ logo: mark, x: 0, z: 0, y: 100, height: 6 });
+  assert.equal(alone.name, 'sign:mark', 'named after its logo');
+  assert.ok(wide(alone) > 6 && wide(alone) < wide(named), 'as wide as the mark: ' + wide(alone));
+  // a name on two lines beside the mark: narrower than on one, and as wide as its longer line
+  const two = kit.sign({ text: 'standard\nchartered', logo: mark, x: 0, z: 0, y: 100, height: 10 });
+  const one = kit.sign({ text: 'standard chartered', logo: mark, x: 0, z: 0, y: 100, height: 10 });
+  assert.ok(wide(two) < wide(one), `${wide(two)} < ${wide(one)}`);
+  assert.ok(wide(kit.sign({ text: 'chartered\nstandard', logo: mark, x: 0, z: 0, y: 100, height: 10 })) === wide(two), 'the longer line sets the width');
+  assert.throws(() => kit.sign({ x: 0, z: 0, y: 1 }), /text or a logo/);
+  assert.equal(kit.hang({ ring: [[-20, -10], [20, -10], [20, 10], [-20, 10]], top: 200, toward: 180, logo: mark, height: 5 }).logo, 'mark', 'hang passes the logo on');
+});
+
+test("the tenants' marks paint themselves inside their box, in their colours", async () => {
+  const { LOGOS } = await import(pathToFileURL(join(__dirname, '../js/landmark-logos.js')).href);
+  globalThis.Path2D ??= class { constructor(d) { this.d = d; } };
+  const colours = { hsbc: ['#ffffff', '#db0011'], dbs: ['#e1251b', '#ffffff'], 'standard-chartered': ['#38d200', '#0473ea'] };
+  assert.deepEqual(Object.keys(LOGOS).sort(), Object.keys(colours).sort());
+  for (const [key, logo] of Object.entries(LOGOS)) {
+    assert.equal(logo.id, key);
+    // a context recording each fill: its colour, and its corners on the canvas (a polygon) or its path (Path2D)
+    let at = [0, 0, 1], path = [];
+    const fills = [];
+    const ctx = {
+      fillStyle: '#000000',
+      translate(x, y) { at = [at[0] + x * at[2], at[1] + y * at[2], at[2]]; },
+      scale(s) { at = [at[0], at[1], at[2] * s]; },
+      beginPath() { path = []; },
+      moveTo(x, y) { path.push([at[0] + x * at[2], at[1] + y * at[2]]); },
+      lineTo(x, y) { this.moveTo(x, y); },
+      closePath() {},
+      fill(p) { fills.push({ colour: this.fillStyle, points: p ? null : path, scale: at[2], origin: [at[0], at[1]] }); }
+    };
+    const [x, y, h] = [20, 30, 104], w = Math.ceil(h * logo.aspect);
+    logo.draw(ctx, x, y, w, h);
+    assert.ok(fills.length >= 2, key);
+    assert.deepEqual([...new Set(fills.map((f) => f.colour))].sort(), [...colours[key]].sort(), `${key} in its colours`);
+    for (const f of fills) {
+      if (f.points) {
+        for (const [px, py] of f.points) assert.ok(px >= x - 1e-9 && px <= x + w + 1e-9 && py >= y - 1e-9 && py <= y + h + 1e-9, `${key}: ${px}, ${py} inside its box`);
+        continue;
+      }
+      // Standard Chartered's paths: the Commons drawing's 68.92 by 109.4 units scaled to the box
+      assert.ok(near(f.origin[0], x) && near(f.origin[1], y) && near(f.scale * 109.4, h) && f.scale * 68.92 <= w + 1e-9, key);
+    }
+  }
 });
 
 test('the honeycomb facade: a hexagon per bay and storey, pointed or flat-topped, its frame in the memo key', () => {
