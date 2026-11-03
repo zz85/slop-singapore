@@ -356,3 +356,79 @@ test('Raffles Place MRT stays finite, batched and free of coplanar flicker', asy
   assert.ok(kit.finish().group.children.length<=16);
   for(const p of kit.parts)for(const v of Object.values(p.bounds))assert.ok(Number.isFinite(v),p.name);
 });
+
+async function oasiaModel() {
+  const { GEO } = await geodata;
+  const L = GEO.landmarks.find((l) => l.id === 'oasia-hotel-downtown');
+  assert.ok(L, 'Oasia Hotel Downtown has its own landmark anchor');
+  const { build, info } = await import(pathToFileURL(join(__dirname, '../js/landmark-models/oasia-hotel-downtown.js')).href);
+  const kit = createKit({ anchor: L, name: L.id });
+  kit.bearingDeg = GEO.frame.bearingDeg;
+  build(kit, siteOf(L));
+  const { makeFrame } = await import('../tools/city/frame.mjs');
+  const frame = makeFrame({ lat0: GEO.frame.lat0, lon0: GEO.frame.lon0, theta: GEO.frame.bearingDeg * Math.PI / 180 });
+  // Independent probes from the mapped outline's centre (OSM way 393100847 bounds centre), in metres east/north.
+  const at = (east, north) => {
+    const [x, z] = frame.toWorld(103.8443413 + east / 111290, 1.2758812 + north / 110574);
+    return [x - L.x, z - L.z];
+  };
+  const coversAt = (east, north, y) => {
+    const [x, z] = at(east, north);
+    return kit.parts.filter((p) => p.type !== 'sign' && p.y0 < y && p.y1 > y && covers(p.ring, x, z));
+  };
+  return { kit, L, info, at, coversAt };
+}
+
+test('Oasia Hotel Downtown replaces exactly its one mapped outline at the documented 190 m', async () => {
+  const { kit, L, info } = await oasiaModel();
+  assert.deepEqual(L.parts.map((p) => p.id), [393100847]);
+  assert.equal(L.parts[0].levels, 27);
+  assert.equal(L.parts[0].height, 193, 'the mapped height tag the model refines to the documented 190.15 m');
+  const { default: config } = await import('../tools/city/cities/singapore.mjs');
+  const registered = config.landmarks.find((l) => l.id === 'oasia-hotel-downtown');
+  assert.deepEqual(registered.hide, [393100847], 'only the hotel way is replaced');
+  for (const id of [393100845, 393100848, 393100849, 393100850]) assert.ok(!registered.hide.includes(id), 'Guoco Tower neighbour parts remain mapped buildings');
+  assert.equal(info.height, 190);
+  const b = kit.bounds();
+  assert.ok(b.maxY >= 187 && b.maxY <= 193, `vault crown top at ${b.maxY} m, documented 190.15 m`);
+  assert.ok(b.minY >= -0.5 && b.minY <= 0.1, 'stands on the ground');
+  for (const axis of ['X', 'Z']) {
+    const values = L.parts[0].ring.filter((_, i) => i % 2 === (axis === 'X' ? 0 : 1)).map((v) => v - L[axis.toLowerCase()]);
+    assert.ok(b[`min${axis}`] >= Math.min(...values) - 2.5 && b[`max${axis}`] <= Math.max(...values) + 2.5, `${axis}: the tower stays on its mapped footprint`);
+  }
+  assert.ok(kit.triangles > 1500 && kit.triangles < 65000, `${kit.triangles} triangles`);
+  const flicker = kit.flicker();
+  assert.equal(flicker.length, 0, JSON.stringify(flicker.slice(0, 20)));
+  assert.ok(kit.finish().group.children.length <= 16, 'merged material batches');
+  for (const p of kit.parts) for (const v of Object.values(p.bounds)) assert.ok(Number.isFinite(v), p.name);
+});
+
+test('Oasia sky terraces are genuinely open on alternating faces, with the core at the back corner', async () => {
+  const { coversAt } = await oasiaModel();
+  // Level-6 terrace (modelled open 23-41 m): open to the south, core behind the mesh to the north-west.
+  assert.equal(coversAt(0, -16, 32).length, 0, 'the level-6 sky garden is open air on its south face, not a filled slab');
+  assert.ok(coversAt(-8, 16, 32).length > 0, 'the level-6 back-corner core stands behind the closed faces');
+  // Level-12 terrace (64-82 m) flips: open to the north, core to the south-east.
+  assert.equal(coversAt(0, 16, 73).length, 0, 'the level-12 sky garden flips to open on its north face');
+  assert.ok(coversAt(8, -16, 73).length > 0, 'the level-12 core flipped to the south-east corner');
+  // Level-21 terrace (112-127 m) flips back to open south.
+  assert.equal(coversAt(0, -16, 119).length, 0, 'the level-21 sky garden is open to the south again');
+  // The enclosed hotel block between terraces is solid through its centre.
+  assert.ok(coversAt(0, 0, 100).length > 0, 'the enclosed hotel floors fill the footprint between terraces');
+});
+
+test('Oasia crown is a hollow screen over the roof terrace, solid where its decks and vault are', async () => {
+  const { kit, L, at, coversAt } = await oasiaModel();
+  assert.equal(coversAt(0, 0, 160).length, 0, 'the red crown screen is hollow over the level-27 roof terrace');
+  const roofPool = kit.parts.find((p) => p.name === 'roof-pool-water');
+  assert.ok(roofPool && roofPool.y0 >= 146 && roofPool.y1 < 150, 'the rooftop pool sits on the level-27 terrace inside the crown');
+  assert.ok(kit.parts.filter((p) => p.type === 'sign').length >= 2, 'the hotel name hangs on two faces below the crown');
+  const { colliders } = kit.finish();
+  const hit = (east, north, y) => { const [x, z] = at(east, north); return colliderAt(colliders, x + L.x, y, z + L.z); };
+  assert.ok(!hit(0, 0, 160), 'no invisible slab fills the crown');
+  assert.ok(hit(0, 0, 147.4), 'the roof-terrace deck stops descent');
+  assert.ok(hit(0, 0, 188), 'the vault top stops descent onto the crown');
+  assert.ok(hit(0, 0, 100), 'the enclosed hotel block is solid to aircraft');
+  assert.ok(!hit(0, -16, 32), 'the open level-6 sky garden has no invisible wall');
+  assert.ok(hit(0, -16, 23.4), 'the level-6 terrace deck stops descent');
+});
