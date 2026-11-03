@@ -99,7 +99,7 @@ Columns are deliberately row-local: update your row rather than maintaining shar
 | SG-036 | [ ] | Customs House and its harbour-control tower | Low wings and separate slender tower | todo | — |
 | SG-037 | [ ] | OUE Bayfront, OUE Tower and OUE Link | Separate waterfront volumes and bridge clearances | todo | — |
 | SG-038 | [ ] | Yueh Hai Ching Temple | Twin halls, decorated roofs and open forecourt | todo | — |
-| SG-039 | [ ] | Lau Pa Sat | Octagonal plan, iron structure and clock tower | todo | — |
+| SG-039 | [x] | Lau Pa Sat | Octagonal hip/nave roof, broad airwells, ironwork and clock; [sources and verification](lau-pa-sat.md), [render](images/lau-pa-sat-overview.png) | done | Codex / 18e5; `codex/sg-039-sg-242-heritage-landmarks`; 2026-11-03; [PR #7](https://github.com/datainvestor/tiny-singapore/pull/7) |
 
 ## P0 — Marina Bay, Central and Bayfront
 
@@ -273,7 +273,7 @@ Columns are deliberately row-local: update your row rather than maintaining shar
 | SG-239 | [ ] | Bugis Junction and InterContinental | Glass-covered streets, heritage façades and hotel | todo | — |
 | SG-240 | [ ] | Bugis+ | Faceted white screen, corners and roof | todo | — |
 | SG-241 | [ ] | Raffles Hospital | Tower/podium and characteristic top | todo | — |
-| SG-242 | [ ] | Sultan Mosque | Gold domes, minarets and prayer-hall roof | todo | — |
+| SG-242 | [x] | Sultan Mosque | Twin gold domes, minarets, green roof and Bussorah entrance; [sources and verification](sultan-mosque.md), [render](images/sultan-mosque-overview.png) | done | Codex / 18e5; `codex/sg-039-sg-242-heritage-landmarks`; 2026-11-03; [PR #7](https://github.com/datainvestor/tiny-singapore/pull/7) |
 | SG-243 | [ ] | Malay Heritage Centre / Istana Kampong Glam | Palace, verandas and separate grounds | todo | — |
 | SG-244 | [ ] | Golden Mile Complex / The Golden Mile | Terraced megastructure; establish restoration era | todo | — |
 | SG-245 | [ ] | Golden Mile Tower | Slab, podium and original façade rhythm | todo | — |
