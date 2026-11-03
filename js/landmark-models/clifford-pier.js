@@ -18,9 +18,16 @@ export function build(kit, site) {
     if(collision)kit.collisionPrism(part);
     return part;
   };
-  const beam = (u0,v0,y0,u1,v1,y1,w,h,m,name) => {
+  const beam = (u0,v0,y0,u1,v1,y1,w,h,m,name,collision=false) => {
     const a=P(u0,v0),b=P(u1,v1);
-    return kit.beam({from:[a[0],y0,a[1]],to:[b[0],y1,b[1]],w,h,material:m,name});
+    const part=kit.beam({from:[a[0],y0,a[1]],to:[b[0],y1,b[1]],w,h,material:m,name});
+    if(collision) {
+      // Facade arches lie in a constant-u vertical plane. Small boxes follow each concrete segment,
+      // including its depth, without inserting a full-height collider across the doorway below.
+      const dv=v1-v0,dy=y1-y0,pad=Math.abs(dy)/Math.hypot(dv,dy)*h/2;
+      kit.collisionPrism({ring:rect(u0,(v0+v1)/2,w,Math.abs(dv)+2*pad),y0:part.bounds.minY,y1:part.bounds.maxY});
+    }
+    return part;
   };
   const rect = (u,v,w,d) => [[u-w/2,v-d/2],[u+w/2,v-d/2],[u+w/2,v+d/2],[u-w/2,v+d/2]].map(p=>P(...p));
 
@@ -29,7 +36,7 @@ export function build(kit, site) {
   B(0,0,0.23,66.1,0.12,18.8,M.wall,'passenger-hall-floor');
   // The conditioned dining room has recessed glass walls, with doors at the western and eastern ends.
   for(const side of [-1,1]) {
-    B(0,side*9.15,0.35,65.1,4.2,0.12,M.glass,`recessed-hall-glass-${side}`,true);
+    B(0,side*9.15,0.35,65.1,7.0,0.12,M.glass,`recessed-hall-glass-${side}`,true);
     B(0,side*9.28,4.57,66.4,0.34,0.3,M.trim,`hall-entablature-${side}`);
     B(0,side*12.05,4.78,67.3,0.24,4.8,M.band,`veranda-roof-${side}`,true);
     B(0,side*14.43,4.79,67.5,0.35,0.18,M.trim,`veranda-fascia-${side}`);
@@ -81,7 +88,7 @@ export function build(kit, site) {
   for(const v of [-6.6,0,6.6])for(let j=0;j<18;j++) {
     const a=Math.PI*j/18,b=Math.PI*(j+1)/18;
     beam(-39.6,v+2.65*Math.cos(a),3.2+2.65*Math.sin(a),-39.6,v+2.65*Math.cos(b),3.2+2.65*Math.sin(b),
-      2.9,0.48,M.trim,`portal-arch-${v}-${j}`);
+      2.9,0.48,M.trim,`portal-arch-${v}-${j}`,true);
   }
   for(const [w,y,h]of [[22,6.2,1.2],[16,7.43,1.0],[10,8.46,1.1],[6.3,9.6,1.1],[4.4,10.73,0.97]])
     B(-39.3,0,y,3.4,h,w,M.wall,`portal-stepped-crown-${y}`,true);
@@ -100,7 +107,7 @@ export function build(kit, site) {
   for(const v of [-6.6,0,6.6])for(let j=0;j<16;j++) {
     const a=Math.PI*j/16,b=Math.PI*(j+1)/16;
     beam(33.45,v+2.65*Math.cos(a),3.5+2.65*Math.sin(a),33.45,v+2.65*Math.cos(b),3.5+2.65*Math.sin(b),
-      0.75,0.35,M.trim,`east-arch-${v}-${j}`);
+      0.75,0.35,M.trim,`east-arch-${v}-${j}`,true);
   }
   B(33.45,0,6.37,0.76,1.01,20.7,M.trim,'east-arch-cornice',true);
   B(37.5,0,4.1,0.5,0.7,0.5,M.red,'red-landing-lantern');

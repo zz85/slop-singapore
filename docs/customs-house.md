@@ -23,7 +23,7 @@ Verify exact replacements, independently located water/pavilion clearances, roof
 ## Verification
 
 - Built on the generated anchor: **13,352 triangles, 10 material batches**, finite geometry and zero coplanar flicker.
-- Seven new model checks cover exact source replacements, independent geographic clear-space and roof/tower probes, and concrete ribs below Clifford Pier's roof. Full targeted command: **91 pass**. Full `node --test` on a Linux/WSL LF snapshot with Node 24.16.0: **520 pass, zero failures**. No Windows POSIX-fixture failures are concealed by modifying unrelated tests.
+- Nine new model checks cover exact source replacements, independent geographic clear-space and roof/tower probes, concrete ribs below Clifford Pier's roof, upper side glazing and structural arch collision with clear doorways. Full targeted command: **93 pass**. Full `node --test` on a Linux/WSL LF snapshot with Node 24.16.0: **522 pass, zero failures**. No Windows POSIX-fixture failures are concealed by modifying unrelated tests.
 - Eight Tiny/day × WebGL/WebGPU preview runs across the pair: no exceptions, shader errors or flicker. WebGPU runs explicitly report `WebGPUBackend` with a real adapter; WebGL runs report `WebGLBackend`. Principal and side elevations were also inspected separately against the cited images. Actual canvas text colours checked for the building signs.
 - Loaded production city views at both anchors after the loading overlay disappeared and the camera settled: both model programs present, no load exceptions or landmark warnings. The browser emits only its known Windows `powerPreference` advisory in the city; it does not affect model rendering.
 - Regenerated city: **16,001 → 15,995 generic solids (six removed, zero added)**; all existing landmark anchors and the entire tree collection unchanged. All source objects of this pair are replaced; separate way 987031386 and the SG-032 hotel/link remain. Total modelled-source count is 413.
@@ -49,5 +49,7 @@ node --test
 
 The rooftop plant, glazing, railings and planting are simplified. Three umbrella modules approximate the conserved north-pier roof; the reference's detailed planted patterns and terrace furniture are omitted. The north-pier roof has conservative collision within its footprint; tower collision uses inner prisms beneath its flared glazing. Ground is the city's flat datum, without underwater piles. The original room fit-out and tenant signs are omitted. Intermediate heights remain photographic estimates; the tower's 23 m overall height follows the owner/NHB.
 
-Implementation is on `codex/sg-035-sg-036-waterfront`. Checklist state remains **review**, with shared-branch acceptance outstanding. Implementation PR link is added after creation.
+Implementation is on `codex/sg-035-sg-036-waterfront`. Checklist state remains **review**, with shared-branch acceptance outstanding. Implementation and evidence: [PR #16](https://github.com/datainvestor/tiny-singapore/pull/16).
 
+
+Independent read-only review found two Clifford Pier issues: missing upper side glazing and collision on the deep entrance arches. Both were reproduced with failing tests, corrected, and verified. Customs House had no additional actionable finding.

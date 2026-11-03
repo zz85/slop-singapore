@@ -339,7 +339,7 @@ test('Raffles Place MRT keeps both entrance bays and the park gap physically ope
   }
 });
 
-test('Raffles Place MRT roofs stop descent and both façades have real ornamental geometry', async () => {
+test('Raffles Place MRT roofs stop descent and both faÃ§ades have real ornamental geometry', async () => {
   const { kit, frame } = await rafflesMrtModel(), { colliders } = kit.finish();
   for(const [lon,lat]of [[103.851453,1.283954],[103.851509,1.284578]]){
     const [x,z]=frame.toWorld(lon,lat);
@@ -778,4 +778,19 @@ test('Clifford Pier: concrete ribs stay below the terracotta roof envelope', asy
   }
   const [x,z]=f.toWorld(103.853818,1.283917);
   assert.ok(kit.parts.some(p=>p.y0>7&&p.y0<9&&p.y1>10&&covers(p.ring,x-L.x,z-L.z)), 'east gable has its white attic face');
+});
+
+
+test('Clifford Pier: structural entrance arches stop flight above a clear doorway', async () => {
+  const {kit}=await waterfrontModel('clifford-pier');
+  const colliders=kit.finish().colliders;
+  // Independently inspected west centre-arch concrete, fixed in the generated city frame.
+  assert.ok(colliderAt(colliders,169.8766064541,5.8298702727,-91.9753031815), 'thick arch is solid');
+  assert.ok(!colliderAt(colliders,169.8766064541,2,-91.9753031815), 'doorway below stays passable');
+});
+
+test('Clifford Pier: conditioned hall glazing reaches the eaves above the veranda', async () => {
+  const {at}=await waterfrontModel('clifford-pier');
+  assert.ok(at(103.8535514,1.28401302,6), 'north upper glass wall closes the hall');
+  assert.ok(at(103.85354337,1.28384771,6), 'south upper glass wall closes the hall');
 });
