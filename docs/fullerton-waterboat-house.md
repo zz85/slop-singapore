@@ -201,9 +201,9 @@ and documents up to 1 m boundary approximation; tiny edge misses at the rounded
 coping remain within that approximation. Interior roof and clear-space probes
 are covered.
 
-Implementation and evidence are ready locally. **No PR has been opened and this
-building is not marked done**: the checklist retains this session's active
-ownership until integration/review. Add the real PR link when opening a landmark
-PR, then use `review` until shared-branch acceptance. The
+Implementation and evidence are in [PR #14](https://github.com/datainvestor/tiny-singapore/pull/14)
+on `codex/sg-034-fullerton-waterboat-house`, rebased onto shared commit `0733996`.
+**The building is not marked done**: the checklist retains this session's
+ownership and `review` status until shared-branch acceptance. The
 [implementation plan](superpowers/plans/2026-11-03-fullerton-waterboat-house.md)
 records the completed work.

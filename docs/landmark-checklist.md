@@ -94,7 +94,7 @@ Columns are deliberately row-local: update your row rather than maintaining shar
 | SG-031 | [ ] | The Fullerton Hotel | Colonnade, roofs, atrium and pool terrace; [source notes](fullerton-hotel.md) | audit | — |
 | SG-032 | [ ] | The Fullerton Bay Hotel — guestroom block and link | Sloping glass, roof pool; excludes Clifford Pier; [source notes](fullerton-bay-hotel.md) | audit | — |
 | SG-033 | [ ] | One Fullerton | Low waterfront massing, terraces and canopies | todo | — |
-| SG-034 | [ ] | Fullerton Waterboat House | Rounded end, recessed windows/shades, terraces and separate glass annexe/link; [sources and verification](fullerton-waterboat-house.md), [render](images/fullerton-waterboat-house-overview.png); 84 targeted / 513 Linux checks pass | active | Codex / 7239; `codex/sg-034-fullerton-waterboat-house`; user-assigned 2026-11-03; PR being prepared, shared-branch acceptance pending |
+| SG-034 | [ ] | Fullerton Waterboat House | Rounded end, recessed windows/shades, terraces and separate glass annexe/link; [sources and verification](fullerton-waterboat-house.md), [render](images/fullerton-waterboat-house-overview.png); 84 targeted / 513 Linux checks pass | review | Codex / 7239; `codex/sg-034-fullerton-waterboat-house`; user-assigned 2026-11-03; [PR #14](https://github.com/datainvestor/tiny-singapore/pull/14); shared-branch acceptance pending |
 | SG-035 | [ ] | Clifford Pier | Open hall, arched structure and roof; coordinate hotel link with SG-032 | todo | — |
 | SG-036 | [ ] | Customs House and its harbour-control tower | Low wings and separate slender tower | todo | — |
 | SG-037 | [ ] | OUE Bayfront, OUE Tower and OUE Link | Separate waterfront volumes and bridge clearances | todo | — |
