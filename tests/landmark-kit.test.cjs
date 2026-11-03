@@ -442,7 +442,7 @@ test('a sign with a logo: the mark left of the name, or alone, or beside a name 
 test("the tenants' marks paint themselves inside their box, in their colours", async () => {
   const { LOGOS } = await import(pathToFileURL(join(__dirname, '../js/landmark-logos.js')).href);
   globalThis.Path2D ??= class { constructor(d) { this.d = d; } };
-  const colours = { hsbc: ['#ffffff', '#db0011'], dbs: ['#e1251b', '#ffffff'], 'standard-chartered': ['#38d200', '#0473ea'], keppel: ['#55595c', '#ffffff', '#c8102e'] };
+  const colours = { hsbc: ['#ffffff', '#db0011'], dbs: ['#e1251b', '#ffffff'], 'standard-chartered': ['#38d200', '#0473ea'], keppel: ['#55595c', '#ffffff', '#c8102e'], ocbc: ['#e01f26'], 'deutsche-bank': ['#0018a8'] };
   // the marks drawn from Commons paths: their drawings' width and height in its units, scaled to the box's height
   const drawings = { 'standard-chartered': [68.92, 109.4], keppel: [501, 167] };
   assert.deepEqual(Object.keys(LOGOS).sort(), Object.keys(colours).sort());

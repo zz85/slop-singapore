@@ -161,7 +161,24 @@ export default {
       1566865513, 1566865514] },
     // SG-115: WOHA's red-mesh tower on Peck Seah Street: its single mapped outline (27 levels, mapped 193 m;
     // documented 190.15 m). Only this way is replaced; Guoco Tower's podium and the Tanjong Pagar neighbours stand as mapped.
-    { id: 'oasia-hotel-downtown', name: 'Oasia Hotel Downtown', model: 'oasia-hotel-downtown', hide: [393100847] }
+    { id: 'oasia-hotel-downtown', name: 'Oasia Hotel Downtown', model: 'oasia-hotel-downtown', hide: [393100847] },
+    // SG-044 The Sail @ Marina Bay: Marina Bay Tower, Central Park Tower, the podium between them and the stray
+    // three-node "The Sail" sliver; Marina Bay Suites (393092728) and its podium (1035284763) remain.
+    { id: 'the-sail', name: 'The Sail @ Marina Bay', model: 'the-sail', hide: [325793771, 325793747, 47345007, 1201220123] },
+    // SG-043 One Raffles Quay: the site outline (mapped as a 44 m block), the North Tower, the South Tower and its
+    // crown part
+    { id: 'one-raffles-quay', name: 'One Raffles Quay', model: 'one-raffles-quay', hide: [47345006, 172915345, 172915347, 852006596] },
+    // SG-062 Capital Tower: its outline, the stacked tower parts (the 163 m shaft, the 190 m band, the 229 m tier with
+    // its skillion corners, the 254 m crown and its skillions), the eight-storey block on the north side and the two
+    // small corner parts
+    { id: 'capital-tower', name: 'Capital Tower', model: 'capital-tower', hide: [47345009, 510811294, 510811295, 510811296, 510811297,
+      510811279, 510811283, 510811287, 510811289, 510811290, 510811291, 510811292, 510811293,
+      1566725293, 1566725294, 1566725295, 1566725296, 1558353295, 1558353296, 1558353297] },
+    // SG-006 OCBC Centre: the site outline (OCBC Bank, 16 m), the tower and its two lines of lower, middle and upper
+    // blocks, the podium, Centre East (the 17-storey block) and Centre South (the rounded block); Bar On Chulia
+    // (764327106) remains.
+    { id: 'ocbc-centre', name: 'OCBC Centre', model: 'ocbc-centre', hide: [171999325, 335167787, 325793729, 335167802,
+      460431821, 460431822, 460431823, 460431824, 407705497, 407705487, 407705501] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]
