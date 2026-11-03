@@ -190,7 +190,7 @@ Columns are deliberately row-local: update your row rather than maintaining shar
 | SG-112 | [ ] | Genting Centre | Midrise envelope and façade bands | todo | — |
 | SG-113 | [ ] | ABI Plaza site | Verify redevelopment era; document surviving/replacement geometry | todo | — |
 | SG-114 | [ ] | 100 AM and Amara hotel block | Mall/hotel volumes, screens and roof | todo | — |
-| SG-115 | [ ] | Oasia Hotel Downtown | Red planted screen, open sky gardens and crown | todo | — |
+| SG-115 | [ ] | Oasia Hotel Downtown | Red planted screen, open sky gardens and crown; [sources and verification](oasia-hotel-downtown.md), [render](images/oasia-hotel-downtown-overview.png) | review | Meta Muse / 01a19cbf; datainvestor/update-building-model; 2026-11-03; [PR #9](https://github.com/datainvestor/tiny-singapore/pull/9) |
 | SG-116 | [ ] | Altez | Tower, balconies, sky terraces and lower podium | todo | — |
 | SG-117 | [ ] | Skysuites @ Anson | Slender shaft, balcony rhythm and roof | todo | — |
 | SG-118 | [ ] | Icon — both residential towers and Icon Village | Different towers, balconies and podium | todo | — |

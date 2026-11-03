@@ -158,7 +158,10 @@ export default {
     // SG-060 CapitaGreen: its outline, the tower, the raised glass block at the Market Street corner and the four posts
     // under it (1566865509–12)
     { id: 'capitagreen', name: 'CapitaGreen', model: 'capitagreen', hide: [393100853, 1566865509, 1566865510, 1566865511, 1566865512,
-      1566865513, 1566865514] }
+      1566865513, 1566865514] },
+    // SG-115: WOHA's red-mesh tower on Peck Seah Street: its single mapped outline (27 levels, mapped 193 m;
+    // documented 190.15 m). Only this way is replaced; Guoco Tower's podium and the Tanjong Pagar neighbours stand as mapped.
+    { id: 'oasia-hotel-downtown', name: 'Oasia Hotel Downtown', model: 'oasia-hotel-downtown', hide: [393100847] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]
