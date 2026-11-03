@@ -129,13 +129,13 @@ test('a city builds from OSM layers: land, blocks with lots, parks, the road gra
       return way(id, [id * 10, id * 10 + 1, id * 10 + 2, id * 10 + 3, id * 10], c.map(([px, pz]) => ll(px, pz)), tags);
     };
     write('buildings', [
-      square(60, 160, 160, 10, { building: 'apartments', 'building:levels': '10', 'roof:shape': 'hipped', 'roof:colour': 'red', 'building:colour': '#ffffff' }),
+      square(60, 160, 160, 10, { building: 'apartments', 'building:levels': '10', 'roof:shape': 'hipped', 'roof:colour': 'red', 'building:colour': '#ffffff', 'addr:street': 'East Street', 'addr:housenumber': '12', 'addr:postcode': '012345' }),
       square(61, 160, -40 + 200, 0, { building: 'yes' }), // degenerate: dropped
-      square(62, -150, -150, 15, { building: 'yes', height: '20' }),
+      square(62, -150, -150, 15, { building: 'yes', height: '20', name: 'Test House', 'addr:street': 'North Road', 'addr:housenumber': '1' }),
       square(63, -150, -150, 8, { 'building:part': 'yes', height: '50', 'roof:shape': 'gabled', 'roof:height': '4', 'roof:orientation': 'across' }),
-      square(64, -60, -220, 6, { building: 'roof' }),
-      square(65, 150, -60, 12, { building: 'hotel', height: '193' }), // a landmark modelled by hand: left out
-      { type: 'relation', id: 60, tags: { type: 'multipolygon', building: 'yes', height: '99' }, members: [
+      square(64, -60, -220, 6, { building: 'roof', 'addr:housename': 'The Shelter' }),
+      square(65, 150, -60, 12, { building: 'hotel', height: '193', 'addr:street': 'Side Street', 'addr:housenumber': '9' }), // a landmark modelled by hand: left out
+      { type: 'relation', id: 60, tags: { type: 'multipolygon', building: 'yes', height: '99', 'addr:street': 'East Street', 'addr:housenumber': '1', 'addr:postcode': '099999' }, members: [
         { type: 'way', ref: 999, role: 'outer', geometry: square(999, -120, 140, 8, {}).geometry }
       ] } // the same numeric ID as the apartment way; only the relation is hidden
     ]);
@@ -222,6 +222,20 @@ test('a city builds from OSM layers: land, blocks with lots, parks, the road gra
     assert.deepEqual([at(-150, -150).wall, at(-150, -150).roofColour, at(-150, -150).levels], [-1, -1, 0]);
     assert.equal(at(-60, -220).roof, 0, 'a canopy has no roof shape');
     assert.ok(at(-60, -220).bottom >= 2.6, 'a canopy stands clear of the ground');
+    // ...and beside it, what each is called and where (js/testcity-building-info.js): in the same order, a part with
+    // its outline's, a landmark with its relation's address before its outlines'
+    const { INFO } = await import(pathToFileURL(path.join(dir, 'testcity-building-info.js')).href);
+    assert.equal(INFO.buildings, built.length);
+    const infoAt = new Map();
+    for (let i = 0, k = 0; i < INFO.data.length; i += 5) {
+      k += INFO.data[i];
+      infoAt.set(k, INFO.data.slice(i + 1, i + 5).map((s) => (s ? INFO.strings[s - 1] : '')));
+    }
+    assert.equal(infoAt.size, 3, 'the three with a name or an address');
+    assert.deepEqual(infoAt.get(built.indexOf(at(160, 160))), ['', 'East Street', '12', '012345']);
+    assert.deepEqual(infoAt.get(built.indexOf(at(-150, -150))), ['Test House', 'North Road', '1', ''], 'the part, as its building');
+    assert.deepEqual(infoAt.get(built.indexOf(at(-60, -220))), ['The Shelter', '', '', ''], 'addr:housename: a name');
+    assert.deepEqual(INFO.sites, { tower: { name: 'Test Tower', street: 'East Street', number: '1', postcode: '099999' } });
     // trees: the park's, the sidewalk's and the kerbside one (moved off the roadway) stand; the rest (in the sea,
     // mid-carriageway, inside the apartment block) don't
     assert.deepEqual(GEO.trees.shapes, ['plane', 'locust']);

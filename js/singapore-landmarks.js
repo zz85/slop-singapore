@@ -643,10 +643,15 @@ function buildSingaporeLandmarks(scene) {
   const footprints = [];
   const group = new THREE.Group();
   group.name = 'SingaporeLandmarks';
-  const mbs = buildMarinaBaySands(toWorld, colliders, footprints);
-  const flyer = buildSingaporeFlyer(toWorld, colliders, footprints);
-  const supertrees = buildSupertrees(toWorld, colliders, footprints);
-  const esplanade = buildEsplanade(toWorld, colliders, footprints);
+  // (each footprint knows its landmark, the config's id: what a click on it names, js/building-info.js)
+  const site = (id, built) => {
+    for (const f of footprints) f.site ??= id;
+    return built;
+  };
+  const mbs = site('mbs', buildMarinaBaySands(toWorld, colliders, footprints));
+  const flyer = site('flyer', buildSingaporeFlyer(toWorld, colliders, footprints));
+  const supertrees = site('supertrees', buildSupertrees(toWorld, colliders, footprints));
+  const esplanade = site('esplanade', buildEsplanade(toWorld, colliders, footprints));
   group.add(mbs.group, flyer.group, supertrees.group, esplanade.group);
   scene.add(group);
   console.info(`[landmarks] Marina Bay Sands, the Singapore Flyer, ${SUPERTREES.length} Supertrees & the Esplanade in ${Math.round(performance.now() - t0)} ms`);

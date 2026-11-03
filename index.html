@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Slop Singapore</title>
+  <title>Tiny Singapore</title>
   <link rel="icon" href="data:," />
   <meta name="description" content="A Singapore city simulation built with three.js: walk, drive, cycle or fly through its real streets." />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
@@ -85,13 +85,17 @@
   <link rel="modulepreload" href="./js/air-force.js" />
   <link rel="modulepreload" href="./js/binoculars.js" />
   <link rel="modulepreload" href="./js/jet-acoustics.js" />
+  <link rel="modulepreload" href="./js/place-search.js" />
+  <link rel="modulepreload" href="./js/building-picker.js" />
+  <link rel="modulepreload" href="./js/building-info.js" />
   <link rel="modulepreload" href="./js/main.js" />
   <script type="module" src="./js/main.js"></script>
-  <!-- Inter (UI) & Overpass (street-name signs: modelled on Highway Gothic, the US road sign typeface) -->
+  <!-- Manrope (UI) & Space Grotesk (numbers), as tinywarsaw.app's; Overpass (the turn-by-turn sign: modelled on
+       Highway Gothic, the US road sign typeface) -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&amp;family=Overpass:wght@600;700&amp;display=swap" />
-  <link rel="stylesheet" href="./css/style.css?v=20261022-repo-link" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&amp;family=Space+Grotesk:wght@500..700&amp;family=Overpass:wght@600;700&amp;display=swap" />
+  <link rel="stylesheet" href="./css/style.css?v=20261103-building-info" />
 </head>
 <body>
   <!-- Icon sprite (24 × 24 stroke icons, drawn in currentColor) -->
@@ -132,6 +136,8 @@
       <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
       <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m20 20-4.6-4.6"/></symbol>
       <symbol id="i-close" viewBox="0 0 24 24"><path d="m6.5 6.5 11 11M17.5 6.5l-11 11"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.8"/><path d="M12 3.2v2.4M12 18.4v2.4M3.2 12h2.4M18.4 12h2.4M5.8 5.8l1.7 1.7M16.5 16.5l1.7 1.7M5.8 18.2l1.7-1.7M16.5 7.5l1.7-1.7"/><circle cx="12" cy="12" r="6.1"/></symbol>
+      <symbol id="i-formation" viewBox="0 0 24 24"><path d="m12 3.2 2.4 4.6H9.6L12 3.2zM6 10.4l2.4 4.6H3.6L6 10.4zM18 10.4l2.4 4.6h-4.8l2.4-4.6zM12 15.6l2.4 4.6H9.6l2.4-4.6z"/></symbol>
     </defs>
   </svg>
 
@@ -139,7 +145,7 @@
   <div id="loading-overlay" role="status" aria-live="polite">
     <div class="loader">
       <span class="mta-bullet loader-bullet" aria-hidden="true">SG</span>
-      <div class="loader-title">Slop Singapore</div>
+      <div class="loader-title">Tiny Singapore</div>
       <div class="loader-track is-indeterminate" aria-hidden="true"><span id="loading-progress" class="loader-fill"></span></div>
       <div id="loading-status">Initializing WebGPURenderer &amp; TSL Shaders...</div>
       <p class="loader-about">One of the <a href="https://zz85.github.io/slop-cities/" target="_blank" rel="noopener noreferrer">Slop Cities<span class="visually-hidden"> (opens in a new tab)</span></a>: experiments remixing mrdoob's Slop New York into other cities</p>
@@ -147,70 +153,65 @@
   </div>
 
   <!-- 3D WebGPU Viewport Container -->
-  <main id="canvas-container" aria-label="3D Interactive Slop Singapore Viewport"></main>
+  <main id="canvas-container" aria-label="3D Interactive Tiny Singapore Viewport"></main>
 
-  <!-- Top-Left: Brand & Renderer Telemetry -->
+  <!-- A clicked building's name, address & coordinates, beside it (js/building-info.js) -->
+  <div id="building-info" class="building-info" role="status" aria-live="polite" hidden></div>
+
+  <!-- Top bar, left (tinywarsaw.app's): the name and where to (js/place-search.js), a street, place or landmark -->
   <header class="hud hud-top-left">
-    <div class="panel brand">
+    <div class="panel topbar brand">
       <span class="mta-bullet" aria-hidden="true">SG</span>
-      <div class="brand-titles">
-        <div class="brand-heading">
-          <h1>Slop Singapore</h1>
-          <a class="repo-link" href="https://zz85.github.io/slop-cities/" target="_blank" rel="noopener noreferrer" aria-label="Slop Cities: the other cities and the source (opens in a new tab)">Slop Cities <span aria-hidden="true">↗</span></a>
-        </div>
-        <div class="brand-subtitle">three.js · WebGPU · TSL · <span id="hud-fps" class="fps-ok">60</span> fps</div>
+      <h1>Tiny Singapore</h1>
+      <div class="search" role="search">
+        <svg class="icon search-icon" aria-hidden="true"><use href="#i-search"/></svg>
+        <input id="place-search" class="search-input" type="search" placeholder="Where to? Street, place, landmark" aria-label="Search the map: a street, place or landmark" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="place-results" autocomplete="off" spellcheck="false" />
+        <kbd class="search-kbd" aria-hidden="true">/</kbd>
+        <ul id="place-results" class="search-results" role="listbox" aria-label="Places" hidden></ul>
       </div>
     </div>
   </header>
 
-  <!-- Top-Right Toolbar: Time of Day, Teleport, Map & Clean View -->
+  <!-- Top bar, right: the street atlas, sound & clean view -->
   <div class="hud hud-top-right">
-    <div id="hud-toolbar" class="panel toolbar">
-      <div class="time-switch" role="group" aria-label="Atmosphere &amp; time of day">
-        <button id="time-golden" class="time-btn active" data-time="golden" type="button" title="Golden Hour">
-          <svg class="icon" aria-hidden="true"><use href="#i-golden"/></svg><span class="seg-label">Golden Hour</span>
-        </button>
-        <button id="time-midday" class="time-btn" data-time="midday" type="button" title="Sunny Midday">
-          <svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg><span class="seg-label">Midday</span>
-        </button>
-        <button id="time-twilight" class="time-btn" data-time="twilight" type="button" title="Blue Hour">
-          <svg class="icon" aria-hidden="true"><use href="#i-twilight"/></svg><span class="seg-label">Blue Hour</span>
-        </button>
-        <button id="time-midnight" class="time-btn" data-time="midnight" type="button" title="Night 23:00">
-          <svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg><span class="seg-label">Night</span>
-        </button>
-        <button id="time-tiny" class="time-btn" data-time="tiny" type="button" title="Tiny: a flat, painted miniature look">
-          <svg class="icon" aria-hidden="true"><use href="#i-tiny"/></svg><span class="seg-label">Tiny</span>
-        </button>
-      </div>
-      <button id="btn-storm" class="time-btn" type="button" aria-pressed="false" title="Thunderstorm [R]">
-        <svg class="icon" aria-hidden="true"><use href="#i-storm"/></svg><span class="seg-label">Storm</span>
+    <div id="hud-toolbar" class="panel topbar toolbar">
+      <button id="btn-open-map" class="tb-link" type="button" title="Full Singapore street map [M]">
+        <svg class="icon" aria-hidden="true"><use href="#i-map"/></svg><span class="tool-label">Atlas</span>
       </button>
       <span class="toolbar-divider" aria-hidden="true"></span>
-      <button id="btn-navigate" class="tool-btn" type="button" popovertarget="navigate-popover" title="Where to: places, a spot on the map or a surprise fare [G]">
-        <svg class="icon" aria-hidden="true"><use href="#i-route"/></svg><span class="tool-label">Navigate</span><kbd>G</kbd>
-      </button>
-      <button id="btn-open-map" class="tool-btn" type="button" title="Full Singapore street map [M]">
-        <svg class="icon" aria-hidden="true"><use href="#i-map"/></svg><span class="tool-label">Map</span><kbd>M</kbd>
-      </button>
-      <button id="btn-airforce" class="tool-btn" type="button" popovertarget="airforce-popover" title="Air Force: a wingman, a flypast, the runways on the map">
-        <svg class="icon" aria-hidden="true"><use href="#i-jet"/></svg><span class="tool-label">Air Force</span>
-      </button>
-      <span class="toolbar-divider" aria-hidden="true"></span>
-      <button id="btn-graphics" class="tool-btn icon-only" type="button" popovertarget="graphics-popover" title="Graphics settings" aria-label="Graphics settings">
-        <svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg>
-      </button>
-      <button id="btn-sound" class="tool-btn icon-only" type="button" title="Mute sound [N]" aria-label="Mute sound" aria-pressed="true">
+      <button id="btn-sound" class="tb-icon" type="button" title="Mute sound [N]" aria-label="Mute sound" aria-pressed="true">
         <svg class="icon" aria-hidden="true"><use href="#i-sound"/></svg>
       </button>
-      <button id="btn-toggle-hud" class="tool-btn icon-only" type="button" title="Clean view: hide the HUD [H]" aria-label="Hide HUD" aria-pressed="false">
+      <button id="btn-toggle-hud" class="tb-icon" type="button" title="Clean view: hide the HUD [H]" aria-label="Hide HUD" aria-pressed="false">
         <svg class="icon icon-hide" aria-hidden="true"><use href="#i-eye"/></svg><svg class="icon icon-show" aria-hidden="true"><use href="#i-eye-off"/></svg>
       </button>
     </div>
   </div>
 
-  <!-- Graphics settings (js/graphics-settings.js) -->
-  <div id="graphics-popover" class="popover" popover data-side="below" data-anchor="hud-toolbar" aria-label="Graphics settings">
+  <!-- The look & time of day (js/lighting.js TIME_PRESETS), from the dock's sun button: the tiny look first -->
+  <div id="time-popover" class="popover" popover data-side="above" data-anchor="mode-switch" data-align-start="btn-time" aria-label="Look &amp; time of day">
+    <div id="time-title" class="pop-title">Look &amp; time of day</div>
+    <div class="time-switch" role="group" aria-labelledby="time-title">
+      <button id="time-tiny" class="time-btn" data-time="tiny" data-clock="15:00" type="button" title="Tiny: a flat, painted miniature look">
+        <svg class="icon" aria-hidden="true"><use href="#i-tiny"/></svg><span class="pop-name">Tiny</span><span class="pop-sub">A flat, painted miniature</span><span class="time-clock">15:00</span>
+      </button>
+      <button id="time-golden" class="time-btn" data-time="golden" data-clock="17:45" type="button" title="Golden Hour">
+        <svg class="icon" aria-hidden="true"><use href="#i-golden"/></svg><span class="pop-name">Golden Hour</span><span class="pop-sub">Photoreal, a low warm sun</span><span class="time-clock">17:45</span>
+      </button>
+      <button id="time-midday" class="time-btn" data-time="midday" data-clock="13:30" type="button" title="Sunny Midday">
+        <svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg><span class="pop-name">Midday</span><span class="pop-sub">Photoreal, the sun overhead</span><span class="time-clock">13:30</span>
+      </button>
+      <button id="time-twilight" class="time-btn" data-time="twilight" data-clock="19:15" type="button" title="Blue Hour">
+        <svg class="icon" aria-hidden="true"><use href="#i-twilight"/></svg><span class="pop-name">Blue Hour</span><span class="pop-sub">Photoreal, the lights coming on</span><span class="time-clock">19:15</span>
+      </button>
+      <button id="time-midnight" class="time-btn" data-time="midnight" data-clock="23:00" type="button" title="Night 23:00">
+        <svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg><span class="pop-name">Night</span><span class="pop-sub">Photoreal, the city lit up</span><span class="time-clock">23:00</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Settings: graphics (js/graphics-settings.js) -->
+  <div id="graphics-popover" class="popover" popover data-side="above" data-anchor="mode-switch" data-align="btn-graphics" aria-label="Graphics settings">
     <div id="tree-detail-title" class="pop-title">Tree detail</div>
     <div id="tree-detail" role="radiogroup" aria-labelledby="tree-detail-title">
       <button class="pop-item" data-trees="auto" type="button" role="radio" aria-checked="true"><span class="pop-name">Auto</span><span id="tree-auto-sub" class="pop-sub">From the frame rate</span></button>
@@ -222,7 +223,7 @@
   </div>
 
   <!-- Navigation (js/navigation.js, js/navigation-ui.js): how to go, where to -->
-  <div id="navigate-popover" class="popover" popover data-side="below" data-anchor="hud-toolbar" aria-label="Go somewhere">
+  <div id="navigate-popover" class="popover" popover data-side="above" data-anchor="mode-switch" data-align="btn-navigate" aria-label="Go somewhere">
     <div id="nav-where-title" class="pop-title">Where to</div>
     <button id="nav-pick" class="pop-item" type="button"><span class="pop-name">Pick a spot on the map…</span></button>
     <button id="nav-random" class="pop-item" type="button"><span class="pop-name">Surprise me</span><span class="pop-sub">Somewhere across town</span></button>
@@ -232,7 +233,7 @@
   </div>
 
   <!-- The RSAF's other F-15SGs and the jet's runways (js/air-force.js, js/airbases.js) -->
-  <div id="airforce-popover" class="popover" popover data-side="below" data-anchor="hud-toolbar" data-align="btn-airforce" aria-label="Air Force">
+  <div id="airforce-popover" class="popover" popover data-side="above" data-anchor="mode-switch" data-align="btn-airforce" aria-label="Air Force">
     <div class="pop-title">Republic of Singapore Air Force</div>
     <button id="af-wingman" class="pop-item nav-toggle" type="button" role="switch" aria-checked="false"><span class="pop-name">F-15 wingman</span><span class="pop-sub">Flies in echelon off your jet's right wing</span></button>
     <button id="af-flypast" class="pop-item" type="button"><span class="pop-name">Order a flypast</span><span id="af-flypast-sub" class="pop-sub">Four F-15SGs run in low, right over you, then their display</span></button>
@@ -293,7 +294,7 @@
     </aside>
   </div>
 
-  <!-- Bottom-Center: Third-Person Mode Switcher & Controls Guide -->
+  <!-- Bottom-Center: the keyboard guide, how to go & the dock -->
   <footer class="hud hud-bottom-center">
     <div id="hud-controls-hint" class="controls-hint"></div>
     <!-- How to go (js/navigation-ui.js): swipe, scroll or [ ] through the ways; tap the one in the middle for where to -->
@@ -310,23 +311,56 @@
       <button class="nav-ways-step" data-step="1" type="button" tabindex="-1" aria-hidden="true" title="Next way (])"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
       <div id="nav-ways-sub" class="nav-ways-sub" aria-live="polite">Turn-by-turn directions</div>
     </div>
-    <nav id="mode-switch" class="panel mode-switch" aria-label="Third-Person Navigation Mode">
+    <!-- The dock (tinywarsaw.app's): the look & time and the storm; the map view and the rides (a ride starts from
+         the map view, Esc goes back to it); where to, the Air Force and the settings -->
+    <nav id="mode-switch" class="panel dock" aria-label="Look, map view, rides and tools">
       <span class="mode-indicator" aria-hidden="true"></span>
-      <button id="mode-person" class="mode-btn" data-mode="person" type="button" title="Person [1]">
-        <svg class="icon" aria-hidden="true"><use href="#i-walk"/></svg><span class="mode-label">Walk</span><kbd>1</kbd>
-      </button>
-      <button id="mode-car" class="mode-btn active" data-mode="car" type="button" title="Car · Yellow Cab [2]">
-        <svg class="icon" aria-hidden="true"><use href="#i-car"/></svg><span class="mode-label">Drive</span><kbd>2</kbd>
-      </button>
-      <button id="mode-cyclist" class="mode-btn" data-mode="cyclist" type="button" title="Cyclist [3]">
-        <svg class="icon" aria-hidden="true"><use href="#i-bike"/></svg><span class="mode-label">Cycle</span><kbd>3</kbd>
-      </button>
-      <button id="mode-helicopter" class="mode-btn" data-mode="helicopter" type="button" title="Helicopter [4]">
-        <svg class="icon" aria-hidden="true"><use href="#i-heli"/></svg><span class="mode-label">Fly</span><kbd>4</kbd>
-      </button>
-      <button id="mode-jet" class="mode-btn" data-mode="jet" type="button" title="Fighter jet · RSAF F-15SG [J]">
-        <svg class="icon" aria-hidden="true"><use href="#i-jet"/></svg><span class="mode-label">Jet</span><kbd>J</kbd>
-      </button>
+      <div class="dock-group dock-start">
+        <button id="btn-time" class="sun-btn" type="button" popovertarget="time-popover" title="Look &amp; time of day">
+          <svg class="sun-dial" viewBox="0 0 40 40" aria-hidden="true">
+            <circle class="sun-dial-track" cx="20" cy="20" r="15"/>
+            <circle id="sun-dial-arc" class="sun-dial-arc" cx="20" cy="20" r="15" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 20 20)"/>
+            <circle id="sun-dial-dot" class="sun-dial-dot" cx="20" cy="5" r="3.2"/>
+          </svg>
+          <span class="sun-text"><span id="sun-time" class="sun-time">15:00</span><span id="sun-name" class="sun-name">Tiny</span></span>
+        </button>
+        <button id="btn-storm" class="weather-chip" type="button" aria-pressed="false" title="Thunderstorm [R]">
+          <svg class="icon" aria-hidden="true"><use href="#i-storm"/></svg><span class="dock-label">Storm</span>
+        </button>
+      </div>
+      <span class="dock-sep" aria-hidden="true"></span>
+      <div class="dock-group dock-rides">
+        <button id="mode-map" class="mode-btn dock-btn" data-view="map" type="button" title="The map view: the city from above [Esc]">
+          <svg class="icon" aria-hidden="true"><use href="#i-tiny"/></svg><span class="dock-label">Map</span>
+        </button>
+        <button id="mode-person" class="mode-btn dock-btn" data-mode="person" type="button" title="Walk [1]">
+          <svg class="icon" aria-hidden="true"><use href="#i-walk"/></svg><span class="dock-label">Walk</span>
+        </button>
+        <button id="mode-car" class="mode-btn dock-btn active" data-mode="car" type="button" title="Drive the taxi [2]">
+          <svg class="icon" aria-hidden="true"><use href="#i-car"/></svg><span class="dock-label">Drive</span>
+        </button>
+        <button id="mode-cyclist" class="mode-btn dock-btn" data-mode="cyclist" type="button" title="Cycle [3]">
+          <svg class="icon" aria-hidden="true"><use href="#i-bike"/></svg><span class="dock-label">Cycle</span>
+        </button>
+        <button id="mode-helicopter" class="mode-btn dock-btn" data-mode="helicopter" type="button" title="Fly the helicopter [4]">
+          <svg class="icon" aria-hidden="true"><use href="#i-heli"/></svg><span class="dock-label">Fly</span>
+        </button>
+        <button id="mode-jet" class="mode-btn dock-btn" data-mode="jet" type="button" title="Fighter jet · RSAF F-15SG [J]">
+          <svg class="icon" aria-hidden="true"><use href="#i-jet"/></svg><span class="dock-label">Jet</span>
+        </button>
+      </div>
+      <span class="dock-sep" aria-hidden="true"></span>
+      <div class="dock-group dock-end">
+        <button id="btn-navigate" class="dock-btn" type="button" popovertarget="navigate-popover" title="Where to: places, a spot on the map or a surprise fare [G]">
+          <svg class="icon" aria-hidden="true"><use href="#i-route"/></svg><span class="dock-label">Navigate</span>
+        </button>
+        <button id="btn-airforce" class="dock-btn" type="button" popovertarget="airforce-popover" title="Air Force: a wingman, a flypast, the runways on the map">
+          <svg class="icon" aria-hidden="true"><use href="#i-formation"/></svg><span class="dock-label">Air Force</span>
+        </button>
+        <button id="btn-graphics" class="dock-btn" type="button" popovertarget="graphics-popover" title="Settings: graphics">
+          <svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg><span class="dock-label">Settings</span>
+        </button>
+      </div>
     </nav>
   </footer>
 
@@ -353,6 +387,13 @@
         </button>
       </div>
     </section>
+  </div>
+
+  <!-- The map data's source and how it is drawn, along the foot of the screen (as tinywarsaw.app's) -->
+  <div class="hud hud-credits">
+    <span class="credit-osm">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a></span>
+    <span>three.js · WebGPU · TSL · <span id="hud-fps" class="fps-ok">60</span> fps</span>
+    <span>One of the <a class="repo-link" href="https://zz85.github.io/slop-cities/" target="_blank" rel="noopener noreferrer" aria-label="Slop Cities: the other cities and the source (opens in a new tab)">Slop Cities</a></span>
   </div>
 
   <!-- Touch input stays available in clean view; the map temporarily suspends it. -->
