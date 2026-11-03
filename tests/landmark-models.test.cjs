@@ -459,3 +459,71 @@ test('DUO stays finite, batched and free of flicker, solid to fly into above its
   assert.ok(colliderAt(colliders, kx, 100, kz), 'the Tower\'s cantilevered block is solid');
   assert.ok(!colliderAt(colliders, kx, 40, kz), 'the air under it is not');
 });
+
+// Marina Bay Financial Centre: four towers of glass slabs slid past one another around an open middle, the residences'
+// pool deck where OSM maps a 245 m building (which the first model built as a fifth tower down the middle)
+const MBFC = {
+  tower1: [103.854090, 1.280223], tower1Low: [103.854359, 1.280178], tower2: [103.853867, 1.279456], tower2Middle: [103.853961, 1.279609],
+  tower2West: [103.853679, 1.279700], tower3: [103.854341, 1.279048], residences: [103.855258, 1.279636], residencesLow: [103.855123, 1.279681],
+  pool: [103.854818, 1.279699], plaza: [103.854314, 1.279636], deck: [103.854560, 1.279352]
+};
+
+test('Marina Bay Financial Centre replaces its towers, its podium and the pool mapped as a tower, and nothing else', async () => {
+  const { L, info } = await siteModel('marina-bay-financial-centre');
+  assert.deepEqual(L.parts.map((p) => p.id).sort((a, b) => a - b), [116905040, 116905041, 116905042, 116905045, 116905047, 509003525,
+    509003526, 509003527, 509003528, 509003529, 728243729]);
+  assert.equal(info.name, 'Marina Bay Financial Centre');
+});
+
+test('Marina Bay Financial Centre: four towers at their heights, each of slabs at different heights, no tower on the pool deck', async () => {
+  const { kit, at } = await siteModel('marina-bay-financial-centre');
+  const top = ([lon, lat]) => { const [x, z] = at(lon, lat); return Math.max(0, ...builtOver(kit, x, z, 0, 400).map((p) => p.y1)); };
+  for (const [where, h, what] of [[MBFC.tower1, 192, 'Tower 1 under its crown'], [MBFC.tower1Low, 138, "Tower 1's lower slab, toward the bay"],
+    [MBFC.tower2, 245, 'Tower 2'], [MBFC.tower2Middle, 205, "Tower 2's middle slab"], [MBFC.tower2West, 165, "Tower 2's west slab"],
+    [MBFC.tower3, 239, 'Tower 3'], [MBFC.residences, 227, 'the Residences under their crown'], [MBFC.residencesLow, 195, "the Residences' balconied slab"]]) {
+    assert.ok(Math.abs(top(where) - h) <= 1, `${what} at ${h} m (${top(where)})`);
+  }
+  const [px, pz] = at(...MBFC.pool); // where OSM maps a 245 m building: the lap pool on the deck
+  assert.equal(builtOver(kit, px, pz, 25, 400).length, 0, 'no tower between Tower 1 and the Residences');
+  assert.ok(builtOver(kit, px, pz, 17, 19).some((p) => /pool/.test(p.name)), 'the lap pool on the podium deck');
+  assert.ok(!kit.parts.some((p) => /suites/i.test(p.name)), 'Marina Bay Suites stands across Straits View, not in this block');
+  // the crowns cut on a slant: Tower 1's falling toward its lower slab, the Residences' toward theirs
+  for (const name of ['tower1-crown', 'residences-crown']) {
+    const crown = kit.parts.find((p) => p.name === name);
+    const ys = crown.walls.map((w) => w.y1);
+    assert.ok(Math.max(...ys) - Math.min(...ys) >= 10, `${name} slants (${Math.min(...ys)} to ${Math.max(...ys)} m)`);
+  }
+});
+
+test('Marina Bay Financial Centre: the tenants\' signs, each with its mark, hang on the crowns\' walls under their rooflines', async () => {
+  const { kit } = await siteModel('marina-bay-financial-centre');
+  const signs = kit.parts.filter((p) => p.type === 'sign');
+  for (const [name, logo] of [['standard-chartered', 'standard-chartered'], ['standard-chartered-east', 'standard-chartered'], ['hsbc', 'hsbc'], ['dbs', 'dbs'], ['dbs-east', 'dbs']]) {
+    assert.equal(signs.find((s) => s.name === `sign:${name}`)?.logo, logo, `${name} carries the ${logo} mark`);
+  }
+  const solids = kit.parts.filter((p) => p.type !== 'sign' && p.type !== 'beam' && p.ring.length >= 3);
+  for (const s of signs) {
+    const [mx, mz] = [(s.ring[0][0] + s.ring[1][0]) / 2, (s.ring[0][1] + s.ring[1][1]) / 2];
+    const host = solids.filter((p) => p.walls.some((w) => Math.abs(mx * w.nx + mz * w.nz - w.off) < 1 && w.y0 <= s.y0 && w.y1 >= s.y1));
+    assert.ok(host.length, `${s.name} hangs on a wall that stands behind all of it`);
+  }
+});
+
+test('Marina Bay Financial Centre stays finite, batched and free of flicker, its middle open, its towers and deck solid', async () => {
+  const { kit, at } = await siteModel('marina-bay-financial-centre');
+  assert.ok(kit.triangles > 2000 && kit.triangles < 65000, `${kit.triangles} triangles`);
+  const flicker = kit.flicker();
+  assert.equal(flicker.length, 0, JSON.stringify(flicker));
+  const [qx, qz] = at(...MBFC.plaza);
+  assert.equal(builtOver(kit, qx, qz, 20, 400).length, 0, 'the plaza in the middle is open to the sky');
+  const { group, colliders, footprints } = kit.finish();
+  assert.ok(group.children.length <= 16, `${group.children.length} material batches`);
+  for (const p of kit.parts) for (const v of Object.values(p.bounds)) assert.ok(Number.isFinite(v), p.name);
+  const solidAt = (where, y) => { const [, , x, z] = at(...where); return colliderAt(colliders, x, y, z); };
+  assert.ok(solidAt(MBFC.tower1, 170), 'Tower 1 is solid in its crown');
+  assert.ok(solidAt(MBFC.residences, 201), 'the Residences are solid in theirs');
+  assert.ok(solidAt(MBFC.tower2, 230), 'Tower 2 is solid up its height');
+  assert.ok(solidAt(MBFC.deck, 12), 'the pool deck is solid');
+  assert.ok(!solidAt(MBFC.plaza, 30), 'the air over the plaza is not');
+  assert.ok(footprints.some((f) => f.h >= 244), 'the map has Tower 2 at its height');
+});
