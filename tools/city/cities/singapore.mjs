@@ -105,7 +105,8 @@ export default {
     { id: 'guoco-tower', name: 'Guoco Tower', model: 'guoco-tower', hide: [393100845, 393100848, 393100849, 393100850] },
     // The second batch: Republic Plaza (its octagonal shaft, the sloped corner parts and the crown slivers, its podium
     // outline), Asia Square's two towers (outlines and their stepped parts), Marina Bay Financial Centre (the three
-    // office towers, Marina Bay Residences and Suites, the podium and the Link Mall)
+    // office towers, Marina Bay Residences, the podium, the Link Mall and 116905047: the residences' lap pool, mapped as
+    // a 245 m building; Marina Bay Suites is way 393092728 across Straits View, left to the city)
     { id: 'republic-plaza', name: 'Republic Plaza', model: 'republic-plaza', hide: [171999304, 407705511, 407705516, 407705520, 407705531,
       407705532, 407705537, 407705543, 407705558, 407705560, 407705561, 407705562, 407705565, 407705571, 463857990, 463857991, 463857992] },
     { id: 'asia-square', name: 'Asia Square', model: 'asia-square', hide: [407941850, 407941851, 407941832, 407941833, 407941834, 407941835,
