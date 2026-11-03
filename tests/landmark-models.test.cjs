@@ -377,6 +377,78 @@ async function siteModel(id) {
 // what is built over (x, z) about the anchor within the heights [y0, y1] (signs, posts and rafters aside)
 const builtOver = (kit, x, z, y0, y1) => kit.parts.filter((p) => p.type !== 'sign' && p.type !== 'beam' && p.y0 < y1 && p.y1 > y0 && p.ring.length >= 3 && covers(p.ring, x, z));
 
+// SG-034: literal drawing probes in true east/north metres, located independently of the model's local frame.
+async function waterboatModel() {
+  const m = await siteModel('fullerton-waterboat-house');
+  const point = (east, north) => m.at(103.853535 + east / 111290, 1.287066 + north / 110574);
+  const over = (east, north, y0, y1) => {
+    const [x, z] = point(east, north);
+    return builtOver(m.kit, x, z, y0, y1);
+  };
+  return { ...m, point, over };
+}
+
+test('SG-034 Waterboat House replaces its one mapped envelope and stays within the waterfront site', async () => {
+  const { kit, L, info } = await waterboatModel();
+  const { default: config } = await import('../tools/city/cities/singapore.mjs');
+  const registration = config.landmarks.find((l) => l.id === L.id);
+  assert.deepEqual(registration.hide, [172931401]);
+  assert.equal(registration.hideRelations?.length || 0, 0);
+  assert.deepEqual(L.parts.map((p) => p.id), [172931401]);
+  assert.equal(info.name, 'The Fullerton Waterboat House');
+  assert.ok(Math.hypot(L.x, L.z) > 100, 'real waterfront anchor, not the world origin');
+  const b = kit.bounds();
+  assert.ok(b.maxY >= 13 && b.maxY <= 16, `low roof and flagpoles: ${b.maxY} m`);
+  assert.ok(b.minY >= -0.5);
+  for (const [axis, i] of [['X', 0], ['Z', 1]]) {
+    const values = L.parts[0].ring.filter((_, k) => k % 2 === i).map((v) => v - L[axis.toLowerCase()]);
+    assert.ok(b['min' + axis] >= Math.min(...values) - 1.6, axis + ' lower footprint bound');
+    assert.ok(b['max' + axis] <= Math.max(...values) + 1.6, axis + ' upper footprint bound');
+  }
+});
+
+test('SG-034 Waterboat House has stepped historic roofs and a lower distinct annexe', async () => {
+  const { kit, over } = await waterboatModel();
+  const top = (east, north) => Math.max(0, ...over(east, north, 0, 30).map((p) => p.y1));
+  assert.ok(over(-6, 4, 4.8, 5).length, 'curved western historic wing at its mapped location');
+  assert.ok(top(-6, 4) >= 7 && top(-6, 4) < 9, 'open roof terrace over the long wing');
+  assert.ok(top(4, -11) >= 10.5 && top(4, -11) <= 11.9, 'taller rounded southern roof');
+  assert.ok(top(10, 2) >= 5.8 && top(10, 2) < 7, 'separate low eastern glass annexe');
+  assert.ok(over(10, 2, 2, 3).length, 'annexe is a complete volume below its roof');
+  assert.equal(over(1.5, 5, 1, 12).length, 0, 'space between house and annexe stays open');
+  const sign = kit.parts.find((p) => p.type === 'sign' && p.name === 'waterboat-house-name');
+  assert.ok(sign && sign.y0 > 2.8 && sign.y1 < 3.6, 'building-name panel above the entrance, below the balcony');
+});
+
+test('SG-034 Waterboat House keeps paths clear and stops descent through roofs and its raised link', async () => {
+  const { kit, point, over } = await waterboatModel();
+  const { colliders } = kit.finish();
+  const hit = (east, north, y) => {
+    const [, , x, z] = point(east, north);
+    return colliderAt(colliders, x, y, z);
+  };
+  for (const [east, north] of [[-18, 0], [19, 2], [0, 19], [1.5, 5]]) {
+    assert.ok(!hit(east, north, 1.6), `clear pedestrian space ${east},${north}`);
+  }
+  assert.ok(!hit(1.5, 10, 1.6), 'passage below the glazed link is open');
+  assert.equal(over(1.5, 10, 0.6, 2.4).length, 0, 'no visible wall beneath the bridge');
+  assert.ok(hit(1.5, 10, 3.65), 'raised bridge deck stops descent');
+  assert.ok(hit(1.5, 10, 5.9), 'bridge roof stops descent');
+  assert.ok(hit(-6, 4, 7.55), 'historic wing roof stops descent');
+  assert.ok(hit(4, -11, 10.9), 'upper rounded roof stops descent');
+  assert.ok(hit(10, 2, 6.15), 'annexe roof stops descent');
+  assert.ok(hit(-7.15, -3, 3.75), 'projecting street balcony stops descent');
+  assert.ok(!hit(10, 2, 8), 'open air over annexe');
+});
+
+test('SG-034 Waterboat House is finite, batched and free of coplanar flicker', async () => {
+  const { kit } = await waterboatModel();
+  assert.ok(kit.triangles > 1500 && kit.triangles < 65000, `${kit.triangles} triangles`);
+  for (const p of kit.parts) for (const v of Object.values(p.bounds)) assert.ok(Number.isFinite(v), p.name);
+  assert.equal(kit.flicker().length, 0, JSON.stringify(kit.flicker().slice(0, 10)));
+  assert.ok(kit.finish().group.children.length <= 16, 'at most 16 merged material batches');
+});
+
 test('Marina One replaces its four towers, their shafts and corner crowns, and nothing else', async () => {
   const { L, info } = await siteModel('marina-one');
   assert.deepEqual(L.parts.map((p) => p.id).sort((a, b) => a - b), [463857945, 463857946, 463857947, 463857948, 463857949, 463858904, 463858905,
