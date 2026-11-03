@@ -86,6 +86,8 @@
   <link rel="modulepreload" href="./js/binoculars.js" />
   <link rel="modulepreload" href="./js/jet-acoustics.js" />
   <link rel="modulepreload" href="./js/place-search.js" />
+  <link rel="modulepreload" href="./js/building-picker.js" />
+  <link rel="modulepreload" href="./js/building-info.js" />
   <link rel="modulepreload" href="./js/main.js" />
   <script type="module" src="./js/main.js"></script>
   <!-- Manrope (UI) & Space Grotesk (numbers), as tinywarsaw.app's; Overpass (the turn-by-turn sign: modelled on
@@ -93,7 +95,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&amp;family=Space+Grotesk:wght@500..700&amp;family=Overpass:wght@600;700&amp;display=swap" />
-  <link rel="stylesheet" href="./css/style.css?v=20261102-tiny-ui" />
+  <link rel="stylesheet" href="./css/style.css?v=20261103-building-info" />
 </head>
 <body>
   <!-- Icon sprite (24 × 24 stroke icons, drawn in currentColor) -->
@@ -152,6 +154,9 @@
 
   <!-- 3D WebGPU Viewport Container -->
   <main id="canvas-container" aria-label="3D Interactive Tiny Singapore Viewport"></main>
+
+  <!-- A clicked building's name, address & coordinates, beside it (js/building-info.js) -->
+  <div id="building-info" class="building-info" role="status" aria-live="polite" hidden></div>
 
   <!-- Top bar, left (tinywarsaw.app's): the name and where to (js/place-search.js), a street, place or landmark -->
   <header class="hud hud-top-left">

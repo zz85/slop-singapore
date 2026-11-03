@@ -1435,6 +1435,73 @@ body[data-mode='jet'] .gauge-alt {
 }
 
 /* ------------------------------------------------------------------------------------------------------------------
+   A clicked building: its name, address & coordinates beside it (js/building-info.js), as tinywarsaw.app's; under the
+   HUD's panels, and no obstacle to the next click
+   ------------------------------------------------------------------------------------------------------------------ */
+.building-info {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 8;
+  min-width: 200px;
+  max-width: 320px;
+  padding: 8px 12px;
+  border-radius: var(--r-md);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+  pointer-events: none;
+  will-change: transform;
+  animation: fade-in 0.18s ease both;
+}
+
+.building-info[hidden],
+body.hud-minimized .building-info {
+  display: none;
+}
+
+.bi-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 3px 0;
+}
+
+.bi-label {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.bi-value {
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.bi-name .bi-value { font-weight: 700; }
+
+.bi-coords .bi-value {
+  font: 500 12px var(--font-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ------------------------------------------------------------------------------------------------------------------
    Credits along the foot of the screen: the map data's source, how it is drawn, the frame rate
    ------------------------------------------------------------------------------------------------------------------ */
 .hud-credits {

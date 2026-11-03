@@ -42,6 +42,8 @@ import { Binoculars } from './binoculars.js';
 import { BoomWatcher } from './jet-acoustics.js';
 import { GEO } from './geodata.js';
 import { placeEntries, bindPlaceSearch } from './place-search.js';
+import { createBuildingPicker, toLonLat } from './building-picker.js';
+import { decodeBuildingInfo, describeBuilding, bindBuildingInfo } from './building-info.js';
 
 // js/main.js
 // Main entry point for the city simulation (Singapore by default, ?city=nyc for New York) in Three.js WebGPURenderer &
@@ -441,7 +443,7 @@ async function initApp() {
     helicopter: [[['W', 'S'], 'Pitch'], [['A', 'D'], 'Yaw'], [['Space', 'E'], 'Ascend'], [['Q', 'C'], 'Descend'], [['Esc'], 'Map']],
     jet: [[['W', 'S'], 'Nose down / up'], [['A', 'D'], 'Roll'], [['Space', 'E'], 'Throttle'], [['Q', 'C'], 'Idle / Brake'], [['T'], 'Cockpit · mouse looks']],
     // (the map view's, while it is the camera: js/cameras.js moveMapView)
-    map: [[['Drag'], 'Pan'], [['Right-drag'], 'Orbit'], [['Wheel'], 'Zoom'], [['/'], 'Search'], [['V'], 'Cameras']]
+    map: [[['Drag'], 'Pan'], [['Right-drag'], 'Orbit'], [['Wheel'], 'Zoom'], [['Click'], 'A building'], [['/'], 'Search'], [['V'], 'Cameras']]
   };
   // Top speeds in mph (controllers.js caps them at 8.2, 36, 19 & 52 m/s; the jet Mach 1.1, jet-flight.js): full scale
   // of the speed meter
@@ -767,15 +769,82 @@ async function initApp() {
 
   const openMapBtn = document.getElementById('btn-open-map');
 
+  // What a click on a building is on (js/building-picker.js; the card it shows: below)
+  const buildingPicker = createBuildingPicker();
+
   // The maps show the whole island: its land at once, its main roads once roads.json arrives, and each streamed tile's
-  // buildings as it loads
+  // buildings as it loads (and so does the building picker)
   if (cityTiles?.index) {
     const land = cityTiles.index.land;
     mapSystem.setIsland({ land });
     islandRoadsLoading.then((roads) => { if (roads) mapSystem.setIsland({ land, roads: roads.data }); });
-    cityTiles.onTileOutlines = (key, x, z, outlines) => mapSystem.addTile(key, x, z, outlines);
+    cityTiles.onTileOutlines = (key, x, z, outlines) => {
+      mapSystem.addTile(key, x, z, outlines);
+      buildingPicker.addTile(key, x, z, outlines);
+    };
+    // (a tile dropped from the view: its buildings can't be clicked either; the maps keep them)
+    const setTileColliders = cityTiles.onTileColliders;
+    cityTiles.onTileColliders = (key, list) => {
+      setTileColliders?.(key, list);
+      if (!list) buildingPicker.dropTile(key);
+    };
   }
   if (openMapBtn) openMapBtn.addEventListener('click', () => mapSystem.toggleFullMap(true));
+
+  // Click a building: a card with its name, address and coordinates, as tinywarsaw.app's (js/building-info.js). What
+  // the click is on (js/building-picker.js): the city's buildings (each up to the ridge of its roof), the landmarks'
+  // footprints and the island tiles' outlines as they stream in (above). The names & addresses arrive once the city is
+  // up (js/<city>-building-info.js, tools/city/build.mjs); until then, and beyond the city's detailed area, the card
+  // says which streets a building is near.
+  const cityBuildings = cityBlocks.buildings || [];
+  cityBuildings.forEach((b, index) => buildingPicker.add(b.rings, b.bottom, Math.max(b.top, b.ridge || 0), { kind: 'building', index }));
+  for (const f of [...(cityLandmarks?.footprints || []), ...(landmarkModels?.footprints || [])]) {
+    if (f.site) buildingPicker.add([f.pts], 0, f.h, { kind: 'site', site: f.site });
+  }
+  let buildingNames = null;
+  const loadBuildingNames = () => import(`./${CITY.id}-building-info.js`).then(({ INFO }) => {
+    const names = decodeBuildingInfo(INFO);
+    // (only for the buildings they were written with: GEO.buildings' order)
+    if (names.count !== cityBuildings.length) {
+      console.warn(`[buildings] names & addresses for ${names.count} buildings, not the ${cityBuildings.length} drawn: left out`);
+      names.byIndex.clear();
+    }
+    buildingNames = names;
+  }).catch((e) => console.warn('[buildings] no names & addresses:', e));
+  const siteName = (id) => (GEO.landmarks || []).find((l) => l.id === id)?.name || '';
+  // the streets a building is near: the city's (city-config.js getLocationLabel), else the island's main roads
+  const nearStreets = (x, z) => {
+    const label = getLocationLabel(x, z);
+    const streets = label.includes(' · ') ? label.slice(label.indexOf(' · ') + 3) : label;
+    if (streets && streets !== CITY.name && !placeNames.has(streets)) return streets;
+    return islandRoads?.nearest(x, z, 250)?.road.name || '';
+  };
+  const pickRay = new THREE.Raycaster();
+  const pickNdc = new THREE.Vector2();
+  const cardPoint = new THREE.Vector3();
+  const buildingCard = bindBuildingInfo({
+    canvas: renderer.domElement,
+    card: document.getElementById('building-info'),
+    pickAt: (clientX, clientY) => {
+      const r = renderer.domElement.getBoundingClientRect();
+      pickNdc.set(((clientX - r.left) / r.width) * 2 - 1, 1 - ((clientY - r.top) / r.height) * 2);
+      pickRay.setFromCamera(pickNdc, cameraSystem.camera);
+      const hit = buildingPicker.pick(pickRay.ray.origin, pickRay.ray.direction);
+      if (!hit) return null;
+      const { ref } = hit;
+      const info = ref.kind === 'building' ? buildingNames?.byIndex.get(ref.index)
+        : ref.kind === 'site' ? buildingNames?.sites[ref.site] || { name: siteName(ref.site) } : null;
+      const [lon, lat] = toLonLat(GEO.frame, hit.cx, hit.cz);
+      return {
+        rows: describeBuilding({ info, near: info?.street ? '' : nearStreets(hit.cx, hit.cz), lon, lat, city: CITY.name }),
+        point: new THREE.Vector3(hit.x, hit.y, hit.z)
+      };
+    },
+    project: (p) => {
+      const v = cardPoint.copy(p).project(cameraSystem.camera);
+      return { x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (0.5 - v.y * 0.5) * window.innerHeight, visible: v.z < 1 && Math.abs(v.x) <= 1.05 && Math.abs(v.y) <= 1.05 };
+    }
+  });
 
   // The Air Force menu: the wingman and the runways on the map (both remembered), and a flypast to order
   const afButton = document.getElementById('btn-airforce');
@@ -1052,11 +1121,12 @@ async function initApp() {
     }
   });
   // Esc: from a ride back to the map view (tinywarsaw.app's "Map · Esc"), unless it closes something first: a menu, the
-  // full map, the binoculars. (Before the full map's own Esc, which would have closed it by then.)
+  // full map, the binoculars, a building's card. (Before the full map's own Esc, which would have closed it by then.)
   window.addEventListener('keydown', (e) => {
     if (e.code !== 'Escape' || e.repeat || isTypingInField(e) || mapSystem.isFullMapOpen || binoculars.active) return;
-    if (cameraSystem.activePresetId === 'map' || (supportsPopover && document.querySelector('.popover:popover-open'))) return;
-    selectCamera('map', false);
+    if (supportsPopover && document.querySelector('.popover:popover-open')) return;
+    if (buildingCard.visible) return buildingCard.hide();
+    if (cameraSystem.activePresetId !== 'map') selectCamera('map', false);
   }, { capture: true });
 
   // The top bar's search (js/place-search.js): the map view flies to the place, landmark or street picked
@@ -1066,6 +1136,7 @@ async function initApp() {
     entries: placeEntries({ places: GEO.places || NYC_LANDMARKS, landmarks: GEO.landmarks, roads: ROADS }),
     onPick: (entry) => {
       closePopovers();
+      buildingCard.hide();
       selectCamera('map', false);
       const m = cameraSystem.map;
       m.target.set(entry.x, 0, entry.z);
@@ -1217,7 +1288,7 @@ async function initApp() {
   }
 
   // For poking at from the console (and the browser checks): the simulation's main systems
-  globalThis.slop = { scene, autoTrees, airForce, binoculars, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, landmarkModels, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
+  globalThis.slop = { scene, autoTrees, airForce, binoculars, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, landmarkModels, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo, buildingPicker, buildingCard };
 
   await precompileShaders();
   markInit('compile');
@@ -1287,6 +1358,8 @@ async function initApp() {
 
     // what the autopilot sees, over this frame (when shown)
     perceptionOverlay.update(routeNavigator, controllerManager.getActiveEntity(), cameraSystem.camera, THREE.Vector3);
+    // a clicked building's card, beside it as the view moves
+    buildingCard.update();
     {
       const preset = cameraSystem.activePresetId;
       const jet = controllerManager.entities.jet;
@@ -1349,6 +1422,8 @@ async function initApp() {
         if (loadingOverlay) loadingOverlay.classList.add('hidden');
         audioSystem.ready = true;
         setLoadingProgress(1);
+        // (the buildings' names & addresses, now the city is up)
+        if (CITY.open) loadBuildingNames();
       });
     }
 

@@ -29,6 +29,10 @@
 //               the anchors of the landmarks built by model programs (config landmarks with `model`)
 //               from the one before, a ring's first from the previous ring's first, ...] } OpenStreetMap's buildings &
 //               building parts (or null: generated on the lots)
+// and beside it js/<city>-building-info.js, INFO { version: 1, buildings (how many GEO.buildings has), strings, data:
+//   [index from the one before, name, street, house number, postcode (1 + index into strings, 0 none), ...] for the
+//   buildings with a name or an address (a part takes its building's), sites: { landmark id: { name, street, number,
+//   postcode } } } for the card a click on a building shows (js/building-info.js)
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -193,6 +197,7 @@ export async function buildCity(cityOrId, { out, data } = {}) {
   // type in their neighbourhood. A building drawn in parts (building:part) is its parts, unless they all stand above its
   // own height (a tower on its podium).
   let buildings = null;
+  let buildingInfo = null; // what each building is called and where (written beside the geodata, see the end)
   const landmarks = []; // the anchors of the landmarks built by model programs (see below)
   const groundFootprints = []; // rings standing on the ground (trees can't grow there)
   if (fs.existsSync(path.join(dir, 'osm_buildings.json'))) {
@@ -228,9 +233,26 @@ export async function buildCity(cityOrId, { out, data } = {}) {
       return (BY_STYLE[style] || 4) + (area > 2500 ? 2 : 0);
     };
     const els = JSON.parse(fs.readFileSync(path.join(dir, 'osm_buildings.json'), 'utf8')).elements;
+    // What a building is called and its address (name, else name:en or addr:housename; addr:street, addr:housenumber,
+    // addr:postcode), for the card a click on it shows (js/building-info.js); null when it has neither
+    const infoOf = (t) => {
+      const name = t.name || t['name:en'] || t['addr:housename'] || '';
+      const street = t['addr:street'] || '';
+      return name || street ? { name, street, number: street ? t['addr:housenumber'] || '' : '', postcode: t['addr:postcode'] || '' } : null;
+    };
+    // (the name from the first that has one, the address whole from the first that has one)
+    const mergeInfo = (a, b) => (!a ? b : !b ? a : {
+      name: a.name || b.name, ...(a.street ? { street: a.street, number: a.number, postcode: a.postcode } : { street: b.street, number: b.number, postcode: b.postcode })
+    });
     // the outlines of the landmarks the city models by hand (config.landmarks: way ids)
     const hidden = new Set((city.landmarks || []).flatMap((l) => l.hide || []));
     const hiddenRelations = new Set((city.landmarks || []).flatMap((l) => l.hideRelations || []));
+    // what the outlines a landmark hides are called and where: its address is its relations' (the whole of it), else
+    // its outlines' in the config's order (its name is the config's)
+    const hiddenInfo = new Map();
+    const noteSite = (key, t) => hiddenInfo.set(key, infoOf(t));
+    const siteInfoOf = (l) => [...(l.hideRelations || []).map((id) => `r${id}`), ...(l.hide || []).map((id) => `w${id}`)]
+      .map((key) => hiddenInfo.get(key)).reduce(mergeInfo, null);
     // A landmark built by a model program (config landmarks with `model`: js/landmark-models/<model>.js) gets an
     // anchor: its centre and the outlines it replaces, each with its mapped height, floors and name, for the program
     // to build on (GEO.landmarks: [{ id, name, model, x, z, parts: [{ id, name, ring: [x, z, ... m, world], height m,
@@ -244,11 +266,13 @@ export async function buildCity(cityOrId, { out, data } = {}) {
       // Relation and way IDs occupy separate OSM namespaces. A model may replace a relation's generic mass
       // without treating its member ways as independent buildings or changing the model's existing way anchor.
       if (e.type === 'relation' && hiddenRelations.has(e.id)) {
+        noteSite(`r${e.id}`, t);
         if (!(num(t.min_height) > 0)) for (const { outer } of areaPolygons(e, toWorld, 8)) groundFootprints.push(outer);
         hiddenCount++;
         continue;
       }
       if (e.type === 'way' && hidden.has(e.id)) {
+        noteSite(`w${e.id}`, t);
         // (no trees where the modelled landmark stands either)
         if (!(num(t.min_height) > 0)) for (const { outer } of areaPolygons(e, toWorld, 8)) groundFootprints.push(outer);
         const landmark = modelOf.get(e.id);
@@ -286,7 +310,7 @@ export async function buildCity(cityOrId, { out, data } = {}) {
         let bottom = num(t.min_height) > 0 ? num(t.min_height) : num(t['building:min_level']) > 0 ? num(t['building:min_level']) * LEVEL : 0;
         if (type === 'roof') { bottom = Math.max(bottom, top - 0.6, 2.6); top = Math.max(top, bottom + 0.4); } // canopies & covered walkways
         if (top - bottom < 0.3) continue;
-        items.push({ part, type, outer: o, holes: hs, cx, cz, top, bottom, area, roof: roofOf(t), wall: osmColour(t['building:colour']), roofColour: osmColour(t['roof:colour']), levels: Math.max(0, Math.round(levelsOf(t) || 0)) });
+        items.push({ part, type, outer: o, holes: hs, cx, cz, top, bottom, area, roof: roofOf(t), wall: osmColour(t['building:colour']), roofColour: osmColour(t['roof:colour']), levels: Math.max(0, Math.round(levelsOf(t) || 0)), info: infoOf(t) });
       }
     }
     // Outlines whose parts start at the ground are drawn by their parts
@@ -294,15 +318,22 @@ export async function buildCity(cityOrId, { out, data } = {}) {
     const CELL = 64;
     const partCells = new Map();
     for (const p of parts) { const k = `${Math.floor(p.cx / CELL)},${Math.floor(p.cz / CELL)}`; if (!partCells.has(k)) partCells.set(k, []); partCells.get(k).push(p); }
-    const kept = items.filter((b) => {
-      if (b.part) return true;
+    const partsIn = (b) => {
       const bb = bbox(b.outer);
+      const inside = [];
       for (let i = Math.floor(bb.x0 / CELL); i <= Math.floor(bb.x1 / CELL); i++) {
         for (let j = Math.floor(bb.z0 / CELL); j <= Math.floor(bb.z1 / CELL); j++) {
-          for (const p of partCells.get(`${i},${j}`) || []) if (p.bottom < 1 && pointInRing(p.cx, p.cz, b.outer)) return false;
+          for (const p of partCells.get(`${i},${j}`) || []) if (pointInRing(p.cx, p.cz, b.outer)) inside.push(p);
         }
       }
-      return true;
+      return inside;
+    };
+    const kept = items.filter((b) => {
+      if (b.part) return true;
+      const inside = partsIn(b);
+      // (a part is called what its building is, and has its address, unless it has its own)
+      if (b.info) for (const p of inside) p.info = mergeInfo(p.info, b.info);
+      return !inside.some((p) => p.bottom < 1);
     });
     const types = [...new Set(kept.map((b) => b.type))];
     // Neighbours next to each other (64 m cells, row by row): every coordinate is a short step from the one before
@@ -328,6 +359,25 @@ export async function buildCity(cityOrId, { out, data } = {}) {
       if (b.bottom < 3) groundFootprints.push(b.outer);
     }
     buildings = { types, extra: 4, data };
+    // What each is called and where, in the same order, for those that have a name or an address: [index from the one
+    // before, name, street, house number, postcode (each 1 + an index into strings, 0 none), ...]; and each config
+    // landmark's name with its address
+    const strings = [];
+    const ids = new Map();
+    const str = (s) => { if (!s) return 0; if (!ids.has(s)) { ids.set(s, strings.length + 1); strings.push(s); } return ids.get(s); };
+    const infoData = [];
+    let prev = 0;
+    kept.forEach((b, k) => {
+      if (!b.info) return;
+      infoData.push(k - prev, str(b.info.name), str(b.info.street), str(b.info.number), str(b.info.postcode));
+      prev = k;
+    });
+    const sites = Object.fromEntries((city.landmarks || []).map((l) => {
+      const { street = '', number = '', postcode = '' } = siteInfoOf(l) || {};
+      return [l.id, { name: l.name, street, number, postcode }];
+    }));
+    buildingInfo = { version: 1, buildings: kept.length, strings, data: infoData, sites };
+    log(`${infoData.length / 5} buildings & parts with a name or an address (${kept.filter((b) => b.info?.name).length} named, ${kept.filter((b) => b.info?.street).length} with a street)`);
     for (const l of city.landmarks || []) {
       if (!l.model) continue;
       const parts = anchorParts.get(l.id) || [];
@@ -509,6 +559,16 @@ export async function buildCity(cityOrId, { out, data } = {}) {
   fs.writeFileSync(file, `${header}export const GEO = JSON.parse(${JSON.stringify(JSON.stringify(GEO))});\n`);
   log(`wrote ${file} (${(fs.statSync(file).size / 1024).toFixed(0)} KB)`);
   for (const [k, v] of Object.entries(GEO)) log(`  ${k}: ${(JSON.stringify(v).length / 1024).toFixed(0)} KB`);
+  // Beside it, js/<city>-building-info.js: the buildings' names & addresses (INFO, see above), loaded once the city is
+  // up (js/building-info.js), so they add nothing to the start
+  if (buildingInfo) {
+    const infoFile = file.replace(/-geodata\.js$/, '') + '-building-info.js';
+    fs.writeFileSync(infoFile, `// js/${city.id}-building-info.js — GENERATED by tools/city/build.mjs ${city.id}, do not edit by hand.
+// The names & addresses of ${city.name}'s buildings, in js/${city.id}-geodata.js GEO.buildings' order, and its landmarks'.
+// Source: © OpenStreetMap contributors (ODbL).
+export const INFO = JSON.parse(${JSON.stringify(JSON.stringify(buildingInfo))});\n`);
+    log(`wrote ${infoFile} (${(fs.statSync(infoFile).size / 1024).toFixed(0)} KB)`);
+  }
   return GEO;
 }
 

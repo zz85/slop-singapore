@@ -215,6 +215,8 @@ function buildOpenCityBuildings(scene) {
         if (at) {
           pitched = pitchedRoof({ shape, box: obox, eave: at.eave, ridge: at.ridge, across: !heuristic && roof.across });
           wallTop = at.wallTop;
+          // (as high as it is drawn, for a click to find it: js/building-picker.js)
+          b.ridge = at.ridge;
         }
       }
     }
@@ -335,7 +337,8 @@ function buildOpenCityBuildings(scene) {
 
   scene.add(group);
   console.info(`[buildings] ${buildings.length} buildings from OpenStreetMap: ${wallCount} walls, ${roofPos.length / 9} roof triangles, ${pitchedCount} pitched roofs, ${colliders.length} colliders in ${Math.round(performance.now() - t0)} ms`);
-  return { group, colliders, allBlocks: [{ footprints }], update: () => {}, updateLights: null };
+  // (`buildings`: decoded, in GEO.buildings' order, each with its `ridge` where a pitched roof rises above its top)
+  return { group, colliders, allBlocks: [{ footprints }], buildings, update: () => {}, updateLights: null };
 }
 
 export { buildOpenCityBuildings, decode, FACADES, TINY_FACADES };
