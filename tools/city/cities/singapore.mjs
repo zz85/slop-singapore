@@ -117,6 +117,8 @@ export default {
     // Former General Post Office: the hotel only; One Fullerton and the Waterboat House remain separate buildings.
     { id: 'fullerton-hotel', name: 'The Fullerton Hotel', model: 'fullerton-hotel', hide: [46595395,407926378,407926385], hideRelations: [4039936] },
     { id: 'fullerton-bay-hotel', name: 'The Fullerton Bay Hotel', model: 'fullerton-bay-hotel', hide: [184297025,406900561,986973997], hideRelations: [13262095] },
+    // SG-034: the historic Waterboat House and its lower glass annexe share one mapped envelope.
+    { id: 'fullerton-waterboat-house', name: 'The Fullerton Waterboat House', model: 'fullerton-waterboat-house', hide: [172931401] },
     { id: 'raffles-place-mrt', name: 'Raffles Place MRT', model: 'raffles-place-mrt', hide: [106193387,106193391] },
     // Raffles Hotel and Arcade: separate suite-wing ways plus the two enclosing multipolygons. These are not
     // Raffles City (across Bras Basah Road). The model keeps the gardens, Lawn and Arcade square open.
