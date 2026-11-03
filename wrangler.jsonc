@@ -1,0 +1,16 @@
+// The tiny-singapore Worker: static assets only, no Worker code. `node tools/build-site.mjs` fills dist/ with what the page
+// loads; .github/workflows/deploy.yml runs it and `wrangler deploy` on every push to main.
+// workers_dev and preview_urls off, so tinysingapore.tradelabs.cc (attached by the route below) is its only address.
+{
+  "name": "tiny-singapore",
+  "account_id": "79312ff8d644ae9a45100289d5c5d552",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./dist"
+  },
+  "routes": [
+    { "pattern": "tinysingapore.tradelabs.cc", "custom_domain": true }
+  ]
+}

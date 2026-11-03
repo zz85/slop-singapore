@@ -1,3 +1,6 @@
 .DS_Store
 # raw island-wide Overpass downloads (tools/city/fetch-island.mjs): rebuilt into tiles/, not kept
 tools/data/*/island/
+# the deployable site (tools/build-site.mjs) and Wrangler's local state
+dist/
+.wrangler/

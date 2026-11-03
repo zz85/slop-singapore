@@ -1,0 +1,59 @@
+name: Test and deploy
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+# One run at a time per branch, in push order: a push to main waits for the deploy in progress and replaces any run still
+# waiting, so the site always ends on main's latest commit. A pull request's new push cancels its stale run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test 'tests/**/*.test.*'
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://tinysingapore.tradelabs.cc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node tools/build-site.mjs --commit "$GITHUB_SHA"
+      - name: Deploy to Cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo '::error::Missing the CLOUDFLARE_API_TOKEN secret: a Cloudflare API token from the "Edit Cloudflare Workers" template.'
+            exit 1
+          fi
+          npx --yes wrangler@4.157.0 deploy
+      - name: Check the live site serves this commit
+        run: |
+          for attempt in $(seq 1 12); do
+            live=$(curl -fsS "https://tinysingapore.tradelabs.cc/deployment.json?commit=$GITHUB_SHA" | jq -r .commit) || live=
+            if [ "$live" = "$GITHUB_SHA" ] && curl -fsS https://tinysingapore.tradelabs.cc/ | grep -q '<title>Tiny Singapore</title>'; then
+              echo "https://tinysingapore.tradelabs.cc serves $GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::https://tinysingapore.tradelabs.cc still serves ${live:-nothing}, not $GITHUB_SHA"
+          exit 1

@@ -28,6 +28,16 @@ Serve the folder and open it in a browser with WebGPU (or WebGL 2):
 python3 -m http.server 8000 --bind 127.0.0.1    # then open http://127.0.0.1:8000/
 ```
 
+## Deploy
+
+[tinysingapore.tradelabs.cc](https://tinysingapore.tradelabs.cc/) is a Cloudflare Worker named `tiny-singapore` that serves static assets only (`wrangler.jsonc`). `node tools/build-site.mjs` copies what the page loads (`index.html`, `css/`, `js/`, `tiles/`) into `dist/`, so `tools/data`, `docs/` and `tests/` never reach the site.
+
+`.github/workflows/deploy.yml` runs the tests on every pull request and push. A push to `main` that passes them builds `dist/` and runs `wrangler deploy`, then waits until the live site's `/deployment.json` names the pushed commit. The deploy needs one repository secret, `CLOUDFLARE_API_TOKEN`: a Cloudflare API token made from the **Edit Cloudflare Workers** template, for this account and the `tradelabs.cc` zone. Re-run the workflow (Actions → Test and deploy → Run workflow) to redeploy `main`. To deploy by hand from a machine logged in to Wrangler:
+
+```sh
+node tools/build-site.mjs && npx wrangler deploy
+```
+
 ## Make it your own
 
 Fork it, remix it, improve it, break it. Make games, animations, films, experiments, or something completely different. Use it as a starting point and take it wherever you want. Have fun!
