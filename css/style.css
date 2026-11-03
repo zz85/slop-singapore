@@ -265,25 +265,6 @@ body.is-map-view::after {
   font-variant-numeric: tabular-nums;
 }
 
-/* What this is part of: the Slop Cities experiments */
-.loader-about {
-  max-width: 300px;
-  margin: 22px 0 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-3);
-}
-
-.loader-about a {
-  color: var(--text-2);
-  text-underline-offset: 3px;
-}
-
-.loader-about a:hover,
-.loader-about a:focus-visible {
-  color: var(--text);
-}
-
 @keyframes loader-sweep {
   from { transform: translateX(-100%); }
   to { transform: translateX(290%); }
