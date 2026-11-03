@@ -37,3 +37,28 @@ test('Marina Bay Sands\' towers stand in a row under the SkyPark, the Flyer east
   assert.equal(FLYER.hubHeight + FLYER.radius, 165, '165 m to the top of the wheel');
   assert.equal(FLYER.capsules, 28);
 });
+
+test('SG-039 and SG-242 replace their complete mapped structures and keep neighbouring building information', async () => {
+  const { GEO } = await import('../js/singapore-geodata.js');
+  const { INFO } = await import('../js/singapore-building-info.js');
+  const { decodeBuildingInfo } = await import('../js/building-info.js');
+  const expected = {
+    'lau-pa-sat': [45098520, ...Array.from({ length: 8 }, (_, i) => 463863828 + i)],
+    'sultan-mosque': [155990076, 685610171, 694102548, 694102549,
+      ...Array.from({ length: 13 }, (_, i) => 1165450368 + i),
+      ...Array.from({ length: 28 }, (_, i) => 1165452713 + i)]
+  };
+  for (const [id, ways] of Object.entries(expected)) {
+    const anchor = GEO.landmarks.find((l) => l.id === id);
+    assert.ok(anchor, id + ' has a real city anchor');
+    assert.deepEqual(anchor.parts.map((p) => p.id).sort((a,b) => a-b), ways.sort((a,b) => a-b));
+    assert.ok(Math.hypot(anchor.x, anchor.z) > 100, 'never falls back to the city origin');
+  }
+  const names = [...decodeBuildingInfo(INFO).byIndex.values()].map((b) => b.name);
+  for (const neighbour of ['Indian Grill & Bar', 'Masjid Sultan Annexe House']) assert.ok(names.includes(neighbour), neighbour + ' stays generic and named');
+  for (const replaced of ['Lau Pa Sat', 'Masjid Sultan']) assert.ok(!names.includes(replaced), replaced + ' has no remaining generic duplicate');
+  assert.equal(INFO.sites['lau-pa-sat'].street, 'Raffles Quay');
+  assert.equal(INFO.sites['lau-pa-sat'].number, '18');
+  assert.equal(INFO.sites['sultan-mosque'].street, 'Muscat Street');
+  assert.equal(INFO.sites['sultan-mosque'].number, '3');
+});

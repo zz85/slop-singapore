@@ -38,7 +38,7 @@ test('the geodata anchors the six CBD landmarks with the mapped parts their prog
   assert.ok(guoco.parts.some((p) => p.height === 290 && p.minHeight === 180), 'the Wallich Residence part');
 });
 
-for (const [model, documented] of [['uob-plaza', 280], ['one-raffles-place', 283], ['guoco-tower', 290], ['republic-plaza', 280], ['asia-square', 228], ['marina-bay-financial-centre', 245]]) {
+for (const [model, documented] of [['uob-plaza', 280], ['one-raffles-place', 283], ['guoco-tower', 290], ['republic-plaza', 280], ['asia-square', 228], ['marina-bay-financial-centre', 245], ['marina-one', 225], ['duo', 186]]) {
   test(`${model}: builds on its anchor to its documented height, with nothing to flicker`, async () => {
     const { GEO } = await geodata;
     const L = GEO.landmarks.find((l) => l.model === model);
@@ -357,26 +357,119 @@ test('Raffles Place MRT stays finite, batched and free of coplanar flicker', asy
   for(const p of kit.parts)for(const v of Object.values(p.bounds))assert.ok(Number.isFinite(v),p.name);
 });
 
-async function oasiaModel() {
+// Marina One and DUO: whole developments on their mapped parts, with the shapes that make them read from the map
+async function siteModel(id) {
   const { GEO } = await geodata;
-  const L = GEO.landmarks.find((l) => l.id === 'oasia-hotel-downtown');
-  assert.ok(L, 'Oasia Hotel Downtown has its own landmark anchor');
-  const { build, info } = await import(pathToFileURL(join(__dirname, '../js/landmark-models/oasia-hotel-downtown.js')).href);
+  const L = GEO.landmarks.find((l) => l.id === id);
+  assert.ok(L, `${id} has its own mapped landmark anchor`);
+  const { build, info } = await import(pathToFileURL(join(__dirname, `../js/landmark-models/${L.model}.js`)).href);
   const kit = createKit({ anchor: L, name: L.id });
   kit.bearingDeg = GEO.frame.bearingDeg;
   build(kit, siteOf(L));
   const { makeFrame } = await import('../tools/city/frame.mjs');
   const frame = makeFrame({ lat0: GEO.frame.lat0, lon0: GEO.frame.lon0, theta: GEO.frame.bearingDeg * Math.PI / 180 });
+  // a lon/lat as a point about the anchor, then in the world
+  const at = (lon, lat) => { const [x, z] = frame.toWorld(lon, lat); return [x - L.x, z - L.z, x, z]; };
+  return { kit, L, info, at };
+}
+// what is built over (x, z) about the anchor within the heights [y0, y1] (signs, posts and rafters aside)
+const builtOver = (kit, x, z, y0, y1) => kit.parts.filter((p) => p.type !== 'sign' && p.type !== 'beam' && p.y0 < y1 && p.y1 > y0 && p.ring.length >= 3 && covers(p.ring, x, z));
+
+test('Marina One replaces its four towers, their shafts and corner crowns, and nothing else', async () => {
+  const { L, info } = await siteModel('marina-one');
+  assert.deepEqual(L.parts.map((p) => p.id).sort((a, b) => a - b), [463857945, 463857946, 463857947, 463857948, 463857949, 463858904, 463858905,
+    941456992, 941456993, 941456994, 941456995, 941456996, 941456997]);
+  assert.equal(info.name, 'Marina One');
+});
+
+test('Marina One: the office towers bridged high over an open portal, the residences lower, the Green Heart open to the sky', async () => {
+  const { kit, at } = await siteModel('marina-one');
+  const [px, pz] = at(103.852555, 1.277546); // the portal between the office towers
+  assert.equal(builtOver(kit, px, pz, 2, 160).length, 0, 'the portal is open from the ground to the bridge');
+  const bridge = builtOver(kit, px, pz, 170, 195);
+  assert.ok(bridge.length >= 1 && Math.max(...bridge.map((p) => p.y1)) >= 199, 'a bridge of the top storeys joins the towers');
+  const [ox, oz] = at(103.852920, 1.277881); // inside the north office tower
+  assert.ok(Math.max(...builtOver(kit, ox, oz, 0, 300).map((p) => p.y1)) >= 199, 'the offices rise to their 200 m roof');
+  const [rx, rz] = at(103.853737, 1.277319); // inside the Garden Tower
+  const residence = builtOver(kit, rx, rz, 20, 300);
+  assert.ok(residence.length && Math.abs(Math.max(...residence.map((p) => p.y1)) - 139) <= 7, 'the residences at 139 m (with their roof frames)');
+  const [hx, hz] = at(103.853041, 1.277210); // the middle of the Green Heart
+  assert.equal(builtOver(kit, hx, hz, 2, 300).length, 0, 'nothing over the garden at the heart');
+  assert.ok(builtOver(kit, hx, hz, 0, 2).length >= 1, 'a garden floor at the bottom of the heart');
+  const terraces = kit.parts.filter((p) => /^heart-terrace-/.test(p.name));
+  assert.ok(new Set(terraces.map((p) => p.y1.toFixed(1))).size >= 4, 'terraces stepping up around the heart');
+  assert.ok(kit.parts.filter((p) => /-louvre-/.test(p.name)).length >= 100, 'bronze louvres a storey apart on the faces toward the heart');
+  assert.ok(kit.parts.filter((p) => p.type === 'beam' && /^pergola-/.test(p.name)).length >= 20, 'the roof pergola');
+});
+
+test('Marina One stays finite, batched and free of flicker, solid to fly into above its stilts and bridge', async () => {
+  const { kit, at } = await siteModel('marina-one');
+  assert.ok(kit.triangles > 5000 && kit.triangles < 65000, `${kit.triangles} triangles`);
+  const start = performance.now(), flicker = kit.flicker();
+  assert.ok(performance.now() - start < 2000, 'checked in a moment');
+  assert.equal(flicker.length, 0, JSON.stringify(flicker));
+  const { group, colliders, footprints } = kit.finish();
+  assert.ok(group.children.length <= 16, `${group.children.length} material batches`);
+  for (const p of kit.parts) for (const v of Object.values(p.bounds)) assert.ok(Number.isFinite(v), p.name);
+  const world = (lon, lat) => at(lon, lat).slice(2);
+  const [rx, rz] = world(103.853737, 1.277319), [px, pz] = world(103.852555, 1.277546), [hx, hz] = world(103.853041, 1.277210);
+  assert.ok(colliderAt(colliders, rx, 100, rz), 'the residences are solid up their height');
+  assert.ok(colliderAt(colliders, px, 185, pz), 'the bridge is solid');
+  assert.ok(!colliderAt(colliders, px, 80, pz), 'the portal under it is not');
+  assert.ok(!colliderAt(colliders, hx, 60, hz), 'nor the air over the heart');
+  assert.ok(footprints.some((f) => f.h >= 199), 'the map has the offices at their height');
+});
+
+test('DUO replaces its two towers and the Galleria between them', async () => {
+  const { L, info } = await siteModel('duo');
+  assert.deepEqual(L.parts.map((p) => p.id).sort((a, b) => a - b), [427064874, 432375288, 432375289, 432375290, 432375291, 432375292, 432375293, 432375294,
+    560240322, 560240325, 560240327, 560240330, 560275084, 560275278]);
+  assert.equal(info.name, 'DUO');
+});
+
+test('DUO: the Residences and the Tower at their documented heights, stacked with cantilevers and roof gardens', async () => {
+  const { kit, at } = await siteModel('duo');
+  const top = (x, z) => Math.max(0, ...builtOver(kit, x, z, 0, 400).map((p) => p.y1));
+  const [rx, rz] = at(103.858733, 1.299676); // the Residences' upper tower
+  assert.ok(Math.abs(top(rx, rz) - 186) <= 2, `the Residences at 186 m (${top(rx, rz)})`);
+  const [tx, tz] = at(103.857740, 1.299179); // the Tower's upper block
+  assert.ok(Math.abs(top(tx, tz) - 179) <= 3, `the Tower at 179 m with its rooftop garden (${top(tx, tz)})`);
+  const [cx, cz] = at(103.858609, 1.299594); // under the Residences' cantilever
+  assert.equal(builtOver(kit, cx, cz, 10, 70).length, 0, 'the Residences cantilever over open air');
+  assert.ok(builtOver(kit, cx, cz, 75, 95).length >= 1);
+  const [kx, kz] = at(103.858225, 1.299280); // under the Tower's cantilever
+  assert.equal(builtOver(kit, kx, kz, 10, 68).length, 0, 'the Tower\'s middle block cantilevers too');
+  assert.ok(builtOver(kit, kx, kz, 75, 120).length >= 1);
+  const [gx, gz] = at(103.857957, 1.299788); // the plaza the towers curve around
+  assert.equal(builtOver(kit, gx, gz, 0.5, 300).length, 0, 'the plaza stays open');
+  assert.ok(kit.parts.filter((p) => /tree-crown/.test(p.name)).length >= 12, 'trees on the roof gardens');
+  assert.ok(kit.parts.some((p) => p.type === 'sign' && /andaz/.test(p.name)), 'the hotel\'s name down the Tower');
+});
+
+test('DUO stays finite, batched and free of flicker, solid to fly into above its stilts', async () => {
+  const { kit, at } = await siteModel('duo');
+  assert.ok(kit.triangles > 3000 && kit.triangles < 65000, `${kit.triangles} triangles`);
+  const flicker = kit.flicker();
+  assert.equal(flicker.length, 0, JSON.stringify(flicker));
+  const { group, colliders } = kit.finish();
+  assert.ok(group.children.length <= 16, `${group.children.length} material batches`);
+  for (const p of kit.parts) for (const v of Object.values(p.bounds)) assert.ok(Number.isFinite(v), p.name);
+  const [rx, rz] = at(103.858733, 1.299676).slice(2), [kx, kz] = at(103.858225, 1.299280).slice(2);
+  assert.ok(colliderAt(colliders, rx, 150, rz), 'the Residences are solid up their height');
+  assert.ok(colliderAt(colliders, kx, 100, kz), 'the Tower\'s cantilevered block is solid');
+  assert.ok(!colliderAt(colliders, kx, 40, kz), 'the air under it is not');
+});
+
+// Oasia Hotel Downtown (SG-115): the red-mesh tower on its one mapped outline, its sky terraces flipping faces
+async function oasiaModel() {
+  const m = await siteModel('oasia-hotel-downtown');
   // Independent probes from the mapped outline's centre (OSM way 393100847 bounds centre), in metres east/north.
-  const at = (east, north) => {
-    const [x, z] = frame.toWorld(103.8443413 + east / 111290, 1.2758812 + north / 110574);
-    return [x - L.x, z - L.z];
-  };
+  const at = (east, north) => m.at(103.8443413 + east / 111290, 1.2758812 + north / 110574);
   const coversAt = (east, north, y) => {
     const [x, z] = at(east, north);
-    return kit.parts.filter((p) => p.type !== 'sign' && p.y0 < y && p.y1 > y && covers(p.ring, x, z));
+    return m.kit.parts.filter((p) => p.type !== 'sign' && p.y0 < y && p.y1 > y && covers(p.ring, x, z));
   };
-  return { kit, L, info, at, coversAt };
+  return { ...m, at, coversAt };
 }
 
 test('Oasia Hotel Downtown replaces exactly its one mapped outline at the documented 190 m', async () => {

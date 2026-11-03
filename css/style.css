@@ -1,23 +1,33 @@
 /* css/style.css */
-/* NYC HUD design system: quiet graphite glass in the corners of the screen, taxi yellow for whatever is active,
-   NYC DOT green for street names, so that the city itself stays the star */
+/* The HUD, after tinywarsaw.app's: dark glass bars along the top and a dock along the foot, Manrope type, apricot icons
+   and a white highlight for whatever is chosen, so that the tiny city itself stays the star. The map view shows only
+   those; a ride brings its instruments (body.is-map-view, js/main.js selectCamera). */
 
 :root {
   /* Surfaces */
-  --glass: rgba(18, 19, 22, 0.62);
-  --glass-strong: rgba(16, 17, 20, 0.88);
-  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass: rgba(20, 26, 34, 0.68);
+  --glass-strong: rgba(24, 30, 39, 0.96);
+  --glass-2: rgba(255, 255, 255, 0.08);
+  --glass-3: rgba(255, 255, 255, 0.14);
+  --glass-border: rgba(255, 255, 255, 0.13);
   --glass-highlight: rgba(255, 255, 255, 0.08);
-  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.045 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   --hover: rgba(255, 255, 255, 0.08);
-  --divider: rgba(255, 255, 255, 0.1);
+  --divider: rgba(255, 255, 255, 0.13);
+  --blur: blur(18px) saturate(1.4);
 
   /* Text */
-  --text: #f6f5f2;
-  --text-2: rgba(246, 245, 242, 0.68);
-  --text-3: rgba(246, 245, 242, 0.44);
+  --text: #f4f7fa;
+  --text-2: rgba(244, 247, 250, 0.74);
+  --text-3: rgba(244, 247, 250, 0.54);
+  --ink: #0f1a24;
+  --paper: rgba(255, 255, 255, 0.93);
 
-  /* Accents */
+  /* Accents: apricot for icons and the chosen look, sky for focus; the taxi keeps its yellow (Crazy Taxi's meter) */
+  --accent: #ffb86b;
+  --accent-ink: #b0600f;
+  --sky: #8fd3ff;
+  --sky-deep: #4f86c6;
+  --live: #ff5a4f;
   --taxi: #ffc21a;
   --taxi-ink: #17140a;
   --sign-green: #0b6a46;
@@ -27,15 +37,23 @@
   --bad: #ff7a6b;
 
   /* Shape & motion */
-  --edge: 20px;
-  --bar-h: 50px;
-  --r-panel: 16px;
-  --r-ctl: 10px;
-  --shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.2);
+  --edge: 16px;
+  --top: max(var(--edge), env(safe-area-inset-top));
+  --dock-b: calc(26px + env(safe-area-inset-bottom));
+  --dock-h: 74px;
+  --bar-h: 52px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 18px;
+  --r-xl: 24px;
+  --r-panel: var(--r-lg);
+  --r-ctl: 11px;
+  --shadow: 0 18px 40px -12px rgba(0, 10, 25, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
-  --font-sign: 'Overpass', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+  --font-sans: 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-num: 'Space Grotesk', 'Manrope', system-ui, sans-serif;
+  --font-sign: 'Overpass', 'Manrope', 'Helvetica Neue', Arial, sans-serif;
 }
 
 * {
@@ -48,11 +66,10 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background-color: #0a0b0d;
+  background-color: #cfe0ea;
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 14px;
-  font-optical-sizing: auto;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   user-select: none;
@@ -69,7 +86,7 @@ button {
 }
 
 :focus-visible {
-  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline: 2px solid var(--sky);
   outline-offset: 2px;
 }
 
@@ -107,12 +124,12 @@ kbd {
   border-radius: 5px;
   font-family: var(--font-sans);
   font-size: 10.5px;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1;
   font-variant-numeric: tabular-nums;
   color: var(--text-2);
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
 }
 
 #canvas-container {
@@ -128,7 +145,8 @@ kbd {
   cursor: grabbing;
 }
 
-/* Soft scrims behind the HUD: keep small type legible over a bright midday street */
+/* Soft scrims behind a ride's instruments: keep small type legible over a bright midday street (the map view has
+   none, as tinywarsaw.app's) */
 body::before,
 body::after {
   content: '';
@@ -142,30 +160,35 @@ body::after {
 
 body::before {
   top: 0;
-  height: 120px;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0));
+  height: 110px;
+  background: linear-gradient(to bottom, rgba(0, 10, 25, 0.18), rgba(0, 10, 25, 0));
 }
 
 body::after {
   bottom: 0;
-  height: 210px;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.36), rgba(0, 0, 0, 0));
+  height: 200px;
+  background: linear-gradient(to top, rgba(0, 10, 25, 0.3), rgba(0, 10, 25, 0));
+}
+
+body.is-map-view::before,
+body.is-map-view::after {
+  opacity: 0;
 }
 
 /* ------------------------------------------------------------------------------------------------------------------
    Glass panel
    ------------------------------------------------------------------------------------------------------------------ */
 .panel {
-  background: var(--grain), var(--glass);
-  -webkit-backdrop-filter: blur(22px) saturate(170%);
-  backdrop-filter: blur(22px) saturate(170%);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--glass-border);
   border-radius: var(--r-panel);
-  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--shadow);
+  box-shadow: var(--shadow);
 }
 
 /* ------------------------------------------------------------------------------------------------------------------
-   Loading screen
+   Loading screen: the logo over an evening sky
    ------------------------------------------------------------------------------------------------------------------ */
 #loading-overlay {
   position: fixed;
@@ -173,7 +196,7 @@ body::after {
   z-index: 100;
   display: grid;
   place-items: center;
-  background: radial-gradient(120% 90% at 50% 38%, #1b1e24 0%, #0c0d10 55%, #060607 100%);
+  background: linear-gradient(180deg, #1f2536 0%, #3d4053 34%, #7c6b72 66%, #c9a08d 100%);
   transition: opacity 0.6s ease, visibility 0.6s ease;
 }
 
@@ -192,16 +215,17 @@ body::after {
 }
 
 .mta-bullet.loader-bullet {
-  width: 56px;
-  height: 56px;
-  margin-bottom: 22px;
+  width: 60px;
+  height: 60px;
+  margin-bottom: 20px;
+  border-radius: 17px;
   font-size: 21px;
 }
 
 .loader-title {
-  font-size: 34px;
-  font-weight: 650;
-  letter-spacing: -0.03em;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
   line-height: 1.1;
 }
 
@@ -211,7 +235,7 @@ body::after {
   height: 3px;
   margin: 26px 0 14px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.16);
   overflow: hidden;
 }
 
@@ -219,7 +243,7 @@ body::after {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: var(--taxi);
+  background: var(--accent);
   transform-origin: left center;
   transform: scaleX(0);
   transition: transform 0.3s ease;
@@ -236,7 +260,8 @@ body::after {
 
 #loading-status {
   font-size: 12.5px;
-  color: var(--text-3);
+  font-weight: 500;
+  color: var(--text-2);
   font-variant-numeric: tabular-nums;
 }
 
@@ -270,7 +295,8 @@ body::after {
 }
 
 /* ------------------------------------------------------------------------------------------------------------------
-   HUD layout: four corners plus the bottom centre, the middle of the screen stays clear
+   HUD layout: the top bar's two halves, the dock at the foot, a ride's instruments in the bottom corners, the credits
+   along the bottom edge
    ------------------------------------------------------------------------------------------------------------------ */
 .hud {
   position: fixed;
@@ -284,27 +310,27 @@ body::after {
 }
 
 .hud-top-left {
-  top: max(var(--edge), env(safe-area-inset-top));
+  top: var(--top);
   left: max(var(--edge), env(safe-area-inset-left));
 }
 
 .hud-top-right {
-  top: var(--edge);
-  right: var(--edge);
+  top: var(--top);
+  right: max(var(--edge), env(safe-area-inset-right));
 }
 
 .hud-bottom-left {
-  left: var(--edge);
-  bottom: var(--edge);
+  left: max(var(--edge), env(safe-area-inset-left));
+  bottom: var(--dock-b);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
 }
 
 .hud-bottom-center {
   left: 50%;
-  bottom: var(--edge);
+  bottom: var(--dock-b);
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
@@ -313,8 +339,30 @@ body::after {
 }
 
 .hud-bottom-right {
-  right: var(--edge);
-  bottom: var(--edge);
+  right: max(var(--edge), env(safe-area-inset-right));
+  bottom: var(--dock-b);
+}
+
+/* The map view: the ride's instruments put away (the minimap stops drawing once it is display: none) */
+.hud-bottom-left,
+.hud-bottom-right {
+  transition: opacity 0.3s ease, transform 0.4s var(--ease-out), display 0.4s allow-discrete;
+}
+
+body.is-map-view .hud-bottom-left,
+body.is-map-view .hud-bottom-right,
+body.is-map-view .nav-ways {
+  display: none;
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+@starting-style {
+  body:not(.is-map-view) .hud-bottom-left,
+  body:not(.is-map-view) .hud-bottom-right {
+    opacity: 0;
+    transform: translateY(12px);
+  }
 }
 
 /* Clean view [H]: everything but the toggle itself steps out of the way */
@@ -342,176 +390,229 @@ body.hud-minimized .toolbar > :not(#btn-toggle-hud) {
 }
 
 /* ------------------------------------------------------------------------------------------------------------------
-   Top left: brand
+   Top bar, left: the logo, the name and the search
    ------------------------------------------------------------------------------------------------------------------ */
-.brand {
+.topbar {
   display: flex;
   align-items: center;
-  gap: 11px;
   height: var(--bar-h);
-  padding: 0 18px 0 9px;
+  border-radius: var(--r-lg);
 }
 
+.brand {
+  gap: 10px;
+  padding: 0 7px 0 8px;
+}
+
+/* The logo: a rounded tile in the evening's two colours */
 .mta-bullet {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: var(--taxi);
-  color: var(--taxi-ink);
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-sm);
+  background: linear-gradient(140deg, #ffb86b, #4f86c6);
+  color: #0d2236;
   font-weight: 800;
-  font-size: 12.5px;
-  letter-spacing: -0.02em;
+  font-size: 13px;
+  letter-spacing: 0.02em;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.18);
 }
 
-.brand-heading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.brand-titles h1 {
-  font-size: 14.5px;
-  font-weight: 650;
+.brand h1 {
+  font-size: 15px;
+  font-weight: 800;
   letter-spacing: -0.01em;
-  line-height: 1.2;
-}
-
-.repo-link {
-  flex: none;
-  padding: 3px 0;
-  color: var(--text-2);
-  font-size: 11px;
   line-height: 1;
-  text-decoration: none;
   white-space: nowrap;
 }
 
-.repo-link:hover,
-.repo-link:focus-visible {
+.search {
+  position: relative;
+  width: 360px;
+  height: 38px;
+  margin-left: 4px;
+}
+
+.search-input {
+  width: 100%;
+  height: 100%;
+  padding: 0 40px 0 36px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  outline: none;
+  background: var(--glass-2);
   color: var(--text);
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  font: 500 14px var(--font-sans);
+  text-overflow: ellipsis;
+  user-select: text;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
-.brand-subtitle {
-  font-size: 11.5px;
-  line-height: 1.4;
+.search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+.search-input::placeholder {
   color: var(--text-3);
-  font-variant-numeric: tabular-nums;
+}
+
+.search-input:hover {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.search-input:focus {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.search-icon {
+  position: absolute;
+  top: 50%;
+  left: 11px;
+  translate: 0 -50%;
+  width: 17px;
+  height: 17px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.search-kbd {
+  position: absolute;
+  top: 50%;
+  right: 9px;
+  translate: 0 -50%;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.search-input:focus ~ .search-kbd {
+  opacity: 0;
+}
+
+.search-results {
+  position: absolute;
+  top: calc(100% + 13px);
+  left: -2px;
+  right: -2px;
+  max-height: min(420px, 60vh);
+  overflow-y: auto;
+  padding: 5px;
+  list-style: none;
+  border-radius: var(--r-md);
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow);
+  animation: rise-in 0.2s var(--ease-out) both;
+}
+
+.search-results[hidden] {
+  display: none;
+}
+
+.search-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  border-radius: var(--r-sm);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.search-option:hover,
+.search-option[aria-selected='true'] {
+  background: var(--glass-3);
+}
+
+.search-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-#hud-fps {
-  font-weight: 650;
-  color: var(--text-2);
+.search-sub {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-3);
+  white-space: nowrap;
 }
 
-#hud-fps.fps-ok { color: var(--ok); }
-#hud-fps.fps-warn { color: var(--warn); }
-#hud-fps.fps-bad { color: var(--bad); }
+.search-option[data-kind='landmark'] .search-sub { color: var(--accent); }
+
+.search-empty {
+  padding: 10px;
+  font-size: 13px;
+  color: var(--text-3);
+}
 
 /* ------------------------------------------------------------------------------------------------------------------
-   Top right: toolbar (time of day, teleport, map, clean view)
+   Top bar, right: the street atlas, sound & clean view
    ------------------------------------------------------------------------------------------------------------------ */
 .toolbar {
-  display: flex;
-  align-items: center;
   gap: 2px;
-  height: var(--bar-h);
-  padding: 0 5px;
+  padding: 0 8px;
 }
 
 .toolbar-divider {
   flex: none;
   width: 1px;
-  height: 20px;
-  margin: 0 5px;
+  height: 22px;
+  margin: 0 6px;
   background: var(--divider);
 }
 
-.time-switch {
-  display: flex;
-  gap: 2px;
-}
-
-.time-btn {
+.tb-link {
   height: 36px;
-  padding: 0 9px;
+  padding: 0 12px;
   border-radius: var(--r-ctl);
   display: inline-flex;
   align-items: center;
-  gap: 0;
+  gap: 7px;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
   color: var(--text-2);
-  transition: background-color 0.2s ease, color 0.2s ease, gap 0.35s var(--ease-out), padding 0.35s var(--ease-out);
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-.time-btn:hover {
+.tb-link .icon {
+  width: 17px;
+  height: 17px;
+  color: var(--accent);
+}
+
+.tb-link:hover,
+.tb-link.is-open {
   color: var(--text);
   background: var(--hover);
 }
 
-/* The active time of day spells out its name */
-.time-btn .seg-label {
-  max-width: 0;
-  opacity: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 600;
-  transition: max-width 0.4s var(--ease-out), opacity 0.25s ease;
-}
-
-.time-btn.active,
-.time-btn.active:hover {
-  gap: 7px;
-  padding: 0 12px 0 10px;
-  background: var(--text);
-  color: #121314;
-}
-
-.time-btn.active .seg-label {
-  max-width: 120px;
-  opacity: 1;
-}
-
-.tool-btn {
-  height: 36px;
-  padding: 0 11px;
-  border-radius: var(--r-ctl);
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-  color: var(--text);
-  transition: background-color 0.2s ease;
-}
-
-.tool-btn:hover,
-.tool-btn.is-open {
-  background: var(--hover);
-}
-
-.tool-btn .icon-sm {
-  margin-left: -2px;
-  color: var(--text-3);
-  transition: transform 0.3s var(--ease-out);
-}
-
-.tool-btn.is-open .icon-sm {
-  transform: rotate(180deg);
-}
-
-.tool-btn.icon-only {
+.tb-icon {
   width: 36px;
-  padding: 0;
-  justify-content: center;
+  height: 36px;
+  border-radius: var(--r-ctl);
+  display: inline-grid;
+  place-items: center;
+  color: var(--text-2);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.tb-icon:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.tb-icon:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .icon-show {
@@ -526,35 +627,252 @@ body.hud-minimized .icon-show {
   display: block;
 }
 
-.tool-btn:active,
-.time-btn:active,
+.tb-link:active,
+.tb-icon:active,
 .icon-btn:active,
-.mode-btn:active,
+.dock-btn:active,
+.sun-btn:active,
+.weather-chip:active,
 .camera-current:active,
-.pop-item:active {
+.pop-item:active,
+.time-btn:active {
   transform: scale(0.97);
 }
 
 /* ------------------------------------------------------------------------------------------------------------------
-   Popovers (teleport destinations, cameras)
+   The dock: the look & time, the map view and the rides, where to, the Air Force and the settings
+   ------------------------------------------------------------------------------------------------------------------ */
+.dock {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: var(--r-xl);
+}
+
+.dock-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.dock-start {
+  gap: 4px;
+}
+
+.dock-sep {
+  flex: none;
+  width: 1px;
+  height: 38px;
+  margin: 0 8px;
+  background: var(--divider);
+}
+
+/* The chosen one's highlight glides from button to button (placed by main.js placeModeIndicator) */
+.mode-indicator {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  left: 0;
+  width: var(--ind-w, 0px);
+  height: var(--ind-h, 0px);
+  transform: translate(var(--ind-x, 0px), var(--ind-y, 0px));
+  border-radius: 16px;
+  background: var(--glass-3);
+  transition: transform 0.45s var(--ease-out), width 0.45s var(--ease-out), height 0.45s var(--ease-out);
+}
+
+.dock.no-anim .mode-indicator {
+  transition: none;
+}
+
+.dock-btn {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--text);
+  transition: background-color 0.2s ease;
+}
+
+.dock-btn .icon {
+  width: 24px;
+  height: 24px;
+  stroke-width: 1.7;
+  color: var(--accent);
+}
+
+.dock-label {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: var(--text-2);
+  transition: color 0.2s ease;
+}
+
+.dock-btn:hover,
+.dock-btn.is-open {
+  background: var(--hover);
+}
+
+.dock-btn:hover .dock-label,
+.dock-btn.is-open .dock-label,
+.dock-btn.active .dock-label {
+  color: var(--text);
+}
+
+/* (the indicator marks the chosen one: no hover tint over it) */
+.mode-btn.active:hover {
+  background: transparent;
+}
+
+/* In the map view no ride is under way: the ride the dock would start stays unmarked */
+body.is-map-view .mode-btn[data-mode].active .dock-label {
+  color: var(--text-2);
+}
+
+body.is-map-view .mode-btn[data-mode].active:hover {
+  background: var(--hover);
+}
+
+/* The sun button: a dial of the day, the look's clock and name */
+.sun-btn {
+  position: relative;
+  z-index: 1;
+  height: 54px;
+  padding: 0 14px 0 7px;
+  border-radius: 17px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  transition: background-color 0.2s ease;
+}
+
+.sun-btn:hover,
+.sun-btn.is-open {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.sun-dial {
+  flex: none;
+  width: 40px;
+  height: 40px;
+}
+
+.sun-dial-track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.16);
+  stroke-width: 4;
+}
+
+.sun-dial-arc {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.6s var(--ease-out);
+}
+
+.sun-dial-dot {
+  fill: #ffffff;
+  stroke: rgba(15, 26, 36, 0.5);
+  stroke-width: 1;
+}
+
+.sun-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 56px;
+}
+
+.sun-time {
+  font: 600 21px/1 var(--font-num);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.sun-name {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--accent);
+}
+
+/* The storm: a weather chip beside the sun */
+.weather-chip {
+  position: relative;
+  z-index: 1;
+  width: 58px;
+  height: 54px;
+  border-radius: 17px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--text-2);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.weather-chip .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.weather-chip:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.weather-chip.active {
+  color: var(--text);
+  background: rgba(143, 211, 255, 0.16);
+  box-shadow: inset 0 0 0 1.5px var(--sky);
+}
+
+.weather-chip.active .dock-label {
+  color: var(--text);
+}
+
+/* ------------------------------------------------------------------------------------------------------------------
+   Popovers (the look & time, where to, the Air Force, settings, cameras), as tinywarsaw.app's dock menus
    ------------------------------------------------------------------------------------------------------------------ */
 .popover {
   position: fixed;
   inset: auto;
   margin: 0;
-  padding: 6px;
+  padding: 8px;
   min-width: 264px;
+  max-width: calc(100vw - 16px);
   max-height: calc(100vh - 2 * var(--edge) - 64px);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   color: var(--text);
-  background: var(--grain), var(--glass-strong);
-  -webkit-backdrop-filter: blur(26px) saturate(170%);
-  backdrop-filter: blur(26px) saturate(170%);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--glass-border);
-  border-radius: 14px;
-  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 28px 60px -22px rgba(0, 0, 0, 0.8), 0 4px 14px rgba(0, 0, 0, 0.3);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow);
   transform-origin: top right;
   transition: opacity 0.18s ease, transform 0.26s var(--ease-out), overlay 0.26s allow-discrete, display 0.26s allow-discrete;
 }
@@ -584,16 +902,14 @@ body.hud-minimized .icon-show {
 }
 
 .pop-title {
-  padding: 9px 10px 6px;
-  font-size: 10.5px;
-  font-weight: 650;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-3);
+  padding: 8px 10px 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-2);
 }
 
 .pop-title:not(:first-child) {
-  margin-top: 5px;
+  margin-top: 6px;
   padding-top: 12px;
   border-top: 1px solid var(--divider);
 }
@@ -604,11 +920,11 @@ body.hud-minimized .icon-show {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 8px 10px;
-  border-radius: 9px;
+  padding: 9px 11px;
+  border-radius: 12px;
   text-align: left;
-  font-size: 13px;
-  font-weight: 550;
+  font-size: 13.5px;
+  font-weight: 600;
   color: var(--text);
   transition: background-color 0.15s ease;
 }
@@ -617,18 +933,23 @@ body.hud-minimized .icon-show {
   background: var(--hover);
 }
 
-.pop-item.active,
-.pop-item.active:hover {
-  background: var(--text);
-  color: #121314;
+/* (a hidden one stays hidden: End the trip, with no trip under way) */
+.pop-item[hidden] {
+  display: none;
 }
 
-.pop-item.active .pop-sub { color: rgba(0, 0, 0, 0.55); }
+/* the chosen one: a white chip, as tinywarsaw.app's settings */
+.pop-item.active,
+.pop-item.active:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.pop-item.active .pop-sub { color: rgba(15, 26, 36, 0.6); }
 
 .pop-item.active kbd {
-  color: rgba(0, 0, 0, 0.55);
-  background: rgba(0, 0, 0, 0.08);
-  box-shadow: none;
+  color: rgba(15, 26, 36, 0.6);
+  box-shadow: inset 0 0 0 1px rgba(15, 26, 36, 0.2);
 }
 
 .pop-sub {
@@ -637,14 +958,68 @@ body.hud-minimized .icon-show {
   color: var(--text-3);
 }
 
+/* The look & time of day: an icon, the name over a line about it, the clock */
+.time-switch {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.time-btn {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  grid-template-areas: 'icon name clock' 'icon sub clock';
+  align-items: center;
+  column-gap: 11px;
+  row-gap: 1px;
+  padding: 8px 12px 8px 10px;
+  border-radius: 12px;
+  text-align: left;
+  color: var(--text);
+  transition: background-color 0.15s ease;
+}
+
+.time-btn .icon {
+  grid-area: icon;
+  width: 20px;
+  height: 20px;
+  color: var(--accent);
+}
+
+.time-btn .pop-name { grid-area: name; font-size: 13.5px; font-weight: 650; }
+.time-btn .pop-sub { grid-area: sub; }
+
+.time-clock {
+  grid-area: clock;
+  padding-left: 12px;
+  font: 600 13px var(--font-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+.time-btn:hover {
+  background: var(--hover);
+}
+
+.time-btn.active,
+.time-btn.active:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.time-btn.active .icon { color: var(--accent-ink); }
+.time-btn.active .pop-sub,
+.time-btn.active .time-clock { color: rgba(15, 26, 36, 0.6); }
+
 /* ------------------------------------------------------------------------------------------------------------------
-   Bottom left: NYC street-name signs over the GPS radar
+   A ride, bottom left: where you are over the minimap
    ------------------------------------------------------------------------------------------------------------------ */
 .location {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 7px;
+  gap: 6px;
   pointer-events: none;
 }
 
@@ -653,12 +1028,12 @@ body.hud-minimized .icon-show {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.92);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7), 0 0 14px rgba(0, 0, 0, 0.4);
+  color: var(--accent);
+  text-shadow: 0 1px 2px rgba(0, 10, 25, 0.8), 0 0 14px rgba(0, 10, 25, 0.45);
   animation: rise-in 0.4s var(--ease-out) both;
 }
 
@@ -671,42 +1046,37 @@ body.hud-minimized .icon-show {
 
 .location-near {
   font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.85);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 1px 2px rgba(0, 10, 25, 0.8);
 }
 
-/* Green blade, white inset border, Highway Gothic lettering: the sign on every Manhattan corner */
+/* The street's name: a glass chip (tinywarsaw.app's "current street") */
 .street-sign {
   max-width: 210px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 9px 13px 7px;
-  font-family: var(--font-sign);
-  font-size: 15px;
+  padding: 7px 12px;
+  font-size: 13px;
   font-weight: 700;
-  line-height: 1.05;
-  letter-spacing: 0.01em;
-  color: #ffffff;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 55%), var(--sign-green);
-  border-radius: 6px;
-  outline: 1.5px solid rgba(255, 255, 255, 0.92);
-  outline-offset: -4px;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35), 0 10px 22px -10px rgba(0, 0, 0, 0.75);
+  line-height: 1.1;
+  color: var(--text);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
 }
 
 .radar {
   position: relative;
-  width: 288px;
-  height: 184px;
-  overflow: hidden;
-  border-radius: 18px;
-  background: #0a1118;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  width: 248px;
+  height: 168px;
+  padding: 6px;
+  border-radius: var(--r-xl);
   cursor: pointer;
   transition: transform 0.35s var(--ease-out);
 }
@@ -719,21 +1089,23 @@ body.hud-minimized .icon-show {
 .radar::after {
   content: '';
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
+  inset: 6px;
+  border-radius: 18px;
   pointer-events: none;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 0 30px rgba(0, 0, 0, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 0 24px rgba(0, 10, 25, 0.5);
 }
 
 #minimap-canvas {
   display: block;
   width: 100%;
   height: 100%;
+  border-radius: 18px;
+  background: #0a1118;
 }
 
 .radar-north {
   position: absolute;
-  top: 7px;
+  top: 12px;
   left: 50%;
   transform: translateX(-50%);
   width: 17px;
@@ -745,40 +1117,40 @@ body.hud-minimized .icon-show {
   font-weight: 800;
   line-height: 1;
   color: #ffffff;
-  background: rgba(10, 12, 15, 0.72);
+  background: rgba(15, 20, 28, 0.72);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
   pointer-events: none;
 }
 
 .radar-key {
   position: absolute;
-  top: 9px;
-  right: 9px;
+  top: 13px;
+  right: 13px;
   z-index: 1;
   color: rgba(255, 255, 255, 0.85);
-  background: rgba(10, 12, 15, 0.6);
+  background: rgba(15, 20, 28, 0.6);
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .radar:hover .radar-key {
-  color: var(--taxi-ink);
-  background: var(--taxi);
+  color: var(--ink);
+  background: var(--accent);
   box-shadow: none;
 }
 
 /* ------------------------------------------------------------------------------------------------------------------
-   Bottom centre: travel mode switcher & keyboard guide
+   Bottom centre, over the dock: the keyboard guide & how to go
    ------------------------------------------------------------------------------------------------------------------ */
 .controls-hint {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 6px 16px;
-  max-width: 600px;
+  gap: 6px 14px;
+  max-width: 760px;
   font-size: 12px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.88);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 2px rgba(0, 10, 25, 0.8), 0 0 10px rgba(0, 10, 25, 0.35);
   pointer-events: none;
 }
 
@@ -792,8 +1164,8 @@ body.hud-minimized .icon-show {
 
 .hint kbd {
   color: #ffffff;
-  background: rgba(12, 13, 15, 0.55);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  background: rgba(20, 26, 34, 0.6);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
   text-shadow: none;
 }
 
@@ -807,14 +1179,14 @@ body.hud-minimized .icon-show {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr) 30px;
   align-items: center;
-  /* between the radar and the speed cluster */
+  /* between the minimap and the speed cluster */
   width: clamp(240px, calc(100vw - 680px), 380px);
   max-width: calc(100vw - 2 * var(--edge));
   touch-action: pan-y;
   user-select: none;
   -webkit-user-select: none;
 }
-.nav-ways[data-how='self'] { --way: #6aa8ff; }
+.nav-ways[data-how='self'] { --way: var(--sky); }
 .nav-ways[data-how='crazy'] { --way: var(--taxi); }
 .nav-ways[data-how='teleport'] { --way: #c79bff; }
 
@@ -823,9 +1195,9 @@ body.hud-minimized .icon-show {
   height: 34px;
   overflow: hidden;
   border-radius: 17px;
-  background: rgba(12, 13, 15, 0.42);
-  -webkit-backdrop-filter: blur(14px) saturate(150%);
-  backdrop-filter: blur(14px) saturate(150%);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   box-shadow: inset 0 0 0 1px var(--glass-border);
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 22%, #000 78%, transparent 100%);
   mask-image: linear-gradient(90deg, transparent 0, #000 22%, #000 78%, transparent 100%);
@@ -847,12 +1219,11 @@ body.hud-minimized .icon-show {
   height: 100%;
   padding: 0 12px;
   font-size: 11.5px;
-  font-weight: 750;
-  letter-spacing: 0.08em;
+  font-weight: 800;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   white-space: nowrap;
   color: var(--text-3);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
   cursor: pointer;
   transition: color 0.25s ease;
 }
@@ -884,7 +1255,7 @@ body.hud-minimized .icon-show {
   place-items: center;
   border-radius: 50%;
   color: var(--text-2);
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+  filter: drop-shadow(0 1px 2px rgba(0, 10, 25, 0.6));
 }
 .nav-ways-step:hover:not(:disabled) { color: var(--text); background: var(--hover); }
 .nav-ways-step:disabled { opacity: 0.25; cursor: default; }
@@ -895,10 +1266,10 @@ body.hud-minimized .icon-show {
   margin-top: 4px;
   min-height: 15px;
   font-size: 11.5px;
-  font-weight: 500;
+  font-weight: 600;
   text-align: center;
-  color: rgba(255, 255, 255, 0.82);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
+  color: rgba(255, 255, 255, 0.86);
+  text-shadow: 0 1px 2px rgba(0, 10, 25, 0.8);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -912,86 +1283,17 @@ body.touch-enabled .nav-ways-sub { display: none; }
 @media (max-height: 500px) { .nav-ways-sub { display: none; } }
 @media (prefers-reduced-motion: reduce) { .nav-ways-track { transition: none; } }
 
-.mode-switch {
-  position: relative;
-  display: flex;
-  gap: 2px;
-  padding: 5px;
-}
-
-/* The taxi-yellow pill glides to the selected mode (positioned by main.js) */
-.mode-indicator {
-  position: absolute;
-  z-index: 0;
-  top: 5px;
-  bottom: 5px;
-  left: 0;
-  width: var(--ind-w, 0px);
-  transform: translateX(var(--ind-x, 0px));
-  border-radius: 12px;
-  background: var(--taxi);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -1px 0 rgba(0, 0, 0, 0.12), 0 4px 12px -4px rgba(0, 0, 0, 0.5);
-  transition: transform 0.45s var(--ease-out), width 0.45s var(--ease-out);
-}
-
-.mode-switch.no-anim .mode-indicator {
-  transition: none;
-}
-
-.mode-btn {
-  position: relative;
-  z-index: 1;
-  height: 42px;
-  padding: 0 12px 0 11px;
-  border-radius: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13.5px;
-  font-weight: 600;
-  white-space: nowrap;
-  color: var(--text-2);
-  transition: color 0.25s ease, background-color 0.2s ease;
-}
-
-.mode-btn:hover {
-  color: var(--text);
-  background: var(--hover);
-}
-
-.mode-btn.active,
-.mode-btn.active:hover {
-  color: var(--taxi-ink);
-  background: transparent;
-}
-
-.mode-btn .icon {
-  width: 20px;
-  height: 20px;
-  stroke-width: 1.7;
-}
-
-.mode-btn kbd {
-  margin-left: 2px;
-  transition: color 0.25s ease, background-color 0.25s ease;
-}
-
-.mode-btn.active kbd {
-  color: rgba(23, 20, 10, 0.62);
-  background: rgba(23, 20, 10, 0.1);
-  box-shadow: none;
-}
-
 /* ------------------------------------------------------------------------------------------------------------------
-   Bottom right: speed cluster & camera switcher
+   A ride, bottom right: speed & camera
    ------------------------------------------------------------------------------------------------------------------ */
 .cluster {
-  width: 272px;
+  width: 264px;
   overflow: hidden;
+  border-radius: var(--r-xl);
 }
 
 .gauge {
-  padding: 13px 16px 15px;
+  padding: 14px 18px 15px;
 }
 
 .gauge-top {
@@ -1006,17 +1308,16 @@ body.touch-enabled .nav-ways-sub { display: none; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10.5px;
-  font-weight: 650;
-  letter-spacing: 0.1em;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-3);
+  color: var(--accent);
 }
 
 .gauge-alt {
   flex: none;
-  font-size: 12px;
-  font-weight: 600;
+  font: 600 12px var(--font-num);
   font-variant-numeric: tabular-nums;
   color: var(--text-2);
   opacity: 0;
@@ -1029,8 +1330,10 @@ body[data-mode='jet'] .gauge-alt {
 }
 
 .gauge-alt-label {
-  font-size: 10.5px;
-  letter-spacing: 0.1em;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-3);
 }
@@ -1039,21 +1342,19 @@ body[data-mode='jet'] .gauge-alt {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  margin-top: 5px;
+  margin-top: 6px;
 }
 
 #hud-speed {
-  font-size: 42px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: -0.035em;
+  font: 600 40px/1 var(--font-num);
+  letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
 }
 
 .gauge-unit {
-  font-size: 12px;
-  font-weight: 650;
-  letter-spacing: 0.1em;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-3);
 }
@@ -1063,7 +1364,7 @@ body[data-mode='jet'] .gauge-alt {
   height: 4px;
   margin-top: 12px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
 }
 
@@ -1072,7 +1373,7 @@ body[data-mode='jet'] .gauge-alt {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: var(--text);
+  background: var(--accent);
   transform-origin: left center;
   transform: scaleX(0);
   transition: transform 0.25s linear;
@@ -1082,7 +1383,7 @@ body[data-mode='jet'] .gauge-alt {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 4px;
+  padding: 5px;
   border-top: 1px solid var(--divider);
 }
 
@@ -1113,7 +1414,7 @@ body[data-mode='jet'] .gauge-alt {
   justify-content: center;
   gap: 8px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 650;
   transition: background-color 0.15s ease;
 }
 
@@ -1123,7 +1424,7 @@ body[data-mode='jet'] .gauge-alt {
 }
 
 .camera-current .icon {
-  color: var(--text-3);
+  color: var(--accent);
 }
 
 #hud-active-camera {
@@ -1132,6 +1433,119 @@ body[data-mode='jet'] .gauge-alt {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ------------------------------------------------------------------------------------------------------------------
+   A clicked building: its name, address & coordinates beside it (js/building-info.js), as tinywarsaw.app's; under the
+   HUD's panels, and no obstacle to the next click
+   ------------------------------------------------------------------------------------------------------------------ */
+.building-info {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 8;
+  min-width: 200px;
+  max-width: 320px;
+  padding: 8px 12px;
+  border-radius: var(--r-md);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+  pointer-events: none;
+  will-change: transform;
+  animation: fade-in 0.18s ease both;
+}
+
+.building-info[hidden],
+body.hud-minimized .building-info {
+  display: none;
+}
+
+.bi-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 3px 0;
+}
+
+.bi-label {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.bi-value {
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.bi-name .bi-value { font-weight: 700; }
+
+.bi-coords .bi-value {
+  font: 500 12px var(--font-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ------------------------------------------------------------------------------------------------------------------
+   Credits along the foot of the screen: the map data's source, how it is drawn, the frame rate
+   ------------------------------------------------------------------------------------------------------------------ */
+.hud-credits {
+  left: max(var(--edge), env(safe-area-inset-left));
+  right: max(var(--edge), env(safe-area-inset-right));
+  bottom: max(6px, env(safe-area-inset-bottom));
+  display: flex;
+  gap: 0 8px;
+  overflow: hidden;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 14px;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 2px rgba(0, 10, 25, 0.6);
+}
+
+.hud-credits > * {
+  pointer-events: none;
+}
+
+.hud-credits > * + *::before {
+  content: '·';
+  margin-right: 8px;
+}
+
+.hud-credits a {
+  color: inherit;
+  text-underline-offset: 2px;
+  pointer-events: auto;
+}
+
+.hud-credits a:hover {
+  color: #ffffff;
+}
+
+#hud-fps {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+#hud-fps.fps-ok { color: var(--ok); }
+#hud-fps.fps-warn { color: var(--warn); }
+#hud-fps.fps-bad { color: var(--bad); }
 
 /* ------------------------------------------------------------------------------------------------------------------
    Full-screen interactive street map ([M])
@@ -1229,7 +1643,7 @@ body[data-mode='jet'] .gauge-alt {
 .fullmap-search-wrap:focus-within {
   color: var(--text-2);
   border-color: rgba(255, 255, 255, 0.24);
-  background: var(--grain), var(--glass-strong);
+  background: var(--glass-strong);
 }
 
 .fullmap-search {
@@ -1251,13 +1665,20 @@ body[data-mode='jet'] .gauge-alt {
 
 .fullmap-close {
   margin-left: auto;
-  height: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   padding: 0 14px 0 12px;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text);
   border-radius: var(--r-panel);
+  transition: background-color 0.2s ease;
 }
 
 .fullmap-close:hover {
-  background: var(--grain), var(--glass-strong);
+  background: var(--glass-strong);
 }
 
 /* (centred with `translate`, which the rise-in entrance animation on `transform` leaves alone) */
@@ -1382,7 +1803,7 @@ body[data-mode='jet'] .gauge-alt {
    Top centre: turn-by-turn navigation (js/navigation.js) & the Crazy Taxi meter
    ------------------------------------------------------------------------------------------------------------------ */
 .hud-top-center {
-  top: var(--edge);
+  top: calc(var(--top) + var(--bar-h) + 12px);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -1402,7 +1823,7 @@ body.hud-minimized .hud-top-center { transform: translate(-50%, -10px); }
   max-width: min(480px, calc(100vw - 2 * var(--edge)));
   padding: 10px 10px 10px 12px;
   border-radius: var(--r-panel);
-  background: var(--grain), var(--sign-green);
+  background: var(--sign-green);
   border: 1px solid rgba(255, 255, 255, 0.18);
   box-shadow: var(--shadow);
 }
@@ -1462,7 +1883,7 @@ body[data-driver='crazy'] .nav-driver-badge { background: var(--taxi); color: va
   gap: 4px 18px;
   padding: 8px 16px;
   border-radius: var(--r-panel);
-  background: var(--grain), var(--taxi);
+  background: var(--taxi);
   color: var(--taxi-ink);
   box-shadow: var(--shadow);
 }
@@ -1531,8 +1952,8 @@ body.binoculars-up .jet-hud, body.binoculars-up .perception-overlay,
 body.flypast-ride .jet-hud, body.flypast-ride .perception-overlay { visibility: hidden; }
 #af-view .pop-item, #af-formation .pop-item { flex-direction: column; align-items: flex-start; gap: 1px; }
 /* the chosen view and formation: as a chosen menu item */
-#af-view .pop-item[aria-checked='true'], #af-formation .pop-item[aria-checked='true'] { background: var(--text); color: #121314; }
-#af-view .pop-item[aria-checked='true'] .pop-sub, #af-formation .pop-item[aria-checked='true'] .pop-sub { color: rgba(0, 0, 0, 0.55); }
+#af-view .pop-item[aria-checked='true'], #af-formation .pop-item[aria-checked='true'] { background: var(--paper); color: var(--ink); }
+#af-view .pop-item[aria-checked='true'] .pop-sub, #af-formation .pop-item[aria-checked='true'] .pop-sub { color: rgba(15, 26, 36, 0.6); }
 /* The F-15SG's head-up display (js/jet-hud.js): over the view, under the HUD panels */
 .jet-hud {
   position: fixed;
@@ -1564,14 +1985,6 @@ body[data-mode='jet'] .nav-ways { display: none; }
 
 body.nav-picking #fullmap-canvas { cursor: crosshair; }
 
-@media (max-width: 820px) {
-  .hud-top-center { top: calc(max(var(--edge), env(safe-area-inset-top)) + 116px); }
-  .nav-card { min-width: 0; }
-  .nav-distance { font-size: 18px; }
-  .nav-fare { gap: 2px 10px; padding: 6px 10px; }
-  .fare-value { font-size: 16px; }
-}
-
 /* The full map's tap menu: go there */
 .map-pick {
   position: absolute;
@@ -1579,7 +1992,7 @@ body.nav-picking #fullmap-canvas { cursor: crosshair; }
   min-width: 210px;
   padding: 6px;
   border-radius: 14px;
-  background: var(--grain), var(--glass-strong);
+  background: var(--glass-strong);
   -webkit-backdrop-filter: blur(26px) saturate(170%);
   backdrop-filter: blur(26px) saturate(170%);
   border: 1px solid var(--glass-border);
@@ -1619,54 +2032,95 @@ body.touch-enabled .map-pick .pop-item { min-height: 44px; }
 
 @media (max-width: 1360px) {
   .fullmap-legend { display: none; }
+  .search { width: 300px; }
+}
+
+/* Too narrow for a ride's minimap and speed beside the dock: they rise above it */
+@media (max-width: 1340px) {
+  .hud-bottom-left,
+  .hud-bottom-right { bottom: calc(var(--dock-b) + var(--dock-h) + 12px); }
 }
 
 @media (max-width: 1240px) {
   .controls-hint { display: none; }
-  .mode-btn kbd { display: none; }
 }
 
+/* The dock's buttons a little narrower, the top bar's links down to their icons */
 @media (max-width: 1080px) {
-  .mode-label,
+  .search { width: 240px; }
   .tool-label,
-  .tool-btn kbd { display: none; }
-  .mode-btn { padding: 0 12px; }
-  .tool-btn:not(.icon-only):not(.fullmap-close) { gap: 4px; padding: 0 9px; }
+  .fullmap-close kbd { display: none; }
+  .tb-link { width: 36px; padding: 0; justify-content: center; }
+  .dock-btn { width: 50px; }
+  .dock-sep { margin: 0 4px; }
 }
 
-@media (max-width: 820px) {
+/* A tablet: the name gives way to the search; the minimap and the speed shrink */
+@media (max-width: 900px) {
   :root { --edge: 12px; }
-  .hud-top-left { top: calc(max(var(--edge), env(safe-area-inset-top)) + 62px); }
-  .brand > .mta-bullet,
-  .brand-heading h1,
-  .brand-subtitle { display: none; }
-  .brand { height: 44px; padding: 0 12px; }
-  .repo-link { display: flex; align-items: center; gap: 4px; min-height: 44px; font-size: 12px; }
-  .radar { width: 220px; height: 148px; }
+  .brand h1 { display: none; }
+  .search { width: clamp(150px, 30vw, 240px); }
+  .radar { width: 208px; height: 144px; }
   .cluster { width: 220px; }
-  #hud-speed { font-size: 34px; }
+  #hud-speed { font-size: 32px; }
   .fullmap-title > div { display: none; }
   .fullmap-title { padding: 9px; }
   .fullmap-footer { max-width: calc(100% - 2 * var(--edge)); bottom: calc(var(--edge) + 34px); }
   .map-controls { top: auto; bottom: calc(var(--edge) + 96px); translate: none; }
 }
 
-@media (max-width: 620px) {
-  .time-btn.active .seg-label { display: none; }
-  .time-btn.active { padding: 0 9px; gap: 0; }
+/* A phone: the search fills the top bar beside its icons, and the dock becomes two rows of six, as tinywarsaw.app's */
+@media (max-width: 740px) {
+  :root { --dock-h: 136px; }
+  body { --tb-right: 122px; }
+  .hud-top-left { right: calc(max(var(--edge), env(safe-area-inset-right)) + var(--tb-right) + 8px); }
+  .brand { width: 100%; }
+  .search { flex: 1; width: auto; min-width: 0; margin-left: 0; }
+  .search-kbd { display: none; }
+  .search-input { padding-right: 12px; }
+  .toolbar { padding: 0 4px; }
+  .toolbar-divider { display: none; }
+
+  .hud-bottom-center {
+    left: max(var(--edge), env(safe-area-inset-left));
+    right: max(var(--edge), env(safe-area-inset-right));
+    transform: none;
+  }
+  body.hud-minimized .hud-bottom-center { transform: translateY(12px); }
+  .dock {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 4px;
+    width: 100%;
+    padding: 8px;
+  }
+  .dock-group { display: contents; }
+  .dock-sep { display: none; }
+  .sun-btn { grid-column: span 2; min-width: 0; padding: 0 8px 0 6px; gap: 7px; }
+  .sun-dial { width: 34px; height: 34px; }
+  .sun-time { font-size: 18px; }
+  .sun-text { min-width: 0; }
+  .sun-name { overflow: hidden; text-overflow: ellipsis; }
+  .weather-chip,
+  .dock-btn { width: auto; height: 54px; }
+
   .radar { display: none; }
-  .hud-bottom-right { bottom: calc(var(--edge) + 64px); }
   .gauge { display: none; }
   .camera-switch { border-top: 0; }
+  .hud-top-center { top: calc(var(--top) + var(--bar-h) + 10px); }
+  .nav-card { min-width: 0; }
+  .nav-distance { font-size: 18px; }
+  .nav-fare { gap: 2px 10px; padding: 6px 10px; }
+  .fare-value { font-size: 16px; }
 }
 
-/* Touch controls reserve the bottom corners; mode and camera selection remain within reach. */
+/* Touch controls stand over the dock's corners, clear of how to go; the map view has none */
 #touch-controls {
   position: fixed;
   z-index: 12;
   left: max(var(--edge), env(safe-area-inset-left));
   right: max(var(--edge), env(safe-area-inset-right));
-  bottom: calc(max(var(--edge), env(safe-area-inset-bottom)) + 72px);
+  bottom: calc(var(--dock-b) + var(--dock-h) + 12px);
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -1675,8 +2129,11 @@ body.touch-enabled .map-pick .pop-item { min-height: 44px; }
   -webkit-touch-callout: none;
 }
 
+body[data-mode='car'] #touch-controls { bottom: calc(var(--dock-b) + var(--dock-h) + 62px); }
+
 #touch-controls[hidden],
-.touch-action[hidden] { display: none; }
+.touch-action[hidden],
+body.is-map-view #touch-controls { display: none; }
 
 .touch-movement { text-align: center; }
 
@@ -1709,25 +2166,25 @@ body.touch-enabled .map-pick .pop-item { min-height: 44px; }
   height: 48px;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.45);
-  background: rgba(246, 245, 242, 0.8);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  background: rgba(244, 247, 250, 0.82);
+  box-shadow: 0 4px 16px rgba(0, 10, 25, 0.3);
   transform: translate(calc(-50% + var(--stick-x, 0px)), calc(-50% + var(--stick-y, 0px)));
   pointer-events: none;
 }
 
-#touch-stick.is-pressed #touch-stick-knob { background: var(--taxi); border-color: var(--taxi); }
+#touch-stick.is-pressed #touch-stick-knob { background: var(--accent); border-color: var(--accent); }
 
 .touch-caption,
 .touch-look-hint {
   color: var(--text-2);
   font-size: 11px;
-  font-weight: 550;
-  text-shadow: 0 1px 5px #000;
+  font-weight: 600;
+  text-shadow: 0 1px 5px rgba(0, 10, 25, 0.9);
 }
 .touch-caption { display: block; margin-top: 8px; }
 .touch-look-hint {
   position: fixed;
-  top: calc(max(var(--edge), env(safe-area-inset-top)) + 120px);
+  top: calc(var(--top) + var(--bar-h) + 70px);
   right: max(var(--edge), env(safe-area-inset-right));
   padding: 4px;
 }
@@ -1755,43 +2212,37 @@ body.touch-enabled .map-pick .pop-item { min-height: 44px; }
   touch-action: none;
 }
 .touch-action > [aria-hidden] { font-size: 23px; line-height: 1; }
-.touch-action.is-pressed { color: var(--taxi-ink); background: var(--taxi); border-color: var(--taxi); }
+.touch-action.is-pressed { color: var(--ink); background: var(--accent); border-color: var(--accent); }
 
 body.touch-enabled .controls-hint,
 body.touch-enabled .radar,
 body.touch-enabled .gauge,
 body.touch-enabled kbd,
-body.touch-enabled .toolbar-divider,
-body.touch-enabled .seg-label { display: none; }
+body.touch-enabled .toolbar-divider { display: none; }
 
-body.touch-enabled .hud-top-right { top: max(var(--edge), env(safe-area-inset-top)); right: max(var(--edge), env(safe-area-inset-right)); }
-body.touch-enabled .toolbar { gap: 2px; padding: 4px; }
-body.touch-enabled .time-btn,
-body.touch-enabled .time-btn.active { height: 44px; min-width: 44px; padding: 0 8px; gap: 0; }
-body.touch-enabled .tool-btn { min-width: 44px; min-height: 44px; }
-body.touch-enabled .tool-label { display: none; }
-body.touch-enabled .hud-bottom-center { bottom: max(var(--edge), env(safe-area-inset-bottom)); }
-body.touch-enabled .mode-label { display: block; font-size: 10px; }
-body.touch-enabled .mode-btn { width: 62px; height: 48px; padding: 0; flex-direction: column; justify-content: center; gap: 3px; }
-body.touch-enabled .hud-bottom-right { top: calc(max(var(--edge), env(safe-area-inset-top)) + 62px); right: max(var(--edge), env(safe-area-inset-right)); bottom: auto; }
+body.touch-enabled { --tb-right: 146px; }
+body.touch-enabled .toolbar { padding: 0 4px; }
+body.touch-enabled .tb-link,
+body.touch-enabled .tb-icon { min-width: 44px; min-height: 44px; }
+body.touch-enabled .search-input { padding-right: 12px; }
+/* a ride's camera, under the top bar's right half */
+body.touch-enabled .hud-bottom-right { top: calc(var(--top) + var(--bar-h) + 10px); bottom: auto; }
 body.touch-enabled .cluster { width: 230px; }
 body.touch-enabled .camera-switch { border: 0; }
 body.touch-enabled .camera-switch .icon-btn { width: 44px; height: 44px; }
-body.touch-enabled .hud-bottom-left { left: max(var(--edge), env(safe-area-inset-left)); bottom: calc(max(var(--edge), env(safe-area-inset-bottom)) + 254px); max-width: calc(100% - 2 * var(--edge)); }
+/* where you are: over the joystick (and its caption) */
+body.touch-enabled .hud-bottom-left { bottom: calc(var(--dock-b) + var(--dock-h) + 190px); max-width: calc(100% - 2 * var(--edge)); }
+body.touch-enabled[data-mode='car'] .hud-bottom-left { bottom: calc(var(--dock-b) + var(--dock-h) + 240px); }
 body.touch-enabled .fullmap-header { top: max(var(--edge), env(safe-area-inset-top)); left: max(var(--edge), env(safe-area-inset-left)); right: max(var(--edge), env(safe-area-inset-right)); }
 body.touch-enabled .map-controls .icon-btn { width: 44px; height: 44px; }
-body.touch-enabled .pop-item { min-height: 44px; }
-
-@media (max-width: 360px) {
-  body.touch-enabled .toolbar { width: 194px; height: auto; flex-wrap: wrap; justify-content: center; }
-  body.touch-enabled .hud-bottom-right { top: calc(max(var(--edge), env(safe-area-inset-top)) + 114px); }
-  .touch-look-hint { top: calc(max(var(--edge), env(safe-area-inset-top)) + 172px); }
-}
+body.touch-enabled .pop-item,
+body.touch-enabled .time-btn { min-height: 44px; }
 
 @media (max-height: 500px) {
   body.touch-enabled .hud-bottom-left { display: none; }
-  body.touch-enabled .hud-bottom-right { top: calc(max(var(--edge), env(safe-area-inset-top)) + 58px); }
-  #touch-controls { bottom: max(var(--edge), env(safe-area-inset-bottom)); }
+  #touch-controls,
+  body[data-mode='car'] #touch-controls { bottom: calc(var(--dock-b) + var(--dock-h) + 8px); }
+  body.touch-enabled .nav-ways { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

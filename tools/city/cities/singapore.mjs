@@ -126,8 +126,28 @@ export default {
       254816032,254816033,254816036,254816039,254816040,254816041,254816042,254816043,254816044,254816046,
       254816048,254816055,254833690,254833691,254833693,1228813829,1228813830
     ], hideRelations: [3413910,3413596] },
-    // WOHA's red-mesh tower on Peck Seah Street: its single mapped outline (27 levels, mapped 193 m; documented
-    // 190.15 m). Only this way is replaced; Guoco Tower's podium and the Tanjong Pagar neighbours stand as mapped.
+    // Marina One: the offices' outline, the West and East Towers, their bronze stair shafts, the glass corner crowns
+    // and their chimneys (941456992–97), and the two residences
+    { id: 'marina-one', name: 'Marina One', model: 'marina-one', hide: [463857949, 463857945, 463857946, 463857947, 463857948,
+      941456992, 941456993, 941456994, 941456995, 941456996, 941456997, 463858904, 463858905] },
+    // DUO: the Residences (its stack of parts and its outline), the Tower (its stack and outline; 432375290 repeats its
+    // base), and the Duo Galleria's outline and the low parts of it between and beside the towers
+    { id: 'duo', name: 'DUO', model: 'duo', hide: [427064874, 432375288, 432375292, 432375294, 560240330, 432375289, 432375290, 432375291,
+      432375293, 560240322, 560240325, 560240327, 560275084, 560275278] },
+    // SG-039: the market outline and all eight radial roof wedges; the adjacent restaurant and canopies remain.
+    { id: 'lau-pa-sat', name: 'Lau Pa Sat', model: 'lau-pa-sat', hide: [45098520,
+      463863828,463863829,463863830,463863831,463863832,463863833,463863834,463863835] },
+    // SG-242: the prayer hall, domes, four minarets and pinnacles; the separate annexe 190945743 remains mapped.
+    { id: 'sultan-mosque', name: 'Sultan Mosque', model: 'sultan-mosque', hide: [
+      155990076,685610171,694102548,694102549,
+      1165450368,1165450369,1165450370,1165450371,1165450372,1165450373,1165450374,
+      1165450375,1165450376,1165450377,1165450378,1165450379,1165450380,
+      1165452713,1165452714,1165452715,1165452716,1165452717,1165452718,1165452719,
+      1165452720,1165452721,1165452722,1165452723,1165452724,1165452725,1165452726,
+      1165452727,1165452728,1165452729,1165452730,1165452731,1165452732,1165452733,
+      1165452734,1165452735,1165452736,1165452737,1165452738,1165452739,1165452740] },
+    // SG-115: WOHA's red-mesh tower on Peck Seah Street: its single mapped outline (27 levels, mapped 193 m;
+    // documented 190.15 m). Only this way is replaced; Guoco Tower's podium and the Tanjong Pagar neighbours stand as mapped.
     { id: 'oasia-hotel-downtown', name: 'Oasia Hotel Downtown', model: 'oasia-hotel-downtown', hide: [393100847] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player

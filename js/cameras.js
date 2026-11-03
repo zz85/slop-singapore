@@ -80,8 +80,9 @@ class CameraSystem {
     this.head = { yaw: 0, pitch: 0, vyaw: 0, vpitch: 0, target: { yaw: 0, pitch: 0 }, active: false, fresh: true };
 
     // The Map View (map preset): the spot on the ground it looks at, how far from it, and from which way (yaw about
-    // it, pitch above the ground). Picked (fresh), it starts over the player, and then follows no one.
-    this.map = { target: new THREE.Vector3(), distance: 700, yaw: 0.65, pitch: 0.95, fresh: true };
+    // it, pitch above the ground). Picked (fresh), it starts over the player, and then follows no one. (1.1 km off: the
+    // whole of the CBD and the bay, as tinywarsaw.app opens on its centre; the default view since the tiny look is)
+    this.map = { target: new THREE.Vector3(), distance: 1100, yaw: 0.65, pitch: 0.95, fresh: true };
 
     this.bindPointerControls();
   }

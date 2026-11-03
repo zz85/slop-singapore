@@ -31,6 +31,8 @@ async function buildLandmarkModels(scene) {
       const done = kit.finish();
       group.add(done.group);
       colliders.push(...done.colliders);
+      // (each footprint knows its landmark: what a click on it names, js/building-info.js)
+      for (const f of done.footprints) f.site = L.id;
       footprints.push(...done.footprints);
       const flicker = kit.flicker();
       if (flicker.length) console.warn(`[landmarks] ${L.id}: faces that may flicker: ${flicker.map(([a, b]) => `${a} / ${b}`).join(', ')}`);

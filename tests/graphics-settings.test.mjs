@@ -134,10 +134,10 @@ test('auto tree detail: a fast display isn\'t held to its rate, stalls and other
 
 test('the look to start in: the URL\'s ?look=, when it is one offered, else the default', () => {
   const looks = ['golden', 'midday', 'twilight', 'midnight', 'tiny'];
-  assert.equal(initialLook({ looks }), 'golden');
-  assert.equal(initialLook({ search: '?look=tiny', looks }), 'tiny');
+  assert.equal(initialLook({ looks }), 'tiny', 'the tiny look by default');
+  assert.equal(initialLook({ search: '?look=golden', looks }), 'golden');
   assert.equal(initialLook({ search: '?trees=low&look=midnight', looks }), 'midnight');
-  assert.equal(initialLook({ search: '?look=sepia', looks }), 'golden', 'a look not offered: the default');
-  assert.equal(initialLook({ search: '?look=TINY', looks }), 'tiny', 'case does not matter');
+  assert.equal(initialLook({ search: '?look=sepia', looks }), 'tiny', 'a look not offered: the default');
+  assert.equal(initialLook({ search: '?look=GOLDEN', looks }), 'golden', 'case does not matter');
   assert.equal(initialLook({ looks, fallback: 'midday' }), 'midday');
 });
