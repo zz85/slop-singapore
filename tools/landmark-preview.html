@@ -17,6 +17,7 @@ import * as THREE from 'three/webgpu';
 import { GEO } from '../js/singapore-geodata.js';
 import { createKit } from '../js/landmark-kit.js';
 import { applyTinyLook } from '../js/tiny-look.js';
+import { buildFountainJets } from '../js/fountain-jets.js';
 
 try {
   const q=new URLSearchParams(location.search), model=q.get('model')||'fullerton-hotel';
@@ -27,6 +28,7 @@ try {
   const site={...L,parts:L.parts.map(p=>({...p,ring:Array.from({length:p.ring.length/2},(_,i)=>[p.ring[i*2]-L.x,p.ring[i*2+1]-L.z])}))};
   const kit=createKit({name:L.id});kit.bearingDeg=GEO.frame.bearingDeg;build(kit,site);
   const done=kit.finish(),scene=new THREE.Scene();scene.background=new THREE.Color(0xd6e1e5);scene.add(done.group);
+  if(kit.jets.length)done.group.add(buildFountainJets(kit.jets));
   const hemi=new THREE.HemisphereLight(0xeef4ff,0xb8ad9c,1.95);scene.add(hemi);
   const sun=new THREE.DirectionalLight(0xfff3e0,1.9);sun.position.set(150,230,140);sun.castShadow=true;
   Object.assign(sun.shadow.camera,{left:-100,right:100,top:100,bottom:-100,near:1,far:800});

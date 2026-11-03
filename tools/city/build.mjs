@@ -26,7 +26,8 @@
 //               building:levels (0 unknown), per ring: points, then each point's dx dz (dm)
 //   landmarks   [{ id, name, model, x, z, parts: [{ id, name, ring [x, z, ... m], height m, minHeight m, levels, roofShape,
 //               roofDir (degrees, -1 unmapped), roofHeight m }] }] (m to 0.1)
-//               the anchors of the landmarks built by model programs (config landmarks with `model`)
+//               the anchors of the landmarks built by model programs (config landmarks with `model`; one that replaces
+//               no mapped outline, a statue, stands at its `at`: [lat, lon], with no parts)
 //               from the one before, a ring's first from the previous ring's first, ...] } OpenStreetMap's buildings &
 //               building parts (or null: generated on the lots)
 // and beside it js/<city>-building-info.js, INFO { version: 1, buildings (how many GEO.buildings has), strings, data:
@@ -384,7 +385,8 @@ export async function buildCity(cityOrId, { out, data } = {}) {
       let cx = 0, cz = 0, n = 0;
       for (const p of parts) for (let k = 0; k < p.ring.length; k += 2) { cx += p.ring[k]; cz += p.ring[k + 1]; n++; }
       if (n) { cx = Math.round(cx / n); cz = Math.round(cz / n); }
-      else log('warning: landmark ' + l.id + ' (model ' + l.model + ') hides no mapped way: anchored at the origin');
+      else if (l.at) [cx, cz] = at(l.at);
+      else log('warning: landmark ' + l.id + ' (model ' + l.model + ') hides no mapped way and has no `at`: anchored at the origin');
       landmarks.push({ id: l.id, name: l.name, model: l.model, x: cx, z: cz, parts });
     }
     log(`${kept.length} buildings & parts (${items.length - kept.length} outlines drawn by their parts; ${kept.filter((b) => b.top > 60).length} over 60 m; ${hiddenCount} left to the modelled landmarks)`);
