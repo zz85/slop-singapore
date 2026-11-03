@@ -66,5 +66,36 @@ export const LOGOS = {
       ctx.fillStyle = '#c8102e';
       ctx.fill(new Path2D('M127.6 31C135.4 20.9 143.2 10.7 151.1 0.5C160.4 0.5 169.6 0.5 178.9 0.5C171.3 10.7 163.6 20.8 156 31C151.9 36.3 148.2 41.9 143.7 46.9C134.5 47.2 125.1 47 115.8 46.9L115.4 46.9C119.5 41.6 123.5 36.3 127.6 31Z'));
     }
+  },
+  // OCBC's mark: a red disc with a round hole set up and to the right of its middle, its left part cut into the slats
+  // of a junk's sail fanning round the hole. Simplified from photographs of the signs on OCBC Centre (its crown, 2023;
+  // the banking hall's wall, 2006); the slats are separate pieces, so the wall shows between them as it does on the
+  // building
+  ocbc: {
+    id: 'ocbc', aspect: 1,
+    draw(ctx, x, y, w, h) {
+      into(ctx, x, y, h, 100);
+      // a piece of the ring between two angles (degrees, counter-clockwise from the right): out along the rim, back
+      // along the hole's edge
+      const piece = (a0, a1) => {
+        const n = Math.max(2, Math.ceil((a1 - a0) / 6)), pts = [];
+        for (let k = 0; k <= n; k++) { const a = ((a0 + ((a1 - a0) * k) / n) * Math.PI) / 180; pts.push([50 + 49.5 * Math.cos(a), 50 - 49.5 * Math.sin(a)]); }
+        for (let k = n; k >= 0; k--) { const a = ((a0 + ((a1 - a0) * k) / n) * Math.PI) / 180; pts.push([56 + 23 * Math.cos(a), 47 - 23 * Math.sin(a)]); }
+        return pts;
+      };
+      fill(ctx, '#e01f26', piece(-100, 102));
+      for (const [a0, a1] of [[106, 133], [137, 164], [168, 195], [199, 226], [230, 256]]) fill(ctx, '#e01f26', piece(a0, a1));
+    }
+  },
+  // Deutsche Bank's slash in a square, in its blue: the public-domain drawing on Wikimedia Commons ("Deutsche Bank logo
+  // without wordmark.svg", a 148-unit square framed 21 units thick round a slash from lower left to upper right), the
+  // frame drawn as four bars; as it hangs right of the bank's name on One Raffles Quay's podium
+  'deutsche-bank': {
+    id: 'deutsche-bank', aspect: 1,
+    draw(ctx, x, y, w, h) {
+      into(ctx, x, y, h, 148);
+      for (const bar of [[[0, 0], [148, 0], [148, 21], [0, 21]], [[0, 127], [148, 127], [148, 148], [0, 148]], [[0, 21], [21, 21], [21, 127], [0, 127]], [[127, 21], [148, 21], [148, 127], [127, 127]]]) fill(ctx, '#0018a8', bar);
+      fill(ctx, '#0018a8', [[89, 36], [116, 36], [60, 113], [33, 113]]);
+    }
   }
 };
