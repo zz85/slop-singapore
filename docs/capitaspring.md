@@ -77,9 +77,9 @@ On the podium roof there is a parapet, trees, the lap pool on a deck along the M
 
 **Signs** (as on the building):
 
-- "CapitaLand" in white at the top of the offices, under the crown, on the Church Street face (the Telok Ayer Street photograph) and on the Market Street face (seen edge-on from Market Street), 4.2 m tall.
+- "J.P.Morgan" in white at the top of the offices, under the crown, on the Church Street face and on the Market Street face, 4.2 m tall. J.P. Morgan is CapitaSpring's anchor office tenant ([CapitaLand's announcement on SGX](https://links.sgx.com/1.0.0/corporate-announcements/KRJFT90C35CFJX23/93092e3720aafe5262e9e8f5babbdba684a0f02300a8ef6a5e69b3294408ff08), April 2018: close to a quarter of the 635,000 sq ft of offices). Its name replaced CapitaLand's on 3 November 2026 at the user's direction; the 2022 photographs above still show "CapitaLand" there, and no dated photograph of the J.P. Morgan sign was found, so it keeps the same faces, height and white lettering. The firm's logo is the serif wordmark alone, drawn here in Georgia rather than its own typeface, so no `landmark-logos.js` entry is needed.
 - "citadines" in white over the City Room on the round end (the photographs from above and from Market Street), 2 m tall.
-- Left out: CapitaLand's swoosh (no logo entry was added) and the small "CAPITASPRING" lettering near the base (its placement is unclear from the photographs).
+- Left out: the small "CAPITASPRING" lettering near the base (its placement is unclear from the photographs).
 
 ## Inspect and rebuild
 
