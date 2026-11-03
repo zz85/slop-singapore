@@ -136,6 +136,7 @@ The hide list is unchanged, so the geodata needs no rebuild.
   - **From Raffles Quay** (Heintges, 2009 shift-lens, 2026): the North Tower's lighter lobby and white raking member, the bronze plant over the plaza on columns, the trough, the South Tower's piers and canopy.
   - **From the north-west** (KPF dusk aerial): the lantern standing over the side faces' parapet, the stone block with its glass roof, the South Tower's bands on its south and east faces.
   - **From above** (Esri aerial): the North Tower's turned plan with the lantern's band, the six cooling cells between the towers, the podium round the South Tower.
+- Live city (WebGPU in Playwright, Tiny look, map view; 3 November 2026): seen from the bay, the North Tower and the bronze cooling plant stand behind The Sail, with no console errors, no generic extrusion left on the site and the neighbours in place. [City view](images/the-sail-one-raffles-quay-city.jpg).
 
 ![One Raffles Quay in the Tiny look from the north-west: the North Tower with its lighter lantern and lobby and the white raking member, the bronze cooling plant on columns over the plaza between the towers, the South Tower, the stone block on Marina Boulevard](images/one-raffles-quay-overview.png)
 

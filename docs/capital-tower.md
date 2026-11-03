@@ -154,6 +154,7 @@ The tests check:
   - the Maxwell Road photograph of January 2006 (the same direction as the preview's west view: end face and plaza face, the tier's curve, the crown);
   - the Commons 2010 crown close-up;
   - the aerial (pool, umbrellas, deck).
+- Live city (WebGPU in Playwright, Tiny look, map view; 3 November 2026): seen from the plaza side, the banded bay, the slot and the blue tier stand among the Tanjong Pagar towers, with no console errors, no generic extrusion left on the site and the neighbours in place.
 
 ## Limitations
 
@@ -165,4 +166,3 @@ The tests check:
 - The funnel and its canopy are sized from oblique and frontal photographs that disagree by a few metres. The lighter "keyhole" of glass under the funnel is simplified to the inner flanks' pale bands.
 - The crown's diagonal tension rods, the maintenance crane on the roof and the louvres' fine slats are left out. The blades are solid slabs.
 - The plaza beyond the driveway is the city's (Capital Tower Plaza, a pedestrian way): its fountain of coloured spheres, the MRT entrance's glass canopy, the walkway canopy and the koi pond with palms (whose position could not be fixed from the shadowed aerial) are not modelled.
-- Not yet checked in the live city: a headless render of `/?look=tiny&at=capital-tower&camera=map` under software WebGL had not settled after 18 minutes and was stopped. The city check is left to the batch's joint check; the neighbours were checked against the hide list only.

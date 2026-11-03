@@ -149,7 +149,7 @@ The tests check:
   - the bay and lawn photographs (east-north-east): both sails side by side, the park tower's bow curving back under its crown, the seam and boom;
   - the Marina Bay Sands photograph (the gap and the deck);
   - NBBJ's plans and sections.
-- In the live city (Tiny look), Marina Bay Tower shows its seam and boom over the plaza, with no generic extrusion left on the site. The coordinator checks the city view.
+- Live city (WebGPU in Playwright, Tiny look, map view; 3 November 2026): seen from the bay, both sails, the seam and boom stand beside One Raffles Quay and Marina Bay Financial Centre, with no console errors, no generic extrusion left on the site and the neighbours in place. [City view](images/the-sail-one-raffles-quay-city.jpg).
 
 ## Limitations
 

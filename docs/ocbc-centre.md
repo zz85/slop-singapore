@@ -161,6 +161,7 @@ The hide list is unchanged, so the geodata needs no rebuild.
   - From the south, against Ann Siang Hill (2023): the sign at the west end of the Chinatown face.
   - From above, against the aerial: the roof well and the podium's plant.
   - Against the 2006 sunny photograph: the dark bracketed soffit under each box.
+- Live city (WebGPU in Playwright, Tiny look, map view; 3 November 2026): seen from the river, the slab, its three stacks, the sign and Centre South stand behind Boat Quay, with no console errors, no generic extrusion left on the site and the neighbours in place.
 
 ![OCBC Centre in the Tiny look from the north-east: the slab between its half-round granite cores, the three stacks of offices with the recessed girder floors between them, OCBC's mark on the crown, Centre East's curved glass at the left and the car park and Centre South behind](images/ocbc-centre-overview.png)
 
