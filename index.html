@@ -76,6 +76,10 @@
   <link rel="modulepreload" href="./js/navigation.js" />
   <link rel="modulepreload" href="./js/perception-overlay.js" />
   <link rel="modulepreload" href="./js/navigation-ui.js" />
+  <link rel="modulepreload" href="./js/mrt.js" />
+  <link rel="modulepreload" href="./js/mrt-scene.js" />
+  <link rel="modulepreload" href="./js/mrt-audio.js" />
+  <link rel="modulepreload" href="./js/mrt-system.js" />
   <link rel="modulepreload" href="./js/airbases.js" />
   <link rel="modulepreload" href="./js/jet-hud.js" />
   <link rel="modulepreload" href="./js/air-force.js" />
@@ -297,6 +301,7 @@
         <button class="nav-way" data-driver="self" data-sub="Keeps its lane, up to 90 km/h, stops at reds" type="button" role="radio" aria-checked="false" tabindex="-1">Self-driving</button>
         <button class="nav-way" data-driver="crazy" data-sub="On the clock. Lights are suggestions · T: cockpit cam" type="button" role="radio" aria-checked="false" tabindex="-1">Crazy Taxi</button>
         <button class="nav-way" data-driver="teleport" data-sub="Be there now" type="button" role="radio" aria-checked="false" tabindex="-1">Teleport</button>
+        <button class="nav-way" data-driver="mrt" data-sub="Ride the train from the station nearest you · V: view · F: fast-forward" type="button" role="radio" aria-checked="false" tabindex="-1">MRT</button>
       </div>
       </div>
       <button class="nav-ways-step" data-step="1" type="button" tabindex="-1" aria-hidden="true" title="Next way (])"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
@@ -435,6 +440,7 @@
       <button class="pop-item" data-go="self" type="button" role="menuitem"><svg class="icon" aria-hidden="true"><use href="#i-car"/></svg><span class="pop-name">Self-drive here</span></button>
       <button class="pop-item" data-go="crazy" type="button" role="menuitem"><svg class="icon" aria-hidden="true"><use href="#i-car"/></svg><span class="pop-name">Crazy Taxi here</span></button>
       <button class="pop-item" data-go="teleport" type="button" role="menuitem"><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg><span class="pop-name">Teleport here</span></button>
+      <button class="pop-item" data-go="mrt" type="button" role="menuitem"><svg class="icon" aria-hidden="true"><use href="#i-route"/></svg><span class="pop-name">Take the MRT here</span></button>
       <button id="map-pick-cancel" class="map-pick-cancel" type="button">Cancel</button>
     </div>
 

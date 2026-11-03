@@ -31,6 +31,7 @@ import { Weather } from './weather.js';
 import { initialTreeDetail, bindTreeDetail, createAutoTreeDetail } from './graphics-settings.js';
 import { Navigator } from './navigation.js';
 import { setupNavigationUI } from './navigation-ui.js';
+import { MrtSystem } from './mrt-system.js';
 import { PerceptionOverlay } from './perception-overlay.js';
 import { createIslandGraph } from './island-network.js';
 import { createAirbases } from './airbases.js';
@@ -884,7 +885,41 @@ async function initApp() {
   islandRoadsLoading.then((roads) => roads && islandGraph.start(roads, new URL(`${cityTiles.url}roads.json`, location.href).href));
   const resolveNetwork = (a, b) => islandGraph.resolve(a, b);
   const routeNavigator = new Navigator({ network: trafficSystem.network, trafficSystem, islandTraffic, controllerManager, audioSystem, resolveNetwork });
-  const navigationUI = setupNavigationUI({ navigator: routeNavigator, mapSystem, controllerManager, selectMode, closePopovers, teleport: teleportTo });
+  // The MRT (js/mrt-system.js, tiles/<city>/mrt.json): its viaducts across the island, and rides on its trains, from
+  // the station nearest you to the one nearest where you're going (the ways strip's MRT, the map's Take the MRT here)
+  const mrtSystem = cityTiles?.index && CITY.id === 'singapore' ? new MrtSystem({
+    scene, audioSystem, cameraSystem,
+    onToast: (text) => navigationUI?.toast(text, 2600),
+    // under the ground nothing of the street is seen; the pedestrian crowds draw garbage across the view from below
+    // them, so they're left out while the camera is down there
+    onUnderground: (on) => {
+      scene.traverse((o) => {
+        if (!o.isMesh || !/^People(Near|Far)$/.test(o.name)) return;
+        if (on) { o.userData.mrtWasVisible = o.visible; o.visible = false; } else if (o.userData.mrtWasVisible !== undefined) { o.visible = o.userData.mrtWasVisible; delete o.userData.mrtWasVisible; }
+      });
+    },
+    onEnd: ({ station, exit }) => {
+      // out of the station, on foot, at its exit
+      selectMode('person');
+      const x = exit ? exit[0] : station.x, z = exit ? exit[1] : station.z;
+      teleportTo(x, z, controllerManager.getActiveEntity().heading);
+      navigationUI?.toast(`${station.name}${exit && exit[2] ? `, exit ${exit[2]}` : ''}`, 2200);
+    }
+  }) : null;
+  if (mrtSystem) {
+    // (its trains, stations & tunnels move: their world matrices are kept up each frame with the rest that does)
+    dynamicRoots.push(mrtSystem.root);
+    mrtSystem.load(`${cityTiles.url}mrt.json`).catch((e) => console.warn(`[mrt] none: ${e.message}`));
+  }
+  const rideMrt = mrtSystem ? (x0, z0, x1, z1, name) => {
+    if (!mrtSystem.rideBetween(x0, z0, x1, z1, name)) return false;
+    // (the controls let go: you're a passenger)
+    touchControls.reset();
+    gamepadControls.reset();
+    controllerManager.setAutopilotInput?.(null);
+    return true;
+  } : null;
+  const navigationUI = setupNavigationUI({ navigator: routeNavigator, mapSystem, controllerManager, selectMode, closePopovers, teleport: teleportTo, mrt: rideMrt });
   // (the ways strip centres its choice by measuring it: again once the HUD font is in)
   document.fonts?.ready?.then(() => navigationUI.layout());
   // What the autopilot sees, over the view (js/perception-overlay.js): the Navigate menu's switch & [O], remembered
@@ -1089,7 +1124,7 @@ async function initApp() {
   }
 
   // For poking at from the console (and the browser checks): the simulation's main systems
-  globalThis.slop = { scene, autoTrees, airForce, binoculars, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
+  globalThis.slop = { mrt: mrtSystem, scene, autoTrees, airForce, binoculars, navigator: routeNavigator, perceptionOverlay, trafficSystem, controllerManager, cameraSystem, lightingSystem, audioSystem, cityTiles, cityLandmarks, weather, mapSystem, islandTraffic, islandSignals, get islandRoads() { return islandRoads; }, teleportTo };
 
   await precompileShaders();
   markInit('compile');
@@ -1114,10 +1149,13 @@ async function initApp() {
     gamepadControls.update(dt);
     routeNavigator.update(dt, elapsed); // (the autopilot's inputs, for this frame's car update)
     navigationUI.update(dt);
-    controllerManager.update(dt, elapsed);
+    // (a passenger on the MRT moves with the train, not by the controls)
+    if (!mrtSystem?.riding) controllerManager.update(dt, elapsed);
     if (airForce) airForce.update(dt, elapsed, cameraSystem.camera); // (the wingman follows where the jet went this frame)
     binoculars.before();
     cameraSystem.update(dt, elapsed);
+    // riding the MRT: the view is from the train
+    if (mrtSystem?.riding) mrtSystem.update(dt);
     binoculars.update(dt, elapsed);
     if (binoculars.active !== document.body.classList.contains('binoculars-up')) document.body.classList.toggle('binoculars-up', binoculars.active);
     if (airForce) watchFlypast(dt, elapsed);

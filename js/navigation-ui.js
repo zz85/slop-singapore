@@ -6,13 +6,19 @@ import { NYC_LANDMARKS, TELEPORT_LOCATIONS, CITY } from './city-config.js';
 // menu (where to), the menu a tap on the full map opens (go there each of those ways), the turn-by-turn card, the Crazy
 // Taxi meter and its call-outs, and the route on the radar and the full map. All DOM text through textContent.
 
-// The ways to go: three drivers (navigation.js DRIVERS) and teleporting
-const HOW = ['you', 'self', 'crazy', 'teleport'];
+// The ways to go: three drivers (navigation.js DRIVERS), teleporting, and the MRT (js/mrt-system.js), where the city
+// has one
+const HOW = ['you', 'self', 'crazy', 'teleport', 'mrt'];
+// (the ways that drive no car: none of the navigator's drivers)
+const NOT_DRIVING = new Set(['teleport', 'mrt']);
 
 const ARROWS = { left: 'i-turn-left', right: 'i-turn-right', keepleft: 'i-keep-left', keepright: 'i-keep-right', uturn: 'i-uturn', arrive: 'i-arrive' };
 const WORDS = { left: 'Turn left', right: 'Turn right', keepleft: 'Keep left', keepright: 'Keep right', uturn: 'Make a U-turn', arrive: 'Arrive' };
 
-function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode, closePopovers, teleport = null }) {
+function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode, closePopovers, teleport = null, mrt = null }) {
+  // (no MRT here: no MRT way on the strip or the map's menu)
+  const WAYS = mrt ? HOW : HOW.filter((w) => w !== 'mrt');
+  if (!mrt && typeof document !== 'undefined') document.querySelectorAll?.('[data-driver="mrt"], [data-go="mrt"]').forEach((b) => b.remove());
   const $ = (id) => document.getElementById(id);
   const panel = $('nav-panel');
   const popover = $('navigate-popover');
@@ -73,6 +79,13 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
   /** Go to (x, z) `way`: driving there (yourself, self-driving or Crazy Taxi), or teleporting there */
   function go(way, x, z, name, heading) {
     closePopovers();
+    if (way === 'mrt') {
+      // by train: from the station nearest you to the one nearest there (the MRT takes it from here)
+      if (!mrt) return;
+      const p = controllerManager.getActiveEntity().position;
+      if (mrt(p.x, p.z, x, z, name) && navigator.active) stop();
+      return;
+    }
     if (way === 'teleport') {
       if (!teleport) return;
       // (a trip on the go carries on from the new spot)
@@ -103,9 +116,9 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
 
   /** Go the way `id` from now on: the autopilots take the car; a Crazy Taxi with nowhere to go yet picks up a fare */
   function choose(id) {
-    if (!HOW.includes(id) || id === how) return;
+    if (!WAYS.includes(id) || id === how) return;
     how = id;
-    if (id !== 'teleport') {
+    if (!NOT_DRIVING.has(id)) {
       if (id !== 'you' && controllerManager.activeMode !== 'car') selectMode('car');
       navigator.setDriver(id);
     }
@@ -125,8 +138,8 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
   }
   /** Show the way `n` along from the one shown (stopping at the ends); taken after `ms` of rest (or by settle()) */
   function move(n, ms = 450) {
-    const i = Math.max(0, Math.min(HOW.length - 1, HOW.indexOf(shown || how) + n));
-    shown = HOW[i];
+    const i = Math.max(0, Math.min(WAYS.length - 1, WAYS.indexOf(shown || how) + n));
+    shown = WAYS[i];
     syncDrivers();
     clearTimeout(settleTimer);
     if (ms !== null) settleTimer = setTimeout(settle, ms);
@@ -245,7 +258,7 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
     mapSystem.onPick = (x, z, name, clientX, clientY) => {
       picked = { x, z, name };
       if (pickTitle) pickTitle.textContent = name || 'Here';
-      for (const b of pickMenu.querySelectorAll('[data-go]')) b.hidden = b.dataset.go === 'teleport' && !teleport;
+      for (const b of pickMenu.querySelectorAll('[data-go]')) b.hidden = (b.dataset.go === 'teleport' && !teleport) || (b.dataset.go === 'mrt' && !mrt);
       pickMenu.hidden = false;
       // beside the tap, kept on screen
       const w = pickMenu.offsetWidth || 220;
@@ -297,8 +310,8 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
     if (whereTitle) whereTitle.textContent = active ? `Where to · ${active.textContent}` : 'Where to';
     if (ways) {
       for (const b of ways.querySelectorAll('[data-step]')) {
-        const i = HOW.indexOf(at) + Number(b.dataset.step);
-        b.disabled = i < 0 || i >= HOW.length;
+        const i = WAYS.indexOf(at) + Number(b.dataset.step);
+        b.disabled = i < 0 || i >= WAYS.length;
       }
     }
     centreWay(active);
@@ -343,7 +356,7 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
 
   navigator.onChange = (st) => {
     // (a driver change made elsewhere, the controls taken over: the menu follows, unless it is set to teleport)
-    if (how !== 'teleport') how = navigator.driver.id;
+    if (!NOT_DRIVING.has(how)) how = navigator.driver.id;
     sync(st);
   };
   navigator.onEvent = (kind, d) => {
@@ -365,6 +378,7 @@ function setupNavigationUI({ navigator, mapSystem, controllerManager, selectMode
 
   let acc = 0;
   return {
+    toast,
     // the card's numbers 5 times a second
     update(dt) {
       acc += dt;

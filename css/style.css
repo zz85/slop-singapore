@@ -1816,3 +1816,100 @@ body.touch-enabled .pop-item { min-height: 44px; }
   white-space: nowrap;
   border: 0;
 }
+
+/* ------------------------------------------------------------------------------------------------------------------
+   Riding the MRT (js/mrt-system.js): the train's panel, as its doors' route map shows it
+   ------------------------------------------------------------------------------------------------------------------ */
+.mrt-panel { z-index: 30; }
+.mrt-card {
+  width: min(520px, calc(100vw - 2 * var(--edge)));
+  padding: 10px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mrt-row { display: flex; align-items: center; gap: 12px; }
+.mrt-badge {
+  flex: none;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 8px;
+  border-radius: 22px;
+  display: grid;
+  place-items: center;
+  font: 800 17px var(--font-sign);
+  color: #fff;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+.mrt-text { flex: 1; min-width: 0; }
+.mrt-next { font-size: 20px; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mrt-label { font-size: 12px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2); }
+.mrt-sub { font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mrt-strip {
+  --line: #888;
+  list-style: none;
+  margin: 0;
+  padding: 2px 0 0;
+  display: flex;
+  gap: 0;
+  overflow: hidden;
+}
+.mrt-strip li {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  color: var(--text-2);
+}
+/* the line between the stops */
+.mrt-strip li::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: -50%;
+  right: 50%;
+  height: 4px;
+  background: var(--line);
+}
+.mrt-strip li:first-child::before { display: none; }
+.mrt-strip li.passed { opacity: 0.45; }
+.mrt-dot {
+  position: relative;
+  z-index: 1;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: inset 0 0 0 3px var(--line);
+}
+.mrt-strip li.current .mrt-dot { background: var(--line); box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9); animation: mrt-blink 1.2s ease-in-out infinite; }
+.mrt-strip li.current { color: var(--text); font-weight: 700; }
+.mrt-stop { max-width: 100%; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
+.mrt-chip { font: 700 9px var(--font-sign); color: #fff; padding: 1px 4px; border-radius: 6px; }
+.mrt-strip li.more { justify-content: center; font-style: italic; }
+.mrt-strip li.more::before { display: none; }
+.mrt-controls { display: flex; gap: 6px; flex-wrap: wrap; }
+.mrt-btn {
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+.mrt-btn:hover { background: rgba(255, 255, 255, 0.16); }
+.mrt-btn.active { background: var(--taxi); color: var(--taxi-ink); }
+@keyframes mrt-blink { 50% { opacity: 0.45; } }
+/* while riding, the controls for moving yourself step aside */
+body.mrt-riding #nav-ways,
+body.mrt-riding #mode-switch,
+body.mrt-riding #hud-controls-hint,
+body.mrt-riding #nav-panel,
+body.mrt-riding #touch-controls,
+body.mrt-riding #hud-cluster { display: none !important; }
+@media (prefers-reduced-motion: reduce) { .mrt-strip li.current .mrt-dot { animation: none; } }
