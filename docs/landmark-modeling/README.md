@@ -4,6 +4,10 @@ This is the shared modelling workflow for **Codex, Claude Code and Meta Muse**, 
 
 Start with the building's footprint, silhouette, proportions and palette. Spend detail where it makes the landmark recognisable from the map camera. A correct roof and a deep veranda usually contribute more than hundreds of tiny windows.
 
+## 0. Pick and claim a numbered site
+
+Read the shared [building detailing checklist](../landmark-checklist.md) before starting. Use its permanent `SG-…` task ID, respect user allocations and existing owners, and establish an exclusive claim through a user assignment or merged shared claim before modelling. Check existing implementations and aliases first; `audit` entries already have custom geometry. The checklist also defines required CBD coverage, outside-core integration checks and completion evidence.
+
 ## 1. Establish the real building
 
 Collect a roof/site plan, a clear principal elevation and at least one side or courtyard view. Prefer the owner, architect, conservation authority and original photographers. Check that the photographs show the same building and renovation period. A hotel name can refer to several buildings; Raffles Hotel, Raffles City and Raffles Place MRT are different sites.
@@ -87,5 +91,7 @@ The full suite includes POSIX shell fixtures. On Windows, use a Linux/WSL checko
 ## 7. Deliver something reviewable
 
 Include the model, generated geodata, source notes, tests and a small number of useful preview images or links in the PR. Explain what changed at map scale, the sources and estimates, verification results and material limitations. Keep temporary downloaded references, test fixtures and browser scripts outside the repository. Follow the user's current instruction about creating or merging a PR.
+
+Update the site's row in the [numbered checklist](../landmark-checklist.md) in **every landmark PR**, including repairs to existing models. Include the `SG-…` ID, owner/session, actual PR link, source notes and verification evidence; use `review` until the completion criteria are accepted. Check `done` only with the checklist's shared-branch acceptance procedure. Record blockers and release abandoned claims explicitly so another session can continue safely.
 
 Useful examples: [Fullerton Hotel](../fullerton-hotel.md), [Fullerton Bay Hotel](../fullerton-bay-hotel.md), [Raffles Place MRT](../raffles-place-mrt.md) and [Raffles Hotel](../raffles-hotel.md). Read their model code alongside the notes; they demonstrate different shapes rather than one template to copy blindly.
