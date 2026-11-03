@@ -147,6 +147,18 @@ export default {
       1165452720,1165452721,1165452722,1165452723,1165452724,1165452725,1165452726,
       1165452727,1165452728,1165452729,1165452730,1165452731,1165452732,1165452733,
       1165452734,1165452735,1165452736,1165452737,1165452738,1165452739,1165452740] },
+    // SG-004 CapitaSpring: its outline, the eight-storey podium and the tower part (the same outline as the podium's
+    // and the tower's own); the neighbouring Malacca Street and Market Street buildings remain.
+    { id: 'capitaspring', name: 'CapitaSpring', model: 'capitaspring', hide: [694047464, 1157548671, 1157548672] },
+    // SG-005 Ocean Financial Centre: its outline, the tall tower and lower east slab, the podium parts and the canopy
+    // (1566589607, mapped as a roof at 15 m); The Arcade next door (171999284 and its parts 172915362, 1566589603–04)
+    // remains.
+    { id: 'ocean-financial-centre', name: 'Ocean Financial Centre', model: 'ocean-financial-centre', hide: [172915346, 46595387,
+      1566589605, 1566589606, 1566589607, 1566589608] },
+    // SG-060 CapitaGreen: its outline, the tower, the raised glass block at the Market Street corner and the four posts
+    // under it (1566865509–12)
+    { id: 'capitagreen', name: 'CapitaGreen', model: 'capitagreen', hide: [393100853, 1566865509, 1566865510, 1566865511, 1566865512,
+      1566865513, 1566865514] },
     // SG-115: WOHA's red-mesh tower on Peck Seah Street: its single mapped outline (27 levels, mapped 193 m;
     // documented 190.15 m). Only this way is replaced; Guoco Tower's podium and the Tanjong Pagar neighbours stand as mapped.
     { id: 'oasia-hotel-downtown', name: 'Oasia Hotel Downtown', model: 'oasia-hotel-downtown', hide: [393100847] }
