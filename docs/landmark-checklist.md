@@ -191,8 +191,8 @@ Columns are deliberately row-local: update your row rather than maintaining shar
 | SG-113 | [ ] | ABI Plaza site | Verify redevelopment era; document surviving/replacement geometry | todo | — |
 | SG-114 | [ ] | 100 AM and Amara hotel block | Mall/hotel volumes, screens and roof | todo | — |
 | SG-115 | [ ] | Oasia Hotel Downtown | Red planted screen, open sky gardens and crown; [sources and verification](oasia-hotel-downtown.md), [render](images/oasia-hotel-downtown-overview.png) | review | Meta Muse / 01a19cbf; datainvestor/update-building-model; 2026-11-03; [PR #9](https://github.com/datainvestor/tiny-singapore/pull/9) |
-| SG-116 | [ ] | Altez | Tower, balconies, sky terraces and lower podium | todo | — |
-| SG-117 | [ ] | Skysuites @ Anson | Slender shaft, balcony rhythm and roof | todo | — |
+| SG-116 | [ ] | Altez | Dark curtain shaft with scattered projecting silver bays, pale glazed crown, 10 m podium with pool deck; [model](../js/landmark-models/altez.js), [sources and verification](altez.md), [render](images/altez-overview.png) | review | Meta Muse / 01a1a0cb; `datainvestor/add-tanjong-pagar-landmarks`; 2026-11-03; [PR #12](https://github.com/datainvestor/tiny-singapore/pull/12) |
+| SG-117 | [ ] | Skysuites @ Anson | Near-black finned shaft, The Retreat's open setback terrace, silver louvred top and circular Vista Deck disc; [model](../js/landmark-models/skysuites-anson.js), [sources and verification](skysuites-anson.md), [render](images/skysuites-anson-overview.png) | review | Meta Muse / 01a1a0cb; `datainvestor/add-tanjong-pagar-landmarks`; 2026-11-03; [PR #12](https://github.com/datainvestor/tiny-singapore/pull/12) |
 | SG-118 | [ ] | Icon — both residential towers and Icon Village | Different towers, balconies and podium | todo | — |
 | SG-119 | [ ] | Lumiere | Residential slab, projecting bays and roof | todo | — |
 | SG-120 | [ ] | Orchid Hotel | Façade, canopy and podium | todo | — |

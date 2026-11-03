@@ -178,7 +178,13 @@ export default {
     // blocks, the podium, Centre East (the 17-storey block) and Centre South (the rounded block); Bar On Chulia
     // (764327106) remains.
     { id: 'ocbc-centre', name: 'OCBC Centre', model: 'ocbc-centre', hide: [171999325, 335167787, 325793729, 335167802,
-      460431821, 460431822, 460431823, 460431824, 407705497, 407705487, 407705501] }
+      460431821, 460431822, 460431823, 460431824, 407705497, 407705487, 407705501] },
+    // SG-116 Altez, 16 Enggor Street: its plot/podium outline (172023443, mapped 10 m) and the 62-storey tower part
+    // over it (393100852, mapped 250 m from 10 m); Icon Village to the north and the Enggor Street neighbours remain.
+    { id: 'altez', name: 'Altez', model: 'altez', hide: [172023443, 393100852] },
+    // SG-117 Skysuites @ Anson, 8 Enggor Street: its six-level podium outline (172023451) and the 71-storey tower
+    // part over it (393100851, mapped 250 m from level 6); Mapletree Anson to the east remains.
+    { id: 'skysuites-anson', name: 'Skysuites @ Anson', model: 'skysuites-anson', hide: [172023451, 393100851] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]
