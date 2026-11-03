@@ -442,7 +442,9 @@ test('a sign with a logo: the mark left of the name, or alone, or beside a name 
 test("the tenants' marks paint themselves inside their box, in their colours", async () => {
   const { LOGOS } = await import(pathToFileURL(join(__dirname, '../js/landmark-logos.js')).href);
   globalThis.Path2D ??= class { constructor(d) { this.d = d; } };
-  const colours = { hsbc: ['#ffffff', '#db0011'], dbs: ['#e1251b', '#ffffff'], 'standard-chartered': ['#38d200', '#0473ea'] };
+  const colours = { hsbc: ['#ffffff', '#db0011'], dbs: ['#e1251b', '#ffffff'], 'standard-chartered': ['#38d200', '#0473ea'], keppel: ['#55595c', '#ffffff', '#c8102e'] };
+  // the marks drawn from Commons paths: their drawings' width and height in its units, scaled to the box's height
+  const drawings = { 'standard-chartered': [68.92, 109.4], keppel: [501, 167] };
   assert.deepEqual(Object.keys(LOGOS).sort(), Object.keys(colours).sort());
   for (const [key, logo] of Object.entries(LOGOS)) {
     assert.equal(logo.id, key);
@@ -468,8 +470,9 @@ test("the tenants' marks paint themselves inside their box, in their colours", a
         for (const [px, py] of f.points) assert.ok(px >= x - 1e-9 && px <= x + w + 1e-9 && py >= y - 1e-9 && py <= y + h + 1e-9, `${key}: ${px}, ${py} inside its box`);
         continue;
       }
-      // Standard Chartered's paths: the Commons drawing's 68.92 by 109.4 units scaled to the box
-      assert.ok(near(f.origin[0], x) && near(f.origin[1], y) && near(f.scale * 109.4, h) && f.scale * 68.92 <= w + 1e-9, key);
+      // a path: the Commons drawing scaled to the box's height, within its width
+      const [dw, dh] = drawings[key];
+      assert.ok(near(f.origin[0], x) && near(f.origin[1], y) && near(f.scale * dh, h) && f.scale * dw <= w + 1e-9, key);
     }
   }
 });
