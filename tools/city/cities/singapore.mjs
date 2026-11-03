@@ -184,7 +184,14 @@ export default {
     { id: 'altez', name: 'Altez', model: 'altez', hide: [172023443, 393100852] },
     // SG-117 Skysuites @ Anson, 8 Enggor Street: its six-level podium outline (172023451) and the 71-storey tower
     // part over it (393100851, mapped 250 m from level 6); Mapletree Anson to the east remains.
-    { id: 'skysuites-anson', name: 'Skysuites @ Anson', model: 'skysuites-anson', hide: [172023451, 393100851] }
+    { id: 'skysuites-anson', name: 'Skysuites @ Anson', model: 'skysuites-anson', hide: [172023451, 393100851] },
+    // SG-007 Six Battery Road: its outline (mapped as a four-storey, 12 m podium) and the 42-storey tower part over it
+    // (106193384, 174 m); Singapore Land Tower, Maybank Tower, MYP Centre and the HSBC building remain.
+    { id: 'six-battery-road', name: 'Six Battery Road', model: 'six-battery-road', hide: [172916311, 106193384] },
+    // SG-147 the Merlion at the tip of Merlion Park, spouting into the bay, with the Merlion cub behind it: no
+    // building is mapped there (the statue is OSM way 182819157, an amenity=fountain sculpture; the cub node
+    // 6283080658), so it hides nothing and stands at the statue's centre
+    { id: 'merlion', name: 'Merlion', model: 'merlion', at: [1.286784, 103.854504] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]
