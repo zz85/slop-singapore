@@ -146,7 +146,10 @@ export default {
       1165452713,1165452714,1165452715,1165452716,1165452717,1165452718,1165452719,
       1165452720,1165452721,1165452722,1165452723,1165452724,1165452725,1165452726,
       1165452727,1165452728,1165452729,1165452730,1165452731,1165452732,1165452733,
-      1165452734,1165452735,1165452736,1165452737,1165452738,1165452739,1165452740] }
+      1165452734,1165452735,1165452736,1165452737,1165452738,1165452739,1165452740] },
+    // SG-115: WOHA's red-mesh tower on Peck Seah Street: its single mapped outline (27 levels, mapped 193 m;
+    // documented 190.15 m). Only this way is replaced; Guoco Tower's podium and the Tanjong Pagar neighbours stand as mapped.
+    { id: 'oasia-hotel-downtown', name: 'Oasia Hotel Downtown', model: 'oasia-hotel-downtown', hide: [393100847] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]
