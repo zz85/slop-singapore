@@ -38,10 +38,12 @@ test('the geodata anchors the six CBD landmarks with the mapped parts their prog
   assert.ok(guoco.parts.some((p) => p.height === 290 && p.minHeight === 180), 'the Wallich Residence part');
 });
 
-for (const [model, documented] of [['uob-plaza', 280], ['one-raffles-place', 283], ['guoco-tower', 290], ['republic-plaza', 280], ['asia-square', 228], ['marina-bay-financial-centre', 245], ['marina-one', 225], ['duo', 186],
+// [model, documented height, and where antennas rise over it: the masts' estimated top]
+for (const [model, documented, masts] of [['uob-plaza', 280], ['one-raffles-place', 283], ['guoco-tower', 290], ['republic-plaza', 280], ['asia-square', 228], ['marina-bay-financial-centre', 245], ['marina-one', 225], ['duo', 186],
   ['capitaspring', 280], ['ocean-financial-centre', 245], ['capitagreen', 242], ['the-sail', 245], ['one-raffles-quay', 245],
   ['capital-tower', 254], ['ocbc-centre', 198], ['altez', 250], ['skysuites-anson', 250], ['six-battery-road', 174], ['one-fullerton', 12],
-  ['artscience-museum', 60], ['apple-marina-bay-sands', 21]]) {
+  ['artscience-museum', 60], ['apple-marina-bay-sands', 21],
+  ['ioi-central-boulevard-towers', 237.9], ['18-robinson', 180], ['sgx-centre', 187, 196.5]]) {
   test(`${model}: builds on its anchor to its documented height, with nothing to flicker`, async () => {
     const { GEO } = await geodata;
     const L = GEO.landmarks.find((l) => l.model === model);
@@ -54,7 +56,7 @@ for (const [model, documented] of [['uob-plaza', 280], ['one-raffles-place', 283
     const ms = performance.now() - t0;
     assert.ok(ms < 500, `built in ${Math.round(ms)} ms`);
     const b = kit.bounds();
-    assert.ok(Math.abs(b.maxY - documented) <= 3, `${b.maxY} m tall, ${documented} documented`);
+    assert.ok(Math.abs(b.maxY - (masts ?? documented)) <= 3, `${b.maxY} m tall, ${documented} documented${masts ? `, masts to ${masts}` : ''}`);
     assert.ok(b.minY >= -0.5 && b.minY <= 0.5, `stands on the ground (${b.minY})`);
     assert.ok(Math.max(Math.abs(b.minX), Math.abs(b.maxX), Math.abs(b.minZ), Math.abs(b.maxZ)) < 200, 'within 200 m of its anchor');
     assert.ok(kit.parts.length >= 4, `${kit.parts.length} parts`);
