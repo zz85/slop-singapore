@@ -198,6 +198,10 @@ export default {
     { id: 'singapore-land-tower', name: 'Singapore Land Tower', model: 'singapore-land-tower', hide: [46595418, 939684168] },
     // SG-009 Maybank Tower: the outline, podium and three overlapping shaft/roof ways at 2 Battery Road.
     { id: 'maybank-tower', name: 'Maybank Tower', model: 'maybank-tower', hide: [106193386, 1075240989, 1075240988, 325793730, 1075553558] },
+    // SG-012: Prudential's podium and curved shaft. Samsung Hub has its own mapped envelope.
+    { id: 'prudential-tower', name: 'Prudential Tower', model: 'prudential-tower', hide: [171999306, 326926563] },
+    // SG-023: the former Asia Insurance Building and its overlapping upper parts.
+    { id: 'ascott-raffles-place', name: 'Ascott Raffles Place', model: 'ascott-raffles-place', hide: [47345005, 463857984, 463857986, 463857988, 463857989] },
     // SG-147 the Merlion at the tip of Merlion Park, spouting into the bay, with the Merlion cub behind it: no
     // building is mapped there (the statue is OSM way 182819157, an amenity=fountain sculpture; the cub node
     // 6283080658), so it hides nothing and stands at the statue's centre
