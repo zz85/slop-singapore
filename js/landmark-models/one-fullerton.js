@@ -40,13 +40,29 @@ export function build(kit, site) {
   kit.prism({ ring: kit.inset(bodyRing, -0.14), y0: 3.85, y1: 4.05, material: M.silver, top: M.silver, name: 'string-course' });
   kit.prism({ ring: kit.inset(bodyRing, -0.14), y0: 7.42, y1: 7.66, material: M.silver, top: M.silver, name: 'eaves-band' });
 
-  // The wave shells: each mapped skillion part as a sloped silver roof at its mapped drop and direction.
-  // Successive shells are inset a few centimetres further so their shared mapped edges never lie coplanar.
+  // The part of a ring where f(point) >= 0 (one half-plane cut)
+  const cut = (ring, f) => ring.flatMap((a, i) => {
+    const b = ring[(i + 1) % ring.length], fa = f(a), fb = f(b), out = fa >= 0 ? [a] : [];
+    if ((fa >= 0) !== (fb >= 0)) { const s = fa / (fa - fb); out.push([a[0] + (b[0] - a[0]) * s, a[1] + (b[1] - a[1]) * s]); }
+    return out;
+  });
+
+  // The wave shells: each mapped skillion part as a sloped silver roof at its mapped drop and direction, its base
+  // kept under its low edge (the big northern shell drops 5 m, below the glass body's top). Successive shells are
+  // inset a few centimetres further so their shared mapped edges never lie coplanar. Their collision steps down the
+  // slope in bands a metre of drop apart, each just under the roof's low side within it, so nothing stands above it.
   SHELLS.forEach((id, i) => {
     const p = raw(id), ring = kit.inset(ringOf(id), i * 0.08);
     const drop = p.roofHeight > 0 ? p.roofHeight : 3, dir = p.roofDir >= 0 ? p.roofDir : 19;
-    kit.prism({ ring, y0: BODY + 0.05, y1: kit.sloped(ring, ROOF, drop, dir), material: M.silver, top: M.silver, name: `wave-roof-${id}` });
-    kit.collisionPrism({ ring: kit.inset(ring, 0.3), y0: BODY, y1: ROOF - 0.1 });
+    const y0 = Math.min(BODY + 0.05, ROOF - drop - 0.3);
+    kit.prism({ ring, y0, y1: kit.sloped(ring, ROOF, drop, dir), material: M.silver, top: M.silver, name: `wave-roof-${id}` });
+    const [dx, dz] = kit.compass(dir), along = ([x, z]) => x * dx + z * dz;
+    const lo = Math.min(...ring.map(along)), span = Math.max(...ring.map(along)) - lo, steps = Math.ceil(drop);
+    for (let k = 0; k < steps; k++) {
+      const a = lo + span * k / steps, b = lo + span * (k + 1) / steps;
+      const band = cut(cut(kit.inset(ring, 0.3), (q) => along(q) - a), (q) => b - along(q));
+      if (band.length >= 3) kit.collisionPrism({ ring: band, y0, y1: ROOF - drop * (k + 1) / steps - 0.1 });
+    }
   });
   // The low flat links between the shells
   LINKS.forEach((id, i) => {

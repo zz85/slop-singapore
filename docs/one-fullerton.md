@@ -26,13 +26,13 @@ One outline plus seven `building:part` ways inside it; no enclosing relation ref
 | 407926390 | `height=12`, glass, skillion, `roof:direction=199`, `roof:height=5` | The large northern shell, sloping down toward SSW |
 | 407926388 | `height=12`, `min_height=8`, glass, flat | The raised elliptical drum/clerestory in the middle |
 
-Registration: `id/model: one-fullerton`, `hide` exactly the eight ways above. The parts overlap each other (the mappers layered the shells), so the model does **not** extrude every part full-height: one recessed glass body stands on the outline, and each part ring becomes the roof element its tags describe, at its mapped height. Dimensions: total height **12 m (mapped)**; two storeys (mapped/owner); body top, shell bases and drum split (7.6 / 7.65 / 11.2 m) are **visual estimates** from the 2019 elevation, not surveyed. Shell drops and directions are the mapped `roof:height`/`roof:direction` values.
+Registration: `id/model: one-fullerton`, `hide` exactly the eight ways above. The parts overlap each other (the mappers layered the shells), so the model does **not** extrude every part full-height: one recessed glass body stands on the outline, and each part ring becomes the roof element its tags describe, at its mapped height. Dimensions: total height **12 m (mapped)**; two storeys (mapped/owner); body top, shell bases and drum split (7.6 / 7.65 / 11.2 m) are **visual estimates** from the 2019 elevation, not surveyed. Shell drops and directions are the mapped `roof:height`/`roof:direction` values; the big northern shell's 5 m drop reaches 7 m, below the body's top, so its base sits 0.3 m under that low edge (6.7 m), hanging as a fascia over the glass.
 
 ## Modelling contract
 
 - Recessed dark-teal glass body (two storeys) under overhanging pale-silver wave shells; the shells are the recognition feature from the map camera.
 - Raised drum with its own cap, flat links between shells, thin silver string courses, white ONE FULLERTON sign on the bay face as photographed.
-- Collision: body at ground (automatic), explicit prisms for shells, links and drum so nothing descends through a roof; promenade and bay stay open.
+- Collision: body at ground (automatic), explicit prisms for links and drum, and for each shell bands stepping down its slope a metre of drop apart, each 0.1 m under the roof's low side within it, so nothing descends through a roof and nothing stands above one; promenade and bay stay open.
 - Finite geometry, zero coplanar flicker, < 65,000 triangles, ≤ 16 material batches. Tests probe independently located points (south/middle/north segments, drum, bay, road).
 
 ## Verification — 2026-11-03

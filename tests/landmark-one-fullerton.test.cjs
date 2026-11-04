@@ -96,21 +96,31 @@ test('SG-033 One Fullerton: a two-storey glass body under sloped wave shells to 
   const shells = kit.parts.filter((p) => p.name.startsWith('wave-roof-'));
   assert.ok(shells.length >= 4, `${shells.length} wave-roof shells from the mapped skillion parts`);
   assert.ok(shells.filter((p) => p.caps.length === 0).length >= 3, 'the shells are genuinely sloped tops, not flat slabs');
+  for (const p of kit.parts) assert.ok(p.bounds.minY >= p.y0 - 1e-6, `${p.name}: its top never dips below its base (${p.bounds.minY} < ${p.y0})`);
   const [dx, dz] = at(...P.drum);
   assert.ok(builtOver(kit, dx, dz, 9, 10.5).length, 'the raised drum stands above the body in the middle');
   assert.ok(kit.parts.some((p) => p.type === 'sign' && /fullerton/i.test(p.name)), 'the ONE FULLERTON sign of the photographs');
 });
 
 test('SG-033 One Fullerton stays finite, batched and flicker-free; roofs solid, bay and road open', async () => {
-  const { kit, at } = await model();
+  const { kit, L, at } = await model();
   assert.ok(kit.triangles > 300 && kit.triangles < 65000, `${kit.triangles} triangles`);
   assert.equal(kit.flicker().length, 0, JSON.stringify(kit.flicker().slice(0, 10)));
   const { group, colliders, footprints } = kit.finish();
   assert.ok(group.children.length <= 16, `${group.children.length} material batches`);
   for (const p of kit.parts) for (const v of Object.values(p.bounds)) assert.ok(Number.isFinite(v), p.name);
   const hit = (where, y) => { const [, , x, z] = at(...where); return colliderAt(colliders, x, y, z); };
-  assert.ok(hit(P.south, 10), 'the southern shell stops descent');
-  assert.ok(hit(P.north, 10.5), 'the northern shell stops descent');
+  // the mapped slope over a probe: the shells' collision follows it, just under the visible roof and never above
+  const site = siteOf(L);
+  const roofAt = (id, where) => {
+    const p = site.parts.find((q) => q.id === id), [x, z] = at(...where);
+    return kit.sloped(p.ring, 12, p.roofHeight, p.roofDir)(x, z);
+  };
+  for (const [name, where, id] of [['southern', P.south, 407926371], ['northern', P.north, 407926390]]) {
+    const roof = roofAt(id, where);
+    assert.ok(hit(where, roof - 1.5), `the ${name} shell stops descent under its ${roof.toFixed(1)} m roof`);
+    assert.ok(!hit(where, roof + 0.3), `nothing to stand on above the ${name} shell's ${roof.toFixed(1)} m roof`);
+  }
   assert.ok(hit(P.drum, 10), 'the drum stops descent');
   assert.ok(!hit(P.bay, 3) && !hit(P.road, 3), 'the bay and Fullerton Road stay open');
   assert.ok(footprints.some((f) => f.h >= 11), 'the map has the building at its height');
