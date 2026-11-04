@@ -24,6 +24,14 @@ test('city module preloads start after the import map and before stylesheets', (
   assert.equal(imports.three, imports['three/webgpu'], 'Three.js aliases share one module instance');
 });
 
+test('three.js preloads from the import map\'s own URLs, before the city modules', () => {
+  const { imports } = JSON.parse(importMap[1]);
+  const three = [...html.matchAll(/<link rel="modulepreload" href="(https:[^"]+)" crossorigin\s*\/>/g)];
+  const core = new URL('three.core.js', imports['three/webgpu']).href;
+  assert.deepEqual(three.map((m) => m[1]).sort(), [imports['three/webgpu'], imports['three/tsl'], core].sort());
+  for (const m of three) assert.ok(importMap.index < m.index && m.index < preloads[0].index);
+});
+
 test('native module entry and imports share canonical preloaded URLs on GitHub Pages', () => {
   const links = preloads.map((match) => match[1]);
   assert.equal(links.length, 71);
