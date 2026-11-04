@@ -30,4 +30,4 @@ The model replaces these five ways. Bank of China at 4 Battery Road, the Fullert
 - The model uses 892 triangles and eight material batches. The kit reports zero coplanar overlaps. Checked Tiny and daylight in WebGL and WebGPU, plus the loaded Tiny city view. The bands, podium and crown were compared with the river, aerial and street photographs.
 - [Four-view preview](images/maybank-tower-overview.png) and [city view](images/maybank-tower-city.png). With the repo served locally, use `/tools/landmark-preview.html?model=maybank-tower&view=n&look=day` for the river elevation and `/?look=tiny&at=maybank-tower&camera=map&dist=730&pitch=56&yaw=180` for the city view.
 
-The sloped roof collision uses conservative 2 m steps above the eaves. Window framing, the tiger roundel and the branch frontage are simplified.
+The sloped roof collision uses conservative 2 m steps above the eaves, with up to 1 m of clearance below the highest edge. Window framing, the tiger roundel and the branch frontage are simplified.

@@ -54,7 +54,7 @@ export function build(kit, site) {
   }
   solid(kit.inset(podium, 0.2), 15.2, 16, deck, 'podium-deck');
   solid(rectangle(15, 44, 9, 8), 16, 22.6, lobby, 'terrace-pavilion', silver);
-  for (const [a, b, w, d] of [[26, 44, 12, 2.2], [36, 39, 11, 2.3], [10, 45, 2.3, 8]]) {
+  for (const [a, b, w, d] of [[26, 44, 12, 2.2], [41, 37.5, 6, 2.3], [10, 45, 2.3, 8]]) {
     kit.prism({ ring: rectangle(a, b, w, d), y0: 16, y1: 16.65, material: green, top: green, name: 'terrace-planter' });
   }
 
