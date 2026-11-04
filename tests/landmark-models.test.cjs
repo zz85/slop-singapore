@@ -503,7 +503,13 @@ test('SG-226 The Gateway is finite, batched and free of coplanar flicker', async
 });
 
 // SG-253: the Hill Street fire station, probed at lon/lats placed from the documented drawing frame
-// (a m at 117 deg, b m at 27 deg from 1.292149 N, 103.848598 E; docs/central-fire-station.md)
+// (a m at 117 deg, b m at 27 deg from 1.292149 N, 103.848598 E; docs/central-fire-station.md). Hill Street
+// runs along b on the high-a side of the ring, where the street front faces it.
+const fireStationPoint = (at, a, b) => {
+  const north = a * Math.cos(117 * Math.PI / 180) + b * Math.cos(27 * Math.PI / 180);
+  const east = a * Math.sin(117 * Math.PI / 180) + b * Math.sin(27 * Math.PI / 180);
+  return at(103.8485982 + east / 111292, 1.2921487 + north / 110574);
+};
 test('SG-253 Central Fire Station replaces its one mapped perimeter way', async () => {
   const { kit, L, info } = await siteModel('central-fire-station');
   const { default: config } = await import('../tools/city/cities/singapore.mjs');
@@ -526,32 +532,60 @@ test('SG-253 Central Fire Station replaces its one mapped perimeter way', async 
 
 test('SG-253 Central Fire Station keeps its drill yard open inside brick ranges and the hose tower', async () => {
   const { kit, at } = await siteModel('central-fire-station');
-  const top = (lon, lat) => { const [x, z] = at(lon, lat); return Math.max(0, ...builtOver(kit, x, z, 0, 60).map((p) => p.y1)); };
-  const over = (lon, lat, y0, y1) => { const [x, z] = at(lon, lat); return builtOver(kit, x, z, y0, y1); };
-  assert.ok(top(103.848959, 1.292025) >= 12.5 && top(103.848959, 1.292025) <= 14.5, 'Hill Street engine-house range at three storeys');
-  assert.ok(top(103.848736, 1.292301) >= 12.5 && top(103.848736, 1.292301) <= 14.5, 'Coleman Street wing at three storeys');
-  assert.ok(top(103.849250, 1.292261) >= 12.5 && top(103.849250, 1.292261) <= 14.5, 'rear barracks wing toward Fort Canning');
-  assert.ok(top(103.849232, 1.292047) >= 9 && top(103.849232, 1.292047) <= 14.5, 'plainer south-east side wing');
-  assert.equal(over(103.848928, 1.292203, 1, 30).length, 0, 'the drill yard stays open inside the ranges');
-  assert.equal(over(103.849022, 1.292388, 1, 30).length, 0, 'the north-east yard stays open toward Fort Canning');
-  assert.ok(over(103.849096, 1.292046, 20, 21).length, 'tower shaft still rising at 20 m, above every roof');
-  assert.ok(top(103.849096, 1.292046) >= 33, 'tower reaches its documented height at its mapped position');
-  assert.ok(over(103.848679, 1.292244, 15, 16).length, 'domed turret stage above the Coleman wing roof');
-  assert.equal(kit.parts.filter((p) => p.name === 'engine-door').length, 6, 'six red engine doors on Hill Street');
+  const over = (a, b, y0, y1) => { const [x, z] = fireStationPoint(at, a, b); return builtOver(kit, x, z, y0, y1); };
+  const top = (a, b) => Math.max(0, ...over(a, b, 0, 60).map((p) => p.y1));
+  assert.ok(top(30, 6) >= 12.5 && top(30, 6) <= 14.5, 'the plain back range toward Fort Canning at three storeys');
+  assert.ok(top(6, 22) >= 12.5 && top(6, 22) <= 14.5, 'the north-west block at three storeys');
+  assert.ok(top(62, 28) >= 12.5 && top(62, 28) <= 14.5, 'the 1909 block on Hill Street at three storeys');
+  assert.ok(top(59, 44) >= 10.5 && top(59, 44) < 12.5, `the extension north along Hill Street stands lower: ${top(59, 44)} m`);
+  assert.equal(over(30, 22, 1, 30).length, 0, 'the drill yard stays open inside the ranges');
+  assert.equal(over(30, 45, 1, 30).length, 0, 'and open toward Coleman Street');
+  assert.ok(over(54.5, 18.25, 20, 21).length, 'tower shaft still rising at 20 m, above every roof');
+  assert.ok(top(54.5, 18.25) >= 33, 'tower reaches its documented height');
   for (const name of ['tower-shaft', 'tower-attic', 'tower-pyramid-roof', 'tower-cupola']) assert.ok(kit.parts.some((p) => p.name === name), name);
+});
+
+test('SG-253 Central Fire Station faces Hill Street: frontispiece, turrets and tower in line, red doors along the street', async () => {
+  const { kit, at } = await siteModel('central-fire-station');
+  const [ox, oz] = fireStationPoint(at, 0, 0), [ax, az] = fireStationPoint(at, 1, 0), [bx, bz] = fireStationPoint(at, 0, 1);
+  const frame = (x, z) => [(x - ox) * (ax - ox) + (z - oz) * (az - oz), (x - ox) * (bx - ox) + (z - oz) * (bz - oz)];
+  const centre = (p) => frame((p.bounds.minX + p.bounds.maxX) / 2, (p.bounds.minZ + p.bounds.maxZ) / 2);
+  const over = (a, b, y0, y1) => { const [x, z] = fireStationPoint(at, a, b); return builtOver(kit, x, z, y0, y1); };
+  const top = (a, b) => Math.max(0, ...over(a, b, 0, 60).map((p) => p.y1));
+  // OSM's Hill Street (way nodes 1.29197 N 103.84929 E and 1.29233 N 103.84944 E) runs along b beyond a 76
+  for (const [lon, lat] of [[103.84929, 1.29197], [103.84944, 1.29233]]) {
+    const [x, z] = at(lon, lat), [a] = frame(x, z);
+    assert.ok(a > 73 && a < 79, `Hill Street at a ${a.toFixed(1)}`);
+    assert.equal(builtOver(kit, x, z, 0, 60).length, 0, 'nothing built on Hill Street');
+  }
+  const doors = kit.parts.filter((p) => p.name === 'engine-door');
+  assert.equal(doors.length, 13, 'seven arched doors on the 1909 block and six on the extension');
+  for (const d of doors) assert.ok(centre(d)[0] > 65, `every red door faces Hill Street (a ${centre(d)[0].toFixed(1)})`);
+  assert.ok(over(70.5, 18.25, 16, 17).some((p) => p.name === 'frontispiece-pediment'), 'the pediment over the frontispiece');
+  assert.ok(top(70.5, 18.25) >= 17 && top(70.5, 18.25) <= 17.6, `the pediment's apex: ${top(70.5, 18.25)} m`);
+  assert.equal(over(74, 18.25, 0, 30).length, 0, 'the pavement in front of the frontispiece is clear');
+  const turrets = kit.parts.filter((p) => p.name === 'turret').map(centre);
+  const [tower] = kit.parts.filter((p) => p.name === 'tower-shaft').map(centre);
+  assert.equal(turrets.length, 2);
+  for (const [a] of turrets) assert.ok(a > tower[0] + 12, 'the turrets stand on the street front, well before the tower');
+  assert.ok(Math.min(turrets[0][1], turrets[1][1]) < tower[1] && tower[1] < Math.max(turrets[0][1], turrets[1][1]), 'the tower rises centred between them');
+  for (const b of [14.5, 22]) assert.ok(top(69.65, b) >= 23.5, `a domed turret with its spike at b ${b}`);
+  assert.equal(over(30, 0.3, 0, 4.5).filter((p) => p.name === 'engine-door' || p.name === 'striped-pier').length, 0, 'the back range toward Fort Canning has no street front');
 });
 
 test('SG-253 Central Fire Station is solid where it stands and clear where it does not', async () => {
   const { kit, at } = await siteModel('central-fire-station');
   const { colliders } = kit.finish();
-  const hit = (lon, lat, y) => { const [, , x, z] = at(lon, lat); return colliderAt(colliders, x, y, z); };
-  assert.ok(hit(103.848959, 1.292025, 12), 'front range interior stops descent just under its roof');
-  assert.ok(!hit(103.848959, 1.292025, 15), 'open air above the front parapet');
-  assert.ok(hit(103.849096, 1.292046, 20), 'tower shaft stops descent');
-  assert.ok(hit(103.849096, 1.292046, 29.5), 'tower pyramid roof stops descent inside its visible slope');
-  assert.ok(!hit(103.849096, 1.292046, 37), 'open air above the cupola');
-  assert.ok(!hit(103.848928, 1.292203, 1.6) && !hit(103.848928, 1.292203, 8), 'the drill yard has no invisible building');
-  assert.ok(!hit(103.848894, 1.291896, 2), 'Hill Street itself stays clear of the model');
+  const hit = (a, b, y) => { const [, , x, z] = fireStationPoint(at, a, b); return colliderAt(colliders, x, y, z); };
+  assert.ok(hit(30, 6, 12), 'back range interior stops descent just under its roof');
+  assert.ok(!hit(30, 6, 15), 'open air above its parapet');
+  assert.ok(hit(54.5, 18.25, 20), 'tower shaft stops descent');
+  assert.ok(hit(54.5, 18.25, 29.5), 'tower pyramid roof stops descent inside its visible slope');
+  assert.ok(!hit(54.5, 18.25, 37), 'open air above the cupola');
+  assert.ok(hit(70, 18.25, 14), 'the frontispiece is solid');
+  assert.ok(!hit(30, 22, 1.6) && !hit(30, 22, 8), 'the drill yard has no invisible building');
+  assert.ok(!hit(77, 18, 2), 'Hill Street itself stays clear of the model');
+  assert.ok(!hit(42, -10, 2), 'and so does the slope toward Fort Canning');
 });
 
 // SG-235: the Gotham tower at 600 North Bridge Road, probed at lon/lats placed from the documented
