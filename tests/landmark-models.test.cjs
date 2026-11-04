@@ -40,7 +40,8 @@ test('the geodata anchors the six CBD landmarks with the mapped parts their prog
 
 for (const [model, documented] of [['uob-plaza', 280], ['one-raffles-place', 283], ['guoco-tower', 290], ['republic-plaza', 280], ['asia-square', 228], ['marina-bay-financial-centre', 245], ['marina-one', 225], ['duo', 186],
   ['capitaspring', 280], ['ocean-financial-centre', 245], ['capitagreen', 242], ['the-sail', 245], ['one-raffles-quay', 245],
-  ['capital-tower', 254], ['ocbc-centre', 198], ['altez', 250], ['skysuites-anson', 250], ['six-battery-road', 174], ['one-fullerton', 12]]) {
+  ['capital-tower', 254], ['ocbc-centre', 198], ['altez', 250], ['skysuites-anson', 250], ['six-battery-road', 174], ['one-fullerton', 12],
+  ['artscience-museum', 60], ['apple-marina-bay-sands', 21]]) {
   test(`${model}: builds on its anchor to its documented height, with nothing to flicker`, async () => {
     const { GEO } = await geodata;
     const L = GEO.landmarks.find((l) => l.model === model);
