@@ -232,6 +232,15 @@ export default {
       463425290, 463425291, 463425292, 463425293, 463425294, 463425295, 463425296, 463425297, 463425298, 463425299,
       463425300, 463425303, 463425304, 463425305, 463425306,
       460430417, 460430418, 460430419, 460430420] },
+    // SG-226 The Gateway: Pei's two trapezoidal office blades either side of Beach Road, each mapped as a single
+    // unnamed 37-level, 150 m way (East at 152 Beach Road, West at 150); The Plaza, PARKROYAL and DUO remain.
+    { id: 'the-gateway', name: 'The Gateway', model: 'the-gateway', hide: [47126588, 47126589] },
+    // SG-253 Central Fire Station: the one 41-point way traces the perimeter ranges around the open drill yard;
+    // the Armenian Church, Children's Museum and National Archives around it remain mapped.
+    { id: 'central-fire-station', name: 'Central Fire Station', model: 'central-fire-station', hide: [172368086] },
+    // SG-235 Parkview Square: its site outline, the plaza slab, the 6-level base, the level 6-8 band in three
+    // pieces and the shaft from level 8 (24 levels in all); DUO, Raffles Hospital and Guoco Midtown remain.
+    { id: 'parkview-square', name: 'Parkview Square', model: 'parkview-square', hide: [560274694, 560274695, 560274696, 560274697, 560274698, 560274699, 560274700] },
     // SG-045 IOI Central Boulevard Towers: the site outline and its duplicate "Central Square" outline, the six-level
     // podium, the four-level part under the sky park, the West and East Towers and the two grey parts at levels 6–8;
     // the two link bridges (1075230984, 1206694671), which only reach into the site, remain.

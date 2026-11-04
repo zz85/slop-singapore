@@ -41,7 +41,7 @@ test('the geodata anchors the six CBD landmarks with the mapped parts their prog
 // [model, documented height, and where antennas rise over it: the masts' estimated top]
 for (const [model, documented, masts] of [['uob-plaza', 280], ['one-raffles-place', 283], ['guoco-tower', 283.7], ['republic-plaza', 280], ['asia-square', 228], ['marina-bay-financial-centre', 245], ['marina-one', 225], ['duo', 186],
   ['capitaspring', 280], ['ocean-financial-centre', 245], ['capitagreen', 242], ['the-sail', 245], ['one-raffles-quay', 245],
-  ['capital-tower', 254], ['ocbc-centre', 198], ['altez', 250], ['skysuites-anson', 250], ['six-battery-road', 174], ['one-fullerton', 12],
+  ['capital-tower', 254], ['ocbc-centre', 198], ['altez', 250], ['skysuites-anson', 250], ['six-battery-road', 174], ['one-fullerton', 12], ['the-gateway', 150], ['central-fire-station', 34], ['parkview-square', 144],
   ['artscience-museum', 60], ['apple-marina-bay-sands', 21],
   ['ioi-central-boulevard-towers', 237.9], ['18-robinson', 180], ['sgx-centre', 187, 196.5],
   ['mas-building', 138]]) {
@@ -448,6 +448,202 @@ test('SG-034 Waterboat House keeps paths clear and stops descent through roofs a
 test('SG-034 Waterboat House is finite, batched and free of coplanar flicker', async () => {
   const { kit } = await waterboatModel();
   assert.ok(kit.triangles > 1500 && kit.triangles < 65000, `${kit.triangles} triangles`);
+  for (const p of kit.parts) for (const v of Object.values(p.bounds)) assert.ok(Number.isFinite(v), p.name);
+  assert.equal(kit.flicker().length, 0, JSON.stringify(kit.flicker().slice(0, 10)));
+  assert.ok(kit.finish().group.children.length <= 16, 'at most 16 merged material batches');
+});
+
+// SG-226: Pei's trapezoidal pair at 150/152 Beach Road, probed at independently located lon/lats
+test('SG-226 The Gateway replaces exactly its two mapped 150 m towers', async () => {
+  const { kit, L, info } = await siteModel('the-gateway');
+  const { default: config } = await import('../tools/city/cities/singapore.mjs');
+  const registration = config.landmarks.find((l) => l.id === L.id);
+  assert.deepEqual(registration.hide, [47126588, 47126589]);
+  assert.equal(registration.hideRelations?.length || 0, 0);
+  assert.deepEqual(L.parts.map((p) => p.id).sort((a, b) => a - b), [47126588, 47126589]);
+  for (const p of L.parts) { assert.equal(p.height, 150); assert.equal(p.levels, 37); }
+  assert.equal(info.name, 'The Gateway');
+  assert.equal(info.height, 150);
+  assert.ok(Math.hypot(L.x, L.z) > 100, 'real Beach Road anchor, not the world origin');
+  const b = kit.bounds();
+  assert.ok(b.maxY >= 148 && b.maxY <= 151, `documented 150 m roof: ${b.maxY} m`);
+  assert.ok(b.minY >= -0.5 && b.minY <= 0.5);
+  for (const [axis, i] of [['X', 0], ['Z', 1]]) {
+    const values = L.parts.flatMap((p) => p.ring.filter((_, k) => k % 2 === i)).map((v) => v - L[axis.toLowerCase()]);
+    assert.ok(b['min' + axis] >= Math.min(...values) - 2, axis + ' lower bound on the mapped towers');
+    assert.ok(b['max' + axis] <= Math.max(...values) + 2, axis + ' upper bound on the mapped towers');
+  }
+});
+
+test('SG-226 The Gateway keeps Beach Road open between two sheer blades with their acute tips', async () => {
+  const { kit, at } = await siteModel('the-gateway');
+  const { colliders } = kit.finish();
+  const top = (lon, lat) => { const [x, z] = at(lon, lat); return Math.max(0, ...builtOver(kit, x, z, 0, 200).map((p) => p.y1)); };
+  const hit = (lon, lat, y) => { const [, , x, z] = at(lon, lat); return colliderAt(colliders, x, y, z); };
+  assert.ok(top(103.859360, 1.298830) >= 146, 'Gateway East rises the full height at its mapped centre');
+  assert.ok(top(103.858870, 1.298340) >= 146, 'Gateway West rises the full height at its mapped centre');
+  const [gx, gz] = at(103.859115, 1.298585); // Beach Road, midway between the two mapped centres
+  assert.equal(builtOver(kit, gx, gz, 0, 200).length, 0, 'nothing built across the road between the blades');
+  assert.ok(!hit(103.859115, 1.298585, 2) && !hit(103.859115, 1.298585, 80), 'no invisible mass over Beach Road');
+  const [tx, tz] = at(103.859209, 1.299117); // 8 m inside Gateway East's acute NW tip (1.299184, 103.859182), along its bisector
+  assert.ok(builtOver(kit, tx, tz, 20, 30).length, 'the sharp tip itself is built, not a blunted box corner');
+  const [ox, oz] = at(103.859141, 1.299284); // 12 m beyond the tip along the same bisector
+  assert.equal(builtOver(kit, ox, oz, 0, 200).length, 0, 'clear air beyond the tip');
+  assert.ok(hit(103.859360, 1.298830, 100), 'East shaft is solid at 100 m');
+  assert.ok(hit(103.858870, 1.298340, 100), 'West shaft is solid at 100 m');
+  assert.ok(!hit(103.859360, 1.298830, 155), 'open air above the 150 m roof');
+});
+
+test('SG-226 The Gateway is finite, batched and free of coplanar flicker', async () => {
+  const { kit } = await siteModel('the-gateway');
+  assert.ok(kit.triangles > 100 && kit.triangles < 65000, `${kit.triangles} triangles`);
+  for (const p of kit.parts) for (const v of Object.values(p.bounds)) assert.ok(Number.isFinite(v), p.name);
+  assert.equal(kit.flicker().length, 0, JSON.stringify(kit.flicker().slice(0, 10)));
+  assert.ok(kit.finish().group.children.length <= 16, 'at most 16 merged material batches');
+});
+
+// SG-253: the Hill Street fire station, probed at lon/lats placed from the documented drawing frame
+// (a m at 117 deg, b m at 27 deg from 1.292149 N, 103.848598 E; docs/central-fire-station.md)
+test('SG-253 Central Fire Station replaces its one mapped perimeter way', async () => {
+  const { kit, L, info } = await siteModel('central-fire-station');
+  const { default: config } = await import('../tools/city/cities/singapore.mjs');
+  const registration = config.landmarks.find((l) => l.id === L.id);
+  assert.deepEqual(registration.hide, [172368086]);
+  assert.equal(registration.hideRelations?.length || 0, 0);
+  assert.deepEqual(L.parts.map((p) => p.id), [172368086]);
+  assert.equal(info.name, 'Central Fire Station');
+  assert.equal(info.height, 34, 'the documented 34 m lookout tower');
+  assert.ok(Math.hypot(L.x, L.z) > 100, 'real Hill Street anchor, not the world origin');
+  const b = kit.bounds();
+  assert.ok(b.maxY >= 33 && b.maxY <= 35.5, `tower cupola at about 34 m: ${b.maxY} m`);
+  assert.ok(b.minY >= -0.5 && b.minY <= 0.5);
+  for (const [axis, i] of [['X', 0], ['Z', 1]]) {
+    const values = L.parts[0].ring.filter((_, k) => k % 2 === i).map((v) => v - L[axis.toLowerCase()]);
+    assert.ok(b['min' + axis] >= Math.min(...values) - 2.2, axis + ' lower bound on the mapped ranges');
+    assert.ok(b['max' + axis] <= Math.max(...values) + 2.2, axis + ' upper bound on the mapped ranges');
+  }
+});
+
+test('SG-253 Central Fire Station keeps its drill yard open inside brick ranges and the hose tower', async () => {
+  const { kit, at } = await siteModel('central-fire-station');
+  const top = (lon, lat) => { const [x, z] = at(lon, lat); return Math.max(0, ...builtOver(kit, x, z, 0, 60).map((p) => p.y1)); };
+  const over = (lon, lat, y0, y1) => { const [x, z] = at(lon, lat); return builtOver(kit, x, z, y0, y1); };
+  assert.ok(top(103.848959, 1.292025) >= 12.5 && top(103.848959, 1.292025) <= 14.5, 'Hill Street engine-house range at three storeys');
+  assert.ok(top(103.848736, 1.292301) >= 12.5 && top(103.848736, 1.292301) <= 14.5, 'Coleman Street wing at three storeys');
+  assert.ok(top(103.849250, 1.292261) >= 12.5 && top(103.849250, 1.292261) <= 14.5, 'rear barracks wing toward Fort Canning');
+  assert.ok(top(103.849232, 1.292047) >= 9 && top(103.849232, 1.292047) <= 14.5, 'plainer south-east side wing');
+  assert.equal(over(103.848928, 1.292203, 1, 30).length, 0, 'the drill yard stays open inside the ranges');
+  assert.equal(over(103.849022, 1.292388, 1, 30).length, 0, 'the north-east yard stays open toward Fort Canning');
+  assert.ok(over(103.849096, 1.292046, 20, 21).length, 'tower shaft still rising at 20 m, above every roof');
+  assert.ok(top(103.849096, 1.292046) >= 33, 'tower reaches its documented height at its mapped position');
+  assert.ok(over(103.848679, 1.292244, 15, 16).length, 'domed turret stage above the Coleman wing roof');
+  assert.equal(kit.parts.filter((p) => p.name === 'engine-door').length, 6, 'six red engine doors on Hill Street');
+  for (const name of ['tower-shaft', 'tower-attic', 'tower-pyramid-roof', 'tower-cupola']) assert.ok(kit.parts.some((p) => p.name === name), name);
+});
+
+test('SG-253 Central Fire Station is solid where it stands and clear where it does not', async () => {
+  const { kit, at } = await siteModel('central-fire-station');
+  const { colliders } = kit.finish();
+  const hit = (lon, lat, y) => { const [, , x, z] = at(lon, lat); return colliderAt(colliders, x, y, z); };
+  assert.ok(hit(103.848959, 1.292025, 12), 'front range interior stops descent just under its roof');
+  assert.ok(!hit(103.848959, 1.292025, 15), 'open air above the front parapet');
+  assert.ok(hit(103.849096, 1.292046, 20), 'tower shaft stops descent');
+  assert.ok(hit(103.849096, 1.292046, 29.5), 'tower pyramid roof stops descent inside its visible slope');
+  assert.ok(!hit(103.849096, 1.292046, 37), 'open air above the cupola');
+  assert.ok(!hit(103.848928, 1.292203, 1.6) && !hit(103.848928, 1.292203, 8), 'the drill yard has no invisible building');
+  assert.ok(!hit(103.848894, 1.291896, 2), 'Hill Street itself stays clear of the model');
+});
+
+// SG-235: the Gotham tower at 600 North Bridge Road, probed at lon/lats placed from the documented
+// drawing frame (a m at 44 deg, b m at 314 deg from 1.299778 N, 103.857606 E; docs/parkview-square.md)
+test('SG-235 Parkview Square replaces its outline, plaza and stacked parts', async () => {
+  const { kit, L, info } = await siteModel('parkview-square');
+  const { default: config } = await import('../tools/city/cities/singapore.mjs');
+  const registration = config.landmarks.find((l) => l.id === L.id);
+  assert.deepEqual(registration.hide, [560274694, 560274695, 560274696, 560274697, 560274698, 560274699, 560274700]);
+  assert.equal(registration.hideRelations?.length || 0, 0);
+  assert.deepEqual(L.parts.map((p) => p.id).sort((a, b) => a - b), [560274694, 560274695, 560274696, 560274697, 560274698, 560274699, 560274700]);
+  assert.equal(L.parts.find((p) => p.id === 560274695).levels, 24, 'the shaft part carries the full 24 levels');
+  assert.equal(L.parts.find((p) => p.id === 560274699).levels, 6, 'the dark base part');
+  assert.equal(info.name, 'Parkview Square');
+  assert.equal(info.height, 144);
+  assert.ok(Math.hypot(L.x, L.z) > 100, 'real North Bridge Road anchor, not the world origin');
+  const b = kit.bounds();
+  assert.ok(b.maxY >= 142 && b.maxY <= 145.5, `documented 144 m roof: ${b.maxY} m`);
+  assert.ok(b.minY >= -0.5 && b.minY <= 0.5);
+  for (const [axis, i] of [['X', 0], ['Z', 1]]) {
+    const values = L.parts.find((p) => p.id === 560274700).ring.filter((_, k) => k % 2 === i).map((v) => v - L[axis.toLowerCase()]);
+    assert.ok(b['min' + axis] >= Math.min(...values) - 2, axis + ' lower bound on the mapped site');
+    assert.ok(b['max' + axis] <= Math.max(...values) + 2, axis + ' upper bound on the mapped site');
+  }
+});
+
+test('SG-235 Parkview Square stacks plinth, shaft and crown over an open crane plaza', async () => {
+  const { kit, at } = await siteModel('parkview-square');
+  const { colliders } = kit.finish();
+  const top = (lon, lat) => { const [x, z] = at(lon, lat); return Math.max(0, ...builtOver(kit, x, z, 0, 200).map((p) => p.y1)); };
+  const over = (lon, lat, y0, y1) => { const [x, z] = at(lon, lat); return builtOver(kit, x, z, y0, y1); };
+  const hit = (lon, lat, y) => { const [, , x, z] = at(lon, lat); return colliderAt(colliders, x, y, z); };
+  const C = [103.857710, 1.300060]; // tower centre (a 30.5, b 13.3)
+  assert.ok(top(...C) >= 140, 'the tower reaches its crown at its mapped centre');
+  for (const [label, y] of [['dark plinth', 20], ['colonnade band', 37], ['striped shaft', 90], ['bronze crown screen', 121], ['roof lantern', 135]]) {
+    assert.ok(over(C[0], C[1], y - 0.5, y + 0.5).length, `${label} is built at ${y} m`);
+  }
+  assert.ok(over(103.857502, 1.300256, 1.5, 5).length, 'the golden crane stands on the plaza (a 30, b 45)');
+  assert.equal(over(103.857441, 1.300126, 2, 60).length, 0, 'the rest of the plaza stays open beside the crane');
+  assert.equal(over(103.857899, 1.299876, 0, 200).length, 0, 'North Bridge Road stays clear south-east of the tower');
+  assert.ok(hit(C[0], C[1], 60), 'shaft interior stops descent');
+  assert.ok(hit(C[0], C[1], 121), 'crown screen interior stops descent');
+  assert.ok(hit(C[0], C[1], 135), 'lantern interior stops descent');
+  assert.ok(!hit(C[0], C[1], 148), 'open air above the 144 m cap');
+  assert.ok(!hit(103.857441, 1.300126, 8), 'no invisible mass over the plaza');
+  for (const name of ['plaza-deck', 'plinth', 'crown-screen', 'crown-fin', 'roof-lantern', 'golden-crane']) assert.ok(kit.parts.some((p) => p.name.startsWith(name)), name);
+  assert.equal(kit.parts.filter((p) => p.name === 'crown-statue').length, 8, 'four crown statues on each broad side');
+});
+
+test('SG-235 Parkview Square wears its crown as photographed: grille, statues and fins only across the centre bays, tan pylons above the stepped corner tiers', async () => {
+  const { kit, at } = await siteModel('parkview-square');
+  // a m along the long faces (44 deg) and b m across (314 deg) from the tower's south corner
+  const ab = (a, b) => {
+    const north = a * Math.cos(44 * Math.PI / 180) + b * Math.cos(314 * Math.PI / 180);
+    const east = a * Math.sin(44 * Math.PI / 180) + b * Math.sin(314 * Math.PI / 180);
+    return at(103.8576055 + east / 111290, 1.2997776 + north / 110574);
+  };
+  const over = (a, b, y0, y1) => { const [x, z] = ab(a, b); return builtOver(kit, x, z, y0, y1); };
+  const top = (a, b) => Math.max(0, ...over(a, b, 0, 200).map((p) => p.y1));
+  const named = (parts, name) => parts.some((p) => p.name === name);
+  const D = 26.7, piers = [18.9, 26.63, 34.37, 42.1];
+  assert.ok(named(over(30.5, 0.9, 123.5, 124.5), 'crown-screen'), 'the bronze grille across the south-east centre bay');
+  assert.ok(named(over(30.5, D - 0.9, 123.5, 124.5), 'crown-screen'), 'and across the north-west one');
+  for (const a of [4.4, 15, 46, 56.6]) assert.ok(!named(over(a, 1, 116, 132), 'crown-screen'), `no grille on the tan stone at a ${a}`);
+  for (const a of [15, 46]) assert.ok(top(a, 3) >= 133 && top(a, 3) <= 134.5, `the pylon at a ${a} rises to the grille's top: ${top(a, 3)} m`);
+  for (const a of [4.4, 56.6]) assert.ok(top(a, 3) >= 124 && top(a, 3) <= 126.5, `the corner tier at a ${a} steps lower: ${top(a, 3)} m`);
+  for (const a of piers) {
+    for (const b of [0, D]) assert.ok(named(over(a, b, 120, 125), 'crown-statue'), `a statue on the pier at a ${a}, b ${b}`);
+    for (const b of [4.5, D - 4.5]) assert.ok(top(a, b) >= 143.5, `a stepped fin over the pier at a ${a}, b ${b}: ${top(a, b)} m`);
+  }
+  for (const a of [22.8, 30.5, 38.2]) assert.ok(top(a, 4.5) < 134, `no fin between the piers at a ${a}`);
+  assert.equal(kit.parts.filter((p) => p.name === 'crown-statue').length, 8);
+  // the centre bays' dark glass sits back between the pylons, which stand proud of the corner tiers
+  assert.equal(over(30.5, 0.3, 60, 100).length, 0, 'the centre field is recessed');
+  assert.ok(over(15, -0.2, 60, 100).length && !over(4.4, -0.2, 60, 100).length, 'the pylon stands proud of the corner tier');
+  assert.ok(over(4.4, 0.3, 60, 100).length, 'the corner tier is built to the mapped face');
+  // the green-glass lantern on the roof deck, behind the fins
+  assert.ok(named(over(30.5, D / 2, 134, 138), 'roof-lantern'), 'the lantern on the roof deck');
+  assert.ok(top(30.5, D / 2) >= 140 && top(30.5, D / 2) <= 141, `the lantern's ridge: ${top(30.5, D / 2)} m`);
+});
+
+test('SG-235 Parkview Square is finite, batched and free of coplanar flicker', async () => {
+  const { kit } = await siteModel('parkview-square');
+  assert.ok(kit.triangles > 600 && kit.triangles < 65000, `${kit.triangles} triangles`);
+  for (const p of kit.parts) for (const v of Object.values(p.bounds)) assert.ok(Number.isFinite(v), p.name);
+  assert.equal(kit.flicker().length, 0, JSON.stringify(kit.flicker().slice(0, 10)));
+  assert.ok(kit.finish().group.children.length <= 16, 'at most 16 merged material batches');
+});
+
+test('SG-253 Central Fire Station is finite, batched and free of coplanar flicker', async () => {
+  const { kit } = await siteModel('central-fire-station');
+  assert.ok(kit.triangles > 800 && kit.triangles < 65000, `${kit.triangles} triangles`);
   for (const p of kit.parts) for (const v of Object.values(p.bounds)) assert.ok(Number.isFinite(v), p.name);
   assert.equal(kit.flicker().length, 0, JSON.stringify(kit.flicker().slice(0, 10)));
   assert.ok(kit.finish().group.children.length <= 16, 'at most 16 merged material batches');
