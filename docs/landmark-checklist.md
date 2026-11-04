@@ -72,7 +72,7 @@ Columns are deliberately row-local: update your row rather than maintaining shar
 | SG-009 | [ ] | Maybank Tower | Blue glazing and silver bands, sloping crown, rounded podium and clear river promenade. [Sources and verification](maybank-tower.md), [render](images/maybank-tower-overview.png). 99 targeted and 544 Linux checks passed. | review | Codex / 380d; `codex/sg-008-sg-009-raffles-towers`; 2026-11-04; [claim PR #19](https://github.com/datainvestor/tiny-singapore/pull/19); [model PR #20](https://github.com/datainvestor/tiny-singapore/pull/20) |
 | SG-010 | [ ] | Bank of China Building — historic and newer towers | Separate eras, proportions and rooflines | todo | — |
 | SG-011 | [ ] | CIMB Plaza / 30 Raffles Place — former Chevron/Caltex House and Change Alley podium | One site: tower and retail podium, including differently named OSM parts; [site identity](https://cimbplaza.com.sg/contact-us/) | todo | — |
-| SG-012 | [ ] | Prudential Tower | Curving upper profile, roof and street base | active | Codex / 42c2; `codex/sg-012-sg-023-cecil-raffles`; 2026-11-04 |
+| SG-012 | [ ] | Prudential Tower | Curving upper profile, roof and street base | active | Codex / 42c2; `codex/sg-012-sg-023-cecil-raffles`; 2026-11-04; [claim PR #21](https://github.com/datainvestor/tiny-singapore/pull/21) |
 | SG-013 | [ ] | Clifford Centre redevelopment site, 24 Raffles Place | Establish dated as-built/construction stage; separate from CIMB Plaza SG-011 | todo | — |
 | SG-014 | [ ] | GSH Plaza — former Equity Plaza | Tower setbacks, cladding and podium | todo | — |
 | SG-015 | [ ] | The Arcade, Raffles Place | Narrow footprint and recognisable street façade | todo | — |
@@ -83,7 +83,7 @@ Columns are deliberately row-local: update your row rather than maintaining shar
 | SG-020 | [ ] | AIA Tower, Robinson Road | Distinct tower shape and corner treatment | todo | — |
 | SG-021 | [ ] | 20 Collyer Quay — former HSBC Building | Waterfront façade and current roof treatment | todo | — |
 | SG-022 | [ ] | Bharat Building | Midrise proportions and street frontage | todo | — |
-| SG-023 | [ ] | Ascott Raffles Place — former Asia Insurance Building | Heritage tower, stepped crown and corner details | active | Codex / 42c2; `codex/sg-012-sg-023-cecil-raffles`; 2026-11-04 |
+| SG-023 | [ ] | Ascott Raffles Place — former Asia Insurance Building | Heritage tower, stepped crown and corner details | active | Codex / 42c2; `codex/sg-012-sg-023-cecil-raffles`; 2026-11-04; [claim PR #21](https://github.com/datainvestor/tiny-singapore/pull/21) |
 | SG-024 | [ ] | Hong Leong Building | Repeated bands, slab proportions and podium | todo | — |
 | SG-025 | [ ] | City House | Tower/podium, street corners and cladding | todo | — |
 | SG-026 | [ ] | Capital Square — modern office/podium only | Tower, setbacks; assign adjoining conserved terraces separately | todo | — |
