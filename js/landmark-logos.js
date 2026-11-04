@@ -170,5 +170,34 @@ export const LOGOS = {
         fill(ctx, colour, letterI(250, d));
       }
     }
+  },
+  // GuocoLand's red mark as it hangs near the top of Guoco Tower's south face: three red bands stacked a little apart,
+  // their left ends rounding along one circle and their right ends square, so that together they make a disc's left half
+  // joined to a square's right. Simplified from photographs of the crown (Bjoertvedt, 10 November 2018; Chainwit., 2
+  // March 2025; Wikimedia Commons), as no drawing of the mark is published there
+  guocoland: {
+    id: 'guocoland', aspect: 1,
+    draw(ctx, x, y, w, h) {
+      into(ctx, x, y, h, 100);
+      for (const [top, bottom] of [[4, 29], [37.5, 62.5], [71, 96]]) {
+        const arc = Array.from({ length: 9 }, (_, i) => { const py = bottom - ((bottom - top) * i) / 8; return [50 - Math.sqrt(Math.max(0, 48 * 48 - (py - 50) ** 2)), py]; });
+        fill(ctx, '#d2232a', [...arc, [96, top], [96, bottom]]);
+      }
+    }
+  },
+  // The Monetary Authority of Singapore's crest as it hangs over the MAS Building's entrance on Shenton Way: a gold
+  // medallion on a tall navy panel, the panel's frame and a ring in the medallion. Simplified from Timothy Tye's
+  // photograph of 27 July 2017 (penang-traveltips.com), as no drawing of the crest is published on Wikimedia Commons;
+  // the crest's own figure is too small there to draw and is left out
+  mas: {
+    id: 'mas', aspect: 0.6,
+    draw(ctx, x, y, w, h) {
+      into(ctx, x, y, h, 100);
+      const circle = (cx, cy, r, n = 36) => Array.from({ length: n }, (_, i) => { const a = (i * 2 * Math.PI) / n; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; });
+      fill(ctx, '#1b2238', [[0, 0], [60, 0], [60, 100], [0, 100]]);
+      fill(ctx, '#c9a24b', circle(30, 46, 22));
+      fill(ctx, '#1b2238', circle(30, 46, 16));
+      fill(ctx, '#c9a24b', circle(30, 46, 13));
+    }
   }
 };
