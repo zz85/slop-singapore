@@ -1151,13 +1151,37 @@ function strayFromChord(pts, i0, i1) {
   return far;
 }
 
+// Whether (x, z) lies inside the outline P ([{ x, z }]), by the edges it crosses on its way out along x. The network is
+// laid out by tens of thousands of such tests, many against a whole block's outline (hundreds of points, a city built
+// from OpenStreetMap), so a long outline keeps its edges in bands of z (polyBands): only an edge reaching the point's
+// band can be crossed (its ends either side of z), and the crossings are the same as over every edge
+const polyBands = new WeakMap();
+function crosses(a, c, x, z) {
+  return (a.z > z) !== (c.z > z) && x < ((c.x - a.x) * (z - a.z)) / (c.z - a.z) + a.x;
+}
 function insidePoly(P, x, z) {
   let inside = false;
-  for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
-    const a = P[i];
-    const c = P[j];
-    if ((a.z > z) !== (c.z > z) && x < ((c.x - a.x) * (z - a.z)) / (c.z - a.z) + a.x) inside = !inside;
+  if (P.length < 24) {
+    for (let i = 0, j = P.length - 1; i < P.length; j = i++) if (crosses(P[i], P[j], x, z)) inside = !inside;
+    return inside;
   }
+  let B = polyBands.get(P);
+  if (!B) {
+    let minZ = Infinity, maxZ = -Infinity;
+    for (const p of P) { minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z); }
+    const count = Math.ceil(P.length / 4);
+    B = { minZ, maxZ, size: (maxZ - minZ) / count, bands: Array.from({ length: count }, () => []) };
+    const band = (v) => Math.min(count - 1, Math.floor((v - minZ) / B.size));
+    if (maxZ > minZ) {
+      for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+        for (let k = band(Math.min(P[i].z, P[j].z)); k <= band(Math.max(P[i].z, P[j].z)); k++) B.bands[k].push(i, j);
+      }
+    }
+    polyBands.set(P, B);
+  }
+  if (!(z >= B.minZ && z < B.maxZ)) return false; // (no edge has its ends either side)
+  const edges = B.bands[Math.min(B.bands.length - 1, Math.floor((z - B.minZ) / B.size))];
+  for (let k = 0; k < edges.length; k += 2) if (crosses(P[edges[k]], P[edges[k + 1]], x, z)) inside = !inside;
   return inside;
 }
 

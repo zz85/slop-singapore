@@ -159,11 +159,9 @@ function flickerBetween(A, B) {
   // Detailed landmarks have thousands of small, spatially separate mouldings and window frames. Reject their
   // disjoint bounds before comparing individual planes; keep 1 cm for the coplanarity tolerance below. The
   // resolve() descriptions have no bounds and continue through the exact checks unchanged.
-  if (A.bounds && B.bounds) {
-    for (const axis of ['X', 'Y', 'Z']) {
-      if (A.bounds[`max${axis}`] < B.bounds[`min${axis}`] - 0.01 || B.bounds[`max${axis}`] < A.bounds[`min${axis}`] - 0.01) return false;
-    }
-  }
+  const a = A.bounds, b = B.bounds;
+  if (a && b && (a.maxX < b.minX - 0.01 || b.maxX < a.minX - 0.01 || a.maxY < b.minY - 0.01 || b.maxY < a.minY - 0.01 ||
+    a.maxZ < b.minZ - 0.01 || b.maxZ < a.minZ - 0.01)) return false;
   for (const w of A.walls) for (const v of B.walls) {
     if (Math.abs(w.nx * v.nx + w.nz * v.nz - 1) > 1e-6 || Math.abs(w.off - v.off) > 0.01) continue;
     if (Math.min(w.a1, v.a1) - Math.max(w.a0, v.a0) > 0.05 && Math.min(w.y1, v.y1) - Math.max(w.y0, v.y0) > 0.05) return true;
@@ -580,11 +578,36 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
   /** Pairs of parts (by name, or index) with faces that would flicker against each other: vertical walls on one
    *  plane, the same way out, overlapping along it and in height; tops at one height sharing area */
   kit.flicker = () => {
-    const out = [];
     const label = (p) => p.name || `#${parts.indexOf(p)}`;
     const checked = parts.filter((p) => p.type !== 'sign' && !p.name.endsWith(':bar')); // decoration is not checked
-    for (let i = 0; i < checked.length; i++) for (let j = i + 1; j < checked.length; j++) if (flickerBetween(checked[i], checked[j])) out.push([label(checked[i]), label(checked[j])]);
-    return out;
+    // Every pair of parts was compared: seconds for a detailed tower's thousands of parts, on every page load. Only
+    // parts whose bounds meet can flicker (flickerBetween() rejects the rest), and only those with walls or tops (not
+    // beams), so they are swept along the axis they spread furthest over: in order of their bounds' start on it, each
+    // is compared with the parts starting within its reach. The pairs come out in the order the plain loop gave them.
+    const solids = checked.map((p, i) => i).filter((i) => checked[i].walls.length || checked[i].caps.length);
+    const spread = ([lo]) => {
+      let min = Infinity, max = -Infinity;
+      for (const i of solids) if (Number.isFinite(checked[i].bounds[lo])) { min = Math.min(min, checked[i].bounds[lo]); max = Math.max(max, checked[i].bounds[lo]); }
+      return max > min ? max - min : 0;
+    };
+    const [lo, hi] = [['minX', 'maxX'], ['minY', 'maxY'], ['minZ', 'maxZ']].reduce((best, axis) => (spread(axis) > spread(best) ? axis : best));
+    // (a part whose bounds on it aren't numbers can't be placed in the sweep: it is compared with every other)
+    const loose = solids.filter((i) => Number.isNaN(checked[i].bounds[lo]) || Number.isNaN(checked[i].bounds[hi]));
+    const sweep = solids.filter((i) => !loose.includes(i)).sort((i, j) => checked[i].bounds[lo] - checked[j].bounds[lo] || i - j);
+    const pairs = [];
+    for (let s = 0; s < sweep.length; s++) {
+      const A = checked[sweep[s]];
+      for (let t = s + 1; t < sweep.length; t++) {
+        const B = checked[sweep[t]];
+        if (A.bounds[hi] < B.bounds[lo] - 0.01) break; // (and so do all after it)
+        if (flickerBetween(A, B)) pairs.push([Math.min(sweep[s], sweep[t]), Math.max(sweep[s], sweep[t])]);
+      }
+    }
+    for (const i of loose) {
+      for (const j of solids) if (j !== i && !(loose.includes(j) && j < i) && flickerBetween(checked[i], checked[j])) pairs.push([Math.min(i, j), Math.max(i, j)]);
+    }
+    pairs.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+    return pairs.map(([i, j]) => [label(checked[i]), label(checked[j])]);
   };
   /**
    * Prisms to build (`{ ring, y0, y1, ... }`, y1 a height or a sloped top) made safe to draw together, as mapped parts

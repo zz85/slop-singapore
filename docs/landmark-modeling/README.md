@@ -86,7 +86,7 @@ Open these preview variants, replacing `raffles-hotel` with your model ID:
 /?look=tiny&at=raffles-hotel&camera=map
 ```
 
-Inspect the roof plan, principal elevation, rear/side and normal map distance. The preview's `focus=<part-name-prefix>` can fit one group, but it is not a universal cutaway; check a complete model view as well. Wait for the city loading overlay to disappear and the camera to settle before taking screenshots. Check browser exceptions, missing models, shader errors and landmark flicker warnings. **Passing tests do not replace looking at the rendered building against its sources.**
+Inspect the roof plan, principal elevation, rear/side and normal map distance. The preview's `focus=<part-name-prefix>` can fit one group, but it is not a universal cutaway; check a complete model view as well. Wait for the city loading overlay to disappear and the camera to settle before taking screenshots. Check browser exceptions, missing models, shader errors and landmark flicker warnings (the city reports them on a local server such as `localhost`, or with `?flicker`; the deployed site skips the check). **Passing tests do not replace looking at the rendered building against its sources.**
 
 The full suite includes POSIX shell fixtures. On Windows, use a Linux/WSL checkout with LF line endings for the complete suite and report any platform-specific failures separately. Do not change unrelated tests merely to make a landmark PR green.
 
