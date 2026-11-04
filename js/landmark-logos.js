@@ -2,7 +2,7 @@
 // Tenants' marks for the landmark kit's signs (`logo` in kit.sign and kit.hang): each { id, aspect (its width over its
 // height), draw(ctx, x, y, w, h) } paints itself on a sign's canvas, filling that box. HSBC's hexagon and Standard
 // Chartered's mark follow the public-domain drawings on Wikimedia Commons ("HSBC logo (2018).svg", "Standard Chartered
-// Logo (2021, Logo only).svg"); DBS's is simplified from photographs of its signs, as none is published there.
+// Logo (2021, Logo only).svg"); DBS's and Apple's are simplified from photographs of their signs.
 
 // a drawing in its own units, `units` of them as tall as the box
 const into = (ctx, x, y, h, units) => { ctx.translate(x, y); ctx.scale(h / units, h / units); };
@@ -109,6 +109,19 @@ export const LOGOS = {
       for (const [a0, a1] of [[106, 133], [137, 164], [168, 195], [199, 226], [230, 256]]) fill(ctx, '#e01f26', piece(a0, a1));
     }
   },
+  // Apple's bitten apple with its leaf, in white as the shore signpost of Apple Marina Bay Sands carries it:
+  // simplified from photographs of that signpost and of the mark on the dome's glass (2020 press views)
+  apple: {
+    id: 'apple', aspect: 0.82,
+    draw(ctx, x, y, w, h) {
+      into(ctx, x, y, h, 100);
+      fill(ctx, '#ffffff', [[41, 33], [33, 26], [22, 26], [14, 33], [8, 45], [6, 60], [9, 75], [14, 87], [20, 94], [27, 98], [34, 96], [41, 95], [48, 96], [55, 98], [62, 94], [68, 86], [71, 79], [66, 72], [60, 64], [59, 55], [62, 47], [66, 42], [58, 35], [50, 31], [45, 31]]);
+      fill(ctx, '#ffffff', Array.from({ length: 10 }, (_, i) => {
+        const a = (i / 10) * Math.PI * 2, ex = 13 * Math.cos(a), ey = 6 * Math.sin(a), r = -0.42;
+        return [54 + ex * Math.cos(r) - ey * Math.sin(r), 16 + ex * Math.sin(r) + ey * Math.cos(r)];
+      }));
+    }
+  },
   // Deutsche Bank's slash in a square, in its blue: the public-domain drawing on Wikimedia Commons ("Deutsche Bank logo
   // without wordmark.svg", a 148-unit square framed 21 units thick round a slash from lower left to upper right), the
   // frame drawn as four bars; as it hangs right of the bank's name on One Raffles Quay's podium
@@ -118,6 +131,44 @@ export const LOGOS = {
       into(ctx, x, y, h, 148);
       for (const bar of [[[0, 0], [148, 0], [148, 21], [0, 21]], [[0, 127], [148, 127], [148, 148], [0, 148]], [[0, 21], [21, 21], [21, 127], [0, 127]], [[127, 21], [148, 21], [148, 127], [127, 127]]]) fill(ctx, '#0018a8', bar);
       fill(ctx, '#0018a8', [[89, 36], [116, 36], [60, 113], [33, 113]]);
+    }
+  },
+  // Singlife's mark: a ring of sixteen white blades swirling out round a wide open middle, as it is painted on the red
+  // banner on 18 Robinson's podium. Simplified from photographs of that banner (Mx. Granger, Wikimedia Commons, 11 March
+  // 2024), as no drawing is published there; white only, so it stands on the banner's own red
+  singlife: {
+    id: 'singlife', aspect: 1,
+    draw(ctx, x, y, w, h) {
+      into(ctx, x, y, h, 100);
+      // each blade a band 7 units wide along a curve from radius 23 to 48, turning 30° as it goes out
+      for (let k = 0; k < 16; k++) {
+        const a0 = (k * 2 * Math.PI) / 16, edge = (side) => Array.from({ length: 7 }, (_, i) => {
+          const s = side > 0 ? i / 6 : 1 - i / 6, r = 23 + 25 * s, a = a0 + 0.52 * s + (side * 3.5) / r;
+          return [50 + r * Math.cos(a), 50 + r * Math.sin(a)];
+        });
+        fill(ctx, '#ffffff', [...edge(-1), ...edge(1)]);
+      }
+    }
+  },
+  // IOI's mark as it hangs on IOI Central Boulevard Towers' West Tower crown: a blue globe crossed by a white band, then
+  // "IOI" in white serif capitals standing off the louvres, their shadows dark beside them. Simplified from the owner's
+  // photograph of the crown (IOI Properties Singapore, ioiproperties.com.sg masthead), as no drawing is published on
+  // Wikimedia Commons; the band's small lettering is left out
+  ioi: {
+    id: 'ioi', aspect: 2.95,
+    draw(ctx, x, y, w, h) {
+      into(ctx, x, y, h, 100);
+      const ellipse = (cx, cy, rx, ry, n = 36, dir = 1) => Array.from({ length: n }, (_, i) => { const a = (dir * i * 2 * Math.PI) / n; return [cx + rx * Math.cos(a), cy + ry * Math.sin(a)]; });
+      fill(ctx, '#2f3f9a', ellipse(50, 50, 48, 48));
+      fill(ctx, '#ffffff', [...Array.from({ length: 13 }, (_, i) => [14 + 6 * i, 50 - 13 * Math.sqrt(Math.sin((Math.PI * i) / 12))]), ...Array.from({ length: 11 }, (_, i) => [80 - 6 * i, 50 + 13 * Math.sqrt(Math.sin((Math.PI * (i + 1)) / 12))])]);
+      // a serif I from x0; an O as a ring (its outer and inner edges run opposite ways, joined at a seam)
+      const letterI = (x0, d) => [[0, 16], [36, 16], [36, 23], [26, 23], [26, 77], [36, 77], [36, 84], [0, 84], [0, 77], [10, 77], [10, 23], [0, 23]].map(([px, py]) => [x0 + px + d, py + d]);
+      const letterO = (d) => { const outer = ellipse(196 + d, 50 + d, 34, 34, 40), inner = ellipse(196 + d, 50 + d, 18, 26, 40, -1); return [...outer, outer[0], ...inner, inner[0]]; };
+      for (const [colour, d] of [['#2b3036', 2.5], ['#f2f4f6', 0]]) {
+        fill(ctx, colour, letterI(106, d));
+        fill(ctx, colour, letterO(d));
+        fill(ctx, colour, letterI(250, d));
+      }
     }
   }
 };

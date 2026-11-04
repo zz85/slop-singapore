@@ -72,7 +72,24 @@ test('SG-012 and SG-023 replace the named generic buildings and keep the adjacen
     assert.ok(site?.postcode, `${id} retains its mapped address`);
     assert.ok(!names.has(site.name), `${site.name} has no generic duplicate`);
   }
-  for (const name of ['Samsung', '6 Raffles Quay', 'One Finlayson Green']) {
+  for (const name of ['Samsung', 'One Finlayson Green']) {
     assert.ok(names.has(name), `${name} remains a separate generic building`);
+  }
+  assert.equal(INFO.sites['6-raffles-quay'].number, '6', '6 Raffles Quay is a separate landmark');
+});
+
+test('SG-017 and SG-024 replace their generic solids while keeping separate neighbours', async () => {
+  const { GEO } = await import('../js/singapore-geodata.js');
+  const { INFO } = await import('../js/singapore-building-info.js');
+  const { decodeBuildingInfo } = await import('../js/building-info.js');
+  const names = new Set([...decodeBuildingInfo(INFO).byIndex.values()].map(b => b.name));
+  for (const [id, number] of [['6-raffles-quay', '6'], ['hong-leong-building', '16']]) {
+    const site = INFO.sites[id];
+    assert.equal(site?.number, number, `${id} retains its street number`);
+    assert.ok(!names.has(site.name), `${site.name} has no generic duplicate`);
+  }
+  assert.ok(names.has('AIA Tower'), 'AIA Tower remains separately named');
+  for (const id of ['ascott-raffles-place', 'one-raffles-quay', 'lau-pa-sat']) {
+    assert.ok(GEO.landmarks.some(l => l.id === id), `${id} keeps a separate anchor`);
   }
 });
