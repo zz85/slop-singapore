@@ -200,8 +200,12 @@ export default {
     { id: 'maybank-tower', name: 'Maybank Tower', model: 'maybank-tower', hide: [106193386, 1075240989, 1075240988, 325793730, 1075553558] },
     // SG-012: Prudential's podium and curved shaft. Samsung Hub has its own mapped envelope.
     { id: 'prudential-tower', name: 'Prudential Tower', model: 'prudential-tower', hide: [171999306, 326926563] },
+    // SG-017: the former John Hancock Tower shares no mapped parts with its neighbours.
+    { id: '6-raffles-quay', name: '6 Raffles Quay', model: '6-raffles-quay', hide: [47345004] },
     // SG-023: the former Asia Insurance Building and its overlapping upper parts.
     { id: 'ascott-raffles-place', name: 'Ascott Raffles Place', model: 'ascott-raffles-place', hide: [47345005, 463857984, 463857986, 463857988, 463857989] },
+    // SG-024: the envelope, slab and all three mapped podium parts.
+    { id: 'hong-leong-building', name: 'Hong Leong Building', model: 'hong-leong-building', hide: [47345013, 560203760, 1566685786, 1566685787, 1566685788] },
     // SG-147 the Merlion at the tip of Merlion Park, spouting into the bay, with the Merlion cub behind it: no
     // building is mapped there (the statue is OSM way 182819157, an amenity=fountain sculpture; the cub node
     // 6283080658), so it hides nothing and stands at the statue's centre
