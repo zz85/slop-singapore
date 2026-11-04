@@ -547,3 +547,16 @@ test('a vertical sign: the text running down a narrow panel, reading right from 
     assert.ok(tops.length && feet.length && tops.every((c) => feet.every((d) => (t.normal[0] > 0 ? c.z < d.z : c.z > d.z))), 'reads right from ' + (t.normal[0] > 0 ? 'the front' : 'the back'));
   });
 });
+
+test('a jet of water: recorded with its flight time and where it lands in the water below, drawn elsewhere', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 0, z: 0 } });
+  const jet = kit.jet({ from: [1, 7, 0], velocity: [7, 1, -2], floor: -2.2, width: 0.35, name: 'mouth' });
+  assert.ok(kit.jets.length === 1 && kit.jets[0] === jet, 'recorded');
+  const y = (t) => 7 + t - 9.81 * t * t / 2;
+  assert.ok(near(y(jet.time), -2.2, 1e-9) && y(jet.time / 2) > -2.2, `back down at its floor after ${jet.time} s`);
+  assert.ok(near(jet.lands[0], 1 + 7 * jet.time, 1e-9) && near(jet.lands[1], -2 * jet.time, 1e-9), 'where it lands');
+  assert.equal(kit.parts.length, 0, 'js/fountain-jets.js draws it: the kit builds nothing for it');
+  assert.throws(() => kit.jet({ from: [0, -3, 0], velocity: [1, 0, 0], floor: -2.2 }), /jet/, 'a nozzle under its water');
+  assert.throws(() => kit.jet({ from: [0, 1, 0], velocity: [1, 0] }), /jet/, 'a velocity needs three components');
+});

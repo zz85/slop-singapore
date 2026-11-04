@@ -272,6 +272,20 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     }
     collisionParts.push({ ring: ring.map((p) => [...p]), y0, y1, filled: true });
   };
+  /** A jet of water, as a fountain's spout: leaving `from` ([x, y, z] about the anchor) at `velocity` ([x, y, z] m/s)
+   *  and falling under gravity to `floor` (the water it lands in), `width` m across at the nozzle. Only recorded here
+   *  (kit.jets, with its flight time and where it lands); js/fountain-jets.js draws it, as drops on that arc. */
+  kit.jets = [];
+  kit.jet = ({ from, velocity, floor = 0, width = 0.3, name = '' }) => {
+    if (from?.length !== 3 || velocity?.length !== 3 || ![...from, ...velocity, floor, width].every(Number.isFinite) || from[1] <= floor || width <= 0) {
+      throw new Error('landmark kit: jet needs a finite nozzle above its floor, a velocity and a width');
+    }
+    const g = 9.81, [vx, vy, vz] = velocity;
+    const time = (vy + Math.sqrt(vy * vy + 2 * g * (from[1] - floor))) / g;
+    const jet = { name, from: [...from], velocity: [...velocity], floor, width, time, lands: [from[0] + vx * time, from[2] + vz * time] };
+    kit.jets.push(jet);
+    return jet;
+  };
   /** A loft: scale the base ring at y1, or supply a corresponding topRing for a translated/inclined facade. */
   kit.loft = ({ ring, topRing, y0 = 0, y1, scale = 0.5, material, edgeMaterial, top, name = '' }) => solid({ ring, upperRing: topRing, y0, y1, scale, material, edgeMaterial, top, name, type: 'loft' });
   /** A cylinder about (x, z) from y0 to y1, radius r, in `segments` sides */
