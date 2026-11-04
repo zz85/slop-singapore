@@ -44,4 +44,4 @@ Registration: `id/model: one-fullerton`, `hide` exactly the eight ways above. Th
 
 ## Limitations
 
-Shell curvature is approximated by straight skillion planes at the mapped drops/directions; interiors, outdoor dining furniture and planting are omitted; shell collision uses flat-topped volumes inside each shell footprint (up to the shell's high edge), as the guide allows for sloping roofs. The building stays `active` in the checklist until a PR is opened and the shared-branch acceptance criteria are met.
+Shell curvature is approximated by straight skillion planes at the mapped drops/directions; interiors, outdoor dining furniture and planting are omitted; shell collision uses flat-topped volumes inside each shell footprint (up to the shell's high edge), as the guide allows for sloping roofs. Implementation and evidence are in [PR #18](https://github.com/datainvestor/tiny-singapore/pull/18); the checklist row is `review` until the shared-branch acceptance criteria are met.

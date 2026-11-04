@@ -51,4 +51,4 @@ Dimensions: tower heights **181 m / 72 m are mapped and corroborated** above; ma
 
 ## Limitations
 
-Tower tier ledges are flat caps (the real notch transitions are partly slanted); mall atria, entrances and the remodelling's wavy street facade are simplified to the mapped podium rings; the fountain has no animated water; interiors are not modelled. The SUNTEC sign is placed on Tower Two's north crown following the 2024 photograph. The complex stays `active` in the checklist until a PR is opened and the shared-branch acceptance criteria are met.
+Tower tier ledges are flat caps (the real notch transitions are partly slanted); mall atria, entrances and the remodelling's wavy street facade are simplified to the mapped podium rings; the fountain has no animated water; interiors are not modelled. The SUNTEC sign is placed on Tower Two's north crown following the 2024 photograph. Implementation and evidence are in [PR #18](https://github.com/datainvestor/tiny-singapore/pull/18); the checklist row is `review` until the shared-branch acceptance criteria are met.
