@@ -77,14 +77,14 @@ Columns are deliberately row-local: update your row rather than maintaining shar
 | SG-014 | [ ] | GSH Plaza — former Equity Plaza | Tower setbacks, cladding and podium | todo | — |
 | SG-015 | [ ] | The Arcade, Raffles Place | Narrow footprint and recognisable street façade | todo | — |
 | SG-016 | [ ] | MYP Centre, Battery Road | Façade bands, roof and tight adjoining boundaries | todo | — |
-| SG-017 | [ ] | 6 Raffles Quay | Tower/podium proportions and roof plant | active | Codex / 820b; `codex/sg-017-sg-024-raffles-quay`; 2026-11-04; [claim PR #23](https://github.com/datainvestor/tiny-singapore/pull/23) |
+| SG-017 | [ ] | 6 Raffles Quay | Rounded blue glazing, silver office bands, sheltered drop-off and inset roof plant. [Sources and verification](6-raffles-quay.md), [render](images/6-raffles-quay-overview.png). 119 targeted and 561 Linux checks passed. | review | Codex / 820b; `codex/sg-017-sg-024-raffles-quay`; 2026-11-04; [claim PR #23](https://github.com/datainvestor/tiny-singapore/pull/23) |
 | SG-018 | [ ] | 16 Collyer Quay — former Hitachi Tower | Façade grid and waterfront silhouette | todo | — |
 | SG-019 | [ ] | Tung Centre | Bay-facing elevation and roof | todo | — |
 | SG-020 | [ ] | AIA Tower, Robinson Road | Distinct tower shape and corner treatment | todo | — |
 | SG-021 | [ ] | 20 Collyer Quay — former HSBC Building | Waterfront façade and current roof treatment | todo | — |
 | SG-022 | [ ] | Bharat Building | Midrise proportions and street frontage | todo | — |
 | SG-023 | [x] | Ascott Raffles Place — former Asia Insurance Building | Travertine wings and sunshades, open five-foot way, pool terrace and fluted steel crown. [Sources and verification](ascott-raffles-place.md), [render](images/ascott-raffles-place-overview.png). 105 targeted and 556 Linux checks passed. | done | Codex / 42c2; `codex/sg-012-sg-023-cecil-raffles`; 2026-11-04; [claim PR #21](https://github.com/datainvestor/tiny-singapore/pull/21); [model PR #22](https://github.com/datainvestor/tiny-singapore/pull/22) |
-| SG-024 | [ ] | Hong Leong Building | Repeated bands, slab proportions and podium | active | Codex / 820b; `codex/sg-017-sg-024-raffles-quay`; 2026-11-04; [claim PR #23](https://github.com/datainvestor/tiny-singapore/pull/23) |
+| SG-024 | [ ] | Hong Leong Building | Granite fins, offset slab and 2025 bronze podium screens over covered walks. [Sources and verification](hong-leong-building.md), [render](images/hong-leong-building-overview.png). 119 targeted and 561 Linux checks passed. | review | Codex / 820b; `codex/sg-017-sg-024-raffles-quay`; 2026-11-04; [claim PR #23](https://github.com/datainvestor/tiny-singapore/pull/23) |
 | SG-025 | [ ] | City House | Tower/podium, street corners and cladding | todo | — |
 | SG-026 | [ ] | Capital Square — modern office/podium only | Tower, setbacks; assign adjoining conserved terraces separately | todo | — |
 | SG-027 | [ ] | Far East Square — conserved complex | Roofscape, pavilions and open internal lanes | todo | — |
