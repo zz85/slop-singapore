@@ -186,7 +186,27 @@ export default {
     { id: 'altez', name: 'Altez', model: 'altez', hide: [172023443, 393100852] },
     // SG-117 Skysuites @ Anson, 8 Enggor Street: its six-level podium outline (172023451) and the 71-storey tower
     // part over it (393100851, mapped 250 m from level 6); Mapletree Anson to the east remains.
-    { id: 'skysuites-anson', name: 'Skysuites @ Anson', model: 'skysuites-anson', hide: [172023451, 393100851] }
+    { id: 'skysuites-anson', name: 'Skysuites @ Anson', model: 'skysuites-anson', hide: [172023451, 393100851] },
+    // SG-033 One Fullerton: the curved two-storey outline (46595394) and its seven layered roof parts (the flat
+    // links, the skillion wave shells and the raised drum); the Fullerton Hotel and Waterboat House remain.
+    { id: 'one-fullerton', name: 'One Fullerton', model: 'one-fullerton', hide: [46595394, 407926351, 407926353,
+      407926356, 407926371, 407926374, 407926388, 407926390] },
+    // SG-215 Suntec City: the five towers (outlines and their three stacked tiers each, Tower Five's 72 m part),
+    // the mall podium ways and west block, the convention centre with its 28 m block and 71 roof pyramids, and the
+    // Fountain of Wealth's four legs; Conrad Centennial (46595138) and the southern hotels remain.
+    { id: 'suntec-city', name: 'Suntec City', model: 'suntec-city', hide: [46595146, 46595147, 46595148, 102938119,
+      741937829, 741937830, 741937831, 741937832, 393090486, 393090485, 393090484, 393090487,
+      172373826, 172373825, 172373827, 393090483, 46595145, 741937828,
+      393210508, 46595137, 492114727, 393210509, 46594818, 393090489, 591301851,
+      393090403, 393090405, 393090406, 393090407, 393090408, 393090409, 393090410, 393090412, 393090414, 393090416,
+      393090417, 393090418, 393090419, 393090420, 393090421, 393090422, 393090426, 393090429, 393090431, 393090433,
+      393090436, 393090439, 393090441, 393090451, 393090452, 393090453, 393090454, 393090455, 393090456, 393090457,
+      393090458, 393090459, 393090461, 393090462, 393090465, 393090468, 393090469, 393090470, 393090471, 393090473,
+      393090474, 393090476, 393090477, 393090478, 393090479, 393090481,
+      463425266, 463425278, 463425281, 463425283, 463425284, 463425285, 463425286, 463425287, 463425288, 463425289,
+      463425290, 463425291, 463425292, 463425293, 463425294, 463425295, 463425296, 463425297, 463425298, 463425299,
+      463425300, 463425303, 463425304, 463425305, 463425306,
+      460430417, 460430418, 460430419, 460430420] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]
