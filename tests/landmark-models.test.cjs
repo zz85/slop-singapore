@@ -794,3 +794,61 @@ test('Clifford Pier: conditioned hall glazing reaches the eaves above the verand
   assert.ok(at(103.8535514,1.28401302,6), 'north upper glass wall closes the hall');
   assert.ok(at(103.85354337,1.28384771,6), 'south upper glass wall closes the hall');
 });
+
+for (const [id, height, ways, maxSpan] of [
+  ['singapore-land-tower', 213, [46595418, 939684168], 90],
+  ['maybank-tower', 175.3, [106193386, 325793730, 1075240988, 1075240989, 1075553558], 60]
+]) {
+  test(`${id}: exact mapped replacements, bounded geometry and no coplanar flicker`, async () => {
+    const { kit, L, info } = await siteModel(id);
+    const { default: city } = await import('../tools/city/cities/singapore.mjs');
+    const entry = city.landmarks.find(l => l.id === id);
+    assert.deepEqual([...entry.hide].sort((a, b) => a - b), ways);
+    assert.deepEqual(entry.hideRelations ?? [], []);
+    assert.deepEqual(L.parts.map(p => p.id).sort((a, b) => a - b), ways);
+    assert.equal(info.height, height);
+    const bounds = kit.bounds();
+    assert.ok(Math.abs(bounds.maxY - height) < 0.5);
+    assert.ok(Math.abs(bounds.minY) < 0.05);
+    assert.ok(Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ) < maxSpan);
+    for (const part of kit.parts) assert.ok(Object.values(part.bounds).every(Number.isFinite), part.name);
+    assert.ok(kit.triangles < 65000, `${kit.triangles} triangles`);
+    assert.ok(kit.finish().group.children.length <= 16);
+    const flicker = kit.flicker();
+    assert.equal(flicker.length, 0, JSON.stringify(flicker));
+  });
+}
+
+test('SG-008: plaza stays open below the canopy and the podium and gallery decks stop descent', async () => {
+  const { kit, at } = await siteModel('singapore-land-tower');
+  const { colliders } = kit.finish();
+  const [x, z, wx, wz] = at(103.85187930, 1.28446494);
+  assert.equal(builtOver(kit, x, z, 1, 3).length, 0, 'unobstructed beneath the entrance canopy');
+  assert.ok(builtOver(kit, x, z, 7.4, 8.2).length, 'canopy is visible above the plaza');
+  assert.ok(colliderAt(colliders, wx, 7.7, wz), 'canopy stops descent');
+  assert.ok(!colliderAt(colliders, wx, 2, wz), 'walkway has no invisible wall');
+  const solidAt = (lon, lat, y) => {
+    const [, , x, z] = at(lon, lat);
+    return colliderAt(colliders, x, y, z);
+  };
+  assert.ok(!solidAt(103.85175716, 1.28446071, 2), 'west plaza is clear beyond the canopy');
+  assert.ok(solidAt(103.85221718, 1.28455848, 15.7), 'podium deck is solid');
+  assert.ok(solidAt(103.85201825, 1.28471193, 197.6), 'roof deck is solid');
+  assert.ok(!solidAt(103.85201825, 1.28471193, 208), 'sky gallery remains open between crown screens');
+});
+
+test('SG-009: the mapped podium, narrow high roof and sloping wing preserve the river edge and setbacks', async () => {
+  const { kit, at } = await siteModel('maybank-tower');
+  const { colliders } = kit.finish();
+  const solidAt = (lon, lat, y) => {
+    const [, , x, z] = at(lon, lat);
+    return colliderAt(colliders, x, y, z);
+  };
+  assert.ok(solidAt(103.85259929, 1.28571874, 20.6), 'podium roof stops descent beyond the tower');
+  assert.ok(solidAt(103.85247152, 1.28589729, 174.7), 'narrow high crown is solid');
+  assert.ok(solidAt(103.85257624, 1.28594938, 164), 'sloping wing is solid below its roof');
+  assert.ok(!solidAt(103.85257624, 1.28594938, 174.7), 'wing steps down from the high crown');
+  assert.ok(!solidAt(103.85252457, 1.28607500, 40), 'tower is set back above the river podium');
+  assert.ok(!solidAt(103.85241217, 1.28609979, 2), 'riverside promenade is clear');
+  assert.ok(!solidAt(103.85241495, 1.28582880, 3), 'Bank of China side remains outside the Maybank collider');
+});
