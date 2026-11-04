@@ -62,3 +62,17 @@ test('SG-039 and SG-242 replace their complete mapped structures and keep neighb
   assert.equal(INFO.sites['sultan-mosque'].street, 'Muscat Street');
   assert.equal(INFO.sites['sultan-mosque'].number, '3');
 });
+
+test('SG-012 and SG-023 replace the named generic buildings and keep the adjacent parcels', async () => {
+  const { INFO } = await import('../js/singapore-building-info.js');
+  const { decodeBuildingInfo } = await import('../js/building-info.js');
+  const names = new Set([...decodeBuildingInfo(INFO).byIndex.values()].map(b => b.name));
+  for (const id of ['prudential-tower', 'ascott-raffles-place']) {
+    const site = INFO.sites[id];
+    assert.ok(site?.postcode, `${id} retains its mapped address`);
+    assert.ok(!names.has(site.name), `${site.name} has no generic duplicate`);
+  }
+  for (const name of ['Samsung', '6 Raffles Quay', 'One Finlayson Green']) {
+    assert.ok(names.has(name), `${name} remains a separate generic building`);
+  }
+});
