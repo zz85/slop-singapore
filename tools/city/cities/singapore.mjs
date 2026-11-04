@@ -198,6 +198,14 @@ export default {
     { id: 'singapore-land-tower', name: 'Singapore Land Tower', model: 'singapore-land-tower', hide: [46595418, 939684168] },
     // SG-009 Maybank Tower: the outline, podium and three overlapping shaft/roof ways at 2 Battery Road.
     { id: 'maybank-tower', name: 'Maybank Tower', model: 'maybank-tower', hide: [106193386, 1075240989, 1075240988, 325793730, 1075553558] },
+    // SG-012: Prudential's podium and curved shaft. Samsung Hub has its own mapped envelope.
+    { id: 'prudential-tower', name: 'Prudential Tower', model: 'prudential-tower', hide: [171999306, 326926563] },
+    // SG-017: the former John Hancock Tower shares no mapped parts with its neighbours.
+    { id: '6-raffles-quay', name: '6 Raffles Quay', model: '6-raffles-quay', hide: [47345004] },
+    // SG-023: the former Asia Insurance Building and its overlapping upper parts.
+    { id: 'ascott-raffles-place', name: 'Ascott Raffles Place', model: 'ascott-raffles-place', hide: [47345005, 463857984, 463857986, 463857988, 463857989] },
+    // SG-024: the envelope, slab and all three mapped podium parts.
+    { id: 'hong-leong-building', name: 'Hong Leong Building', model: 'hong-leong-building', hide: [47345013, 560203760, 1566685786, 1566685787, 1566685788] },
     // SG-147 the Merlion at the tip of Merlion Park, spouting into the bay, with the Merlion cub behind it: no
     // building is mapped there (the statue is OSM way 182819157, an amenity=fountain sculpture; the cub node
     // 6283080658), so it hides nothing and stands at the statue's centre
@@ -233,7 +241,21 @@ export default {
       1566724021, 1566724022, 1566724023, 1566724024, 1566724025, 1566724026, 1566724027, 1566724028] },
     // SG-063 SGX Centre: the shared three-storey podium and the two towers over it (mapped under their pre-2001
     // names, Unity Tower One and Two)
-    { id: 'sgx-centre', name: 'SGX Centre', model: 'sgx-centre', hide: [45098518, 47345025, 47345024] }
+    { id: 'sgx-centre', name: 'SGX Centre', model: 'sgx-centre', hide: [45098518, 47345025, 47345024] },
+    // SG-048 ArtScience Museum: relation 14314416's two outline ways (the pond outline 261191086 and the crown
+    // "roof" 827855854), the round base 827855915, the bowl 827855929, its seven 6 m columns and the petal
+    // slices; the low pavilions north of the pond and SG-047's Shoppes slices remain.
+    { id: 'artscience-museum', name: 'ArtScience Museum', model: 'artscience-museum', hide: [
+      261191086,827855854,827855864,827855865,827855866,827855867,827855868,827855869,827855870,827855856,
+      827855857,827855858,827855859,827855860,827855861,827855862,827855863,827855896,827855897,827855898,
+      827855899,827855900,827855901,827855903,827855888,827855889,827855890,827855891,827855892,827855893,
+      827855894,827855895,827855883,827855884,827855885,827855886,827855887,827855928,827855929,827855930,
+      827855920,827855921,827855922,827855923,827855924,827855925,827855926,827855927,827855912,827855913,
+      827855914,827855915,827855916,827855917,827855918,827855919,827855904,827855905,827855906,827855907,
+      827855908,827855910,827855911], hideRelations: [14314416] },
+    // SG-049 Apple Marina Bay Sands: the mapped glass dome way in the bay; the boardwalk is unmapped and the
+    // Shoppes (SG-047) and Crystal Pavilion North (SG-057) remain.
+    { id: 'apple-marina-bay-sands', name: 'Apple Marina Bay Sands', model: 'apple-marina-bay-sands', hide: [821764692] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]

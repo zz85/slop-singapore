@@ -42,6 +42,7 @@ test('the geodata anchors the six CBD landmarks with the mapped parts their prog
 for (const [model, documented, masts] of [['uob-plaza', 280], ['one-raffles-place', 283], ['guoco-tower', 290], ['republic-plaza', 280], ['asia-square', 228], ['marina-bay-financial-centre', 245], ['marina-one', 225], ['duo', 186],
   ['capitaspring', 280], ['ocean-financial-centre', 245], ['capitagreen', 242], ['the-sail', 245], ['one-raffles-quay', 245],
   ['capital-tower', 254], ['ocbc-centre', 198], ['altez', 250], ['skysuites-anson', 250], ['six-battery-road', 174], ['one-fullerton', 12],
+  ['artscience-museum', 60], ['apple-marina-bay-sands', 21],
   ['ioi-central-boulevard-towers', 237.9], ['18-robinson', 180], ['sgx-centre', 187, 196.5]]) {
   test(`${model}: builds on its anchor to its documented height, with nothing to flicker`, async () => {
     const { GEO } = await geodata;
@@ -799,7 +800,11 @@ test('Clifford Pier: conditioned hall glazing reaches the eaves above the verand
 
 for (const [id, height, ways, maxSpan] of [
   ['singapore-land-tower', 213, [46595418, 939684168], 90],
-  ['maybank-tower', 175.3, [106193386, 325793730, 1075240988, 1075240989, 1075553558], 60]
+  ['maybank-tower', 175.3, [106193386, 325793730, 1075240988, 1075240989, 1075553558], 60],
+  ['prudential-tower', 145, [171999306, 326926563], 83],
+  ['ascott-raffles-place', 87, [47345005, 463857984, 463857986, 463857988, 463857989], 50],
+  ['6-raffles-quay', 112, [47345004], 55],
+  ['hong-leong-building', 158, [47345013, 560203760, 1566685786, 1566685787, 1566685788], 90]
 ]) {
   test(`${id}: exact mapped replacements, bounded geometry and no coplanar flicker`, async () => {
     const { kit, L, info } = await siteModel(id);
@@ -853,4 +858,74 @@ test('SG-009: the mapped podium, narrow high roof and sloping wing preserve the 
   assert.ok(!solidAt(103.85252457, 1.28607500, 40), 'tower is set back above the river podium');
   assert.ok(!solidAt(103.85241217, 1.28609979, 2), 'riverside promenade is clear');
   assert.ok(!solidAt(103.85241495, 1.28582880, 3), 'Bank of China side remains outside the Maybank collider');
+});
+
+test('SG-012: the covered approach and roof setbacks leave air around solid volumes', async () => {
+  const { kit, at } = await siteModel('prudential-tower');
+  const { colliders } = kit.finish();
+  const approach = at(103.85008679, 1.28275812);
+  assert.equal(builtOver(kit, ...approach.slice(0, 2), 1, 3).length, 0, 'clear walk to the recessed lobby');
+  assert.ok(!colliderAt(colliders, approach[2], 2, approach[3]), 'walk has no invisible wall');
+  assert.ok(colliderAt(colliders, approach[2], 18, approach[3]), 'solid podium above the walk');
+
+  const solidAt = (lon, lat, y) => {
+    const [, , x, z] = at(lon, lat);
+    return colliderAt(colliders, x, y, z);
+  };
+  assert.ok(solidAt(103.85010289, 1.28280919, 2), 'a steel entrance column is solid');
+  assert.ok(solidAt(103.84988831, 1.28277840, 100), 'mapped shaft is filled');
+  assert.ok(!solidAt(103.84990338, 1.28253292, 45), 'air beyond the curved shaft stays clear');
+  assert.ok(solidAt(103.84988831, 1.28277840, 142.5), 'central roof plant is solid');
+  assert.ok(!solidAt(103.84995450, 1.28268176, 142.5), 'roof steps in from the curved face');
+  assert.ok(!solidAt(103.85011583, 1.28274376, 2), 'outside the plot at Cecil Street');
+});
+
+test('SG-023: the five-foot way and pool terrace stay open beside solid decks and crown', async () => {
+  const { kit, at } = await siteModel('ascott-raffles-place');
+  const { colliders } = kit.finish();
+  const gallery = at(103.85172664, 1.28217769);
+  assert.equal(builtOver(kit, ...gallery.slice(0, 2), 1, 3).length, 0, 'clear gallery between marble columns');
+  assert.ok(!colliderAt(colliders, gallery[2], 2, gallery[3]), 'the arcade remains passable');
+  assert.ok(colliderAt(colliders, gallery[2], 7, gallery[3]), 'solid building over the arcade');
+
+  const solidAt = (lon, lat, y) => {
+    const [, , x, z] = at(lon, lat);
+    return colliderAt(colliders, x, y, z);
+  };
+  assert.ok(solidAt(103.85178880, 1.28214908, 2), 'a marble gallery column is solid');
+  assert.ok(!solidAt(103.85182205, 1.28210439, 2), 'the curved corner gallery has no invisible wall');
+  assert.ok(!solidAt(103.85185653, 1.28211745, 7), 'air beyond the curved gallery soffit stays clear');
+  assert.ok(solidAt(103.85170628, 1.28214381, 67.8), 'pool deck stops descent');
+  assert.ok(!solidAt(103.85170628, 1.28214381, 72), 'pool terrace remains open beside the glass addition');
+  assert.ok(solidAt(103.85178406, 1.28208661, 86.5), 'steel crown tier stops descent');
+  assert.ok(!solidAt(103.85182174, 1.28196965, 10), 'street beyond the side elevation stays clear');
+});
+
+test('SG-017: the drop-off is sheltered and the inset plant leaves an open roof margin', async () => {
+  const { kit, at } = await siteModel('6-raffles-quay');
+  const { colliders } = kit.finish();
+  const dropOff = at(103.85153931, 1.28176277);
+  assert.equal(builtOver(kit, ...dropOff.slice(0, 2), 1, 3).length, 0, 'passable approach beneath the podium');
+  assert.ok(!colliderAt(colliders, dropOff[2], 2, dropOff[3]), 'no invisible wall across the approach');
+  assert.ok(colliderAt(colliders, dropOff[2], 12, dropOff[3]), 'garage is solid above the approach');
+  const [, , plantX, plantZ] = at(103.85142177, 1.28182603);
+  assert.ok(colliderAt(colliders, plantX, 111, plantZ), 'mechanical enclosure stops descent');
+  const [, , roofX, roofZ] = at(103.85147131, 1.28166690);
+  assert.ok(colliderAt(colliders, roofX, 103, roofZ), 'main tower reaches the roof margin');
+  assert.ok(!colliderAt(colliders, roofX, 111, roofZ), 'roof margin is clear beside the inset plant');
+});
+
+test('SG-024: the covered walk, low podium roof and raised office slab have distinct volumes', async () => {
+  const { kit, at } = await siteModel('hong-leong-building');
+  const { colliders } = kit.finish();
+  const walk = at(103.85107998, 1.28161529);
+  assert.equal(builtOver(kit, ...walk.slice(0, 2), 1, 3).length, 0, 'open street walk beneath the podium');
+  assert.ok(!colliderAt(colliders, walk[2], 2, walk[3]), 'no invisible wall across the walk');
+  assert.ok(colliderAt(colliders, walk[2], 19, walk[3]), 'parking volume is solid above the walk');
+  const [, , deckX, deckZ] = at(103.85084785, 1.28147475);
+  assert.ok(colliderAt(colliders, deckX, 37, deckZ), 'raised podium deck stops descent');
+  assert.ok(!colliderAt(colliders, deckX, 75, deckZ), 'the slab stops short of the rear deck');
+  const [, , shaftX, shaftZ] = at(103.85107019, 1.28128576);
+  assert.ok(colliderAt(colliders, shaftX, 90, shaftZ), 'mapped slab is filled');
+  assert.ok(colliderAt(colliders, shaftX, 157, shaftZ), 'roof plant is solid');
 });

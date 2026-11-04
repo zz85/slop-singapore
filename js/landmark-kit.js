@@ -205,7 +205,7 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
    * `edgeMaterial(i)` gives for the wall from point i to i + 1, when it gives one) and the top in `top` (the roof
    * grey unless named). Below 0.5 m from the ground no underside is drawn. -> the part record
    */
-  function solid({ ring, y0 = 0, y1, scale = 1, upperRing, material, edgeMaterial, top = kit.roofMaterial(), name = '', type = 'prism' }) {
+  function solid({ ring, y0 = 0, y1, scale = 1, upperRing, material, edgeMaterial, top = kit.roofMaterial(), name = '', type = 'prism', outlineCollision = false }) {
     if (!ring || ring.length < 3) throw new Error(`landmark kit: ${type} needs a ring of 3 points or more`);
     if (!(y1 > y0) && typeof y1 !== 'function') throw new Error(`landmark kit: ${type} ${name} is not taller than its base`);
     const n = ring.length;
@@ -217,7 +217,7 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     const topY = (x, z) => (typeof y1 === 'function' ? y1(x, z) : y1);
     const N = outwardNormals(ring);
     const B = batch(material);
-    const part = { name, type, material, y0, y1: -Infinity, ring, walls: [], caps: [], bounds: { minX: Infinity, maxX: -Infinity, minY: y0, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity } };
+    const part = { name, type, material, y0, y1: -Infinity, ring, outlineCollision, walls: [], caps: [], bounds: { minX: Infinity, maxX: -Infinity, minY: y0, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity } };
     const grow = ([x, y, z]) => { const b = part.bounds; b.minX = Math.min(b.minX, x); b.maxX = Math.max(b.maxX, x); b.minY = Math.min(b.minY, y); b.maxY = Math.max(b.maxY, y); b.minZ = Math.min(b.minZ, z); b.maxZ = Math.max(b.maxZ, z); };
     // walls: outward by the ring's winding, uv metres along the wall and up
     let along = 0;
@@ -263,14 +263,16 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
     const ring = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]].map(([px, pz]) => [x + px * c - pz * s, z + px * s + pz * c]);
     return solid({ ring, y0: y, y1: y + h, material, top, name, type: 'box' });
   };
-  /** A prism over a ring [[x, z], ...] from y0 to y1 (y1 may be a function of (x, z): a sloped top, kit.sloped) */
-  kit.prism = ({ ring, y0 = 0, y1, material, edgeMaterial, top, name = '' }) => solid({ ring, y0, y1, material, edgeMaterial, top, name, type: 'prism' });
+  /** A prism over a ring [[x, z], ...] from y0 to y1 (y1 may be a function of (x, z): a sloped top, kit.sloped).
+   * For a flat-topped solid, outlineCollision fills its plan at any altitude without the automatic box approximation. */
+  kit.prism = ({ ring, y0 = 0, y1, material, edgeMaterial, top, name = '', outlineCollision = false }) =>
+    solid({ ring, y0, y1, material, edgeMaterial, top, name, type: 'prism', outlineCollision });
   /** A collision/map volume without visible geometry, for wings, bridges or roofs above the ground cutoff. */
-  kit.collisionPrism = ({ ring, y0 = 0, y1 }) => {
+  kit.collisionPrism = ({ ring, y0 = 0, y1, outlineCollision = false }) => {
     if (!ring || ring.length < 3 || ring.some((p) => p.length !== 2 || !p.every(Number.isFinite)) || !Number.isFinite(y0) || !Number.isFinite(y1) || y1 <= y0) {
       throw new Error('landmark kit: collisionPrism needs a finite ring and heights y1 > y0');
     }
-    collisionParts.push({ ring: ring.map((p) => [...p]), y0, y1, filled: true });
+    collisionParts.push({ ring: ring.map((p) => [...p]), y0, y1, filled: true, outlineCollision });
   };
   /** A jet of water, as a fountain's spout: leaving `from` ([x, y, z] about the anchor) at `velocity` ([x, y, z] m/s)
    *  and falling under gravity to `floor` (the water it lands in), `width` m across at the nozzle. Only recorded here
@@ -289,9 +291,9 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
   /** A loft: scale the base ring at y1, or supply a corresponding topRing for a translated/inclined facade. */
   kit.loft = ({ ring, topRing, y0 = 0, y1, scale = 0.5, material, edgeMaterial, top, name = '' }) => solid({ ring, upperRing: topRing, y0, y1, scale, material, edgeMaterial, top, name, type: 'loft' });
   /** A cylinder about (x, z) from y0 to y1, radius r, in `segments` sides */
-  kit.cylinder = ({ x = 0, z = 0, y0 = 0, y1, r, segments = 12, material, top, name = '' }) => {
+  kit.cylinder = ({ x = 0, z = 0, y0 = 0, y1, r, segments = 12, material, top, name = '', outlineCollision = false }) => {
     const ring = Array.from({ length: segments }, (_, i) => { const a = (i / segments) * Math.PI * 2; return [x + Math.cos(a) * r, z + Math.sin(a) * r]; });
-    return solid({ ring, y0, y1, material, top, name, type: 'cylinder' });
+    return solid({ ring, y0, y1, material, top, name, type: 'cylinder', outlineCollision });
   };
   /**
    * A beam: a box `w` wide and `h` deep from the point `from` [x, y, z] to `to` — a sloped rafter, a brace, a post —
@@ -637,9 +639,9 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
       group.add(mesh);
     }
     const colliders = [], footprints = [];
-    for (const p of [...parts.filter((p) => p.y0 <= 0.5 && p.type !== 'sign' && p.type !== 'beam'), ...collisionParts]) {
+    for (const p of [...parts.filter(p => p.outlineCollision || (p.y0 <= 0.5 && p.type !== 'sign' && p.type !== 'beam')), ...collisionParts]) {
       const box = orientedBox(p.ring);
-      if (box && ringArea(p.ring) > box.area * 0.85) {
+      if (box && !p.outlineCollision && ringArea(p.ring) > box.area * 0.85) {
         colliders.push(obbCollider(box.cx + anchor.x, box.cz + anchor.z, box.hx, box.hz, box.ux, box.uz, p.y0, p.y1));
       } else {
         const N = outwardNormals(p.ring);
@@ -650,7 +652,7 @@ function createKit({ anchor = { x: 0, z: 0 }, name = '' } = {}) {
           const [nx, nz] = N[i];
           colliders.push(obbCollider((ax + bx) / 2 - nx * 0.4 + anchor.x, (az + bz) / 2 - nz * 0.4 + anchor.z, L / 2, 0.4, (bx - ax) / L, (bz - az) / L, p.y0, p.y1));
         }
-        if (p.filled && box) {
+        if ((p.filled || p.outlineCollision) && box) {
           // Fill explicit volumes with scanline strips, so aircraft cannot descend through roof interiors. The
           // 2 m bands approximate the boundary to within 1 m; separate crossing pairs preserve concave openings.
           // Split at every vertex height as well, avoiding a strip that bridges a change in polygon topology.

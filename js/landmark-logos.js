@@ -2,7 +2,7 @@
 // Tenants' marks for the landmark kit's signs (`logo` in kit.sign and kit.hang): each { id, aspect (its width over its
 // height), draw(ctx, x, y, w, h) } paints itself on a sign's canvas, filling that box. HSBC's hexagon and Standard
 // Chartered's mark follow the public-domain drawings on Wikimedia Commons ("HSBC logo (2018).svg", "Standard Chartered
-// Logo (2021, Logo only).svg"); DBS's is simplified from photographs of its signs, as none is published there.
+// Logo (2021, Logo only).svg"); DBS's and Apple's are simplified from photographs of their signs.
 
 // a drawing in its own units, `units` of them as tall as the box
 const into = (ctx, x, y, h, units) => { ctx.translate(x, y); ctx.scale(h / units, h / units); };
@@ -107,6 +107,19 @@ export const LOGOS = {
       };
       fill(ctx, '#e01f26', piece(-100, 102));
       for (const [a0, a1] of [[106, 133], [137, 164], [168, 195], [199, 226], [230, 256]]) fill(ctx, '#e01f26', piece(a0, a1));
+    }
+  },
+  // Apple's bitten apple with its leaf, in white as the shore signpost of Apple Marina Bay Sands carries it:
+  // simplified from photographs of that signpost and of the mark on the dome's glass (2020 press views)
+  apple: {
+    id: 'apple', aspect: 0.82,
+    draw(ctx, x, y, w, h) {
+      into(ctx, x, y, h, 100);
+      fill(ctx, '#ffffff', [[41, 33], [33, 26], [22, 26], [14, 33], [8, 45], [6, 60], [9, 75], [14, 87], [20, 94], [27, 98], [34, 96], [41, 95], [48, 96], [55, 98], [62, 94], [68, 86], [71, 79], [66, 72], [60, 64], [59, 55], [62, 47], [66, 42], [58, 35], [50, 31], [45, 31]]);
+      fill(ctx, '#ffffff', Array.from({ length: 10 }, (_, i) => {
+        const a = (i / 10) * Math.PI * 2, ex = 13 * Math.cos(a), ey = 6 * Math.sin(a), r = -0.42;
+        return [54 + ex * Math.cos(r) - ey * Math.sin(r), 16 + ex * Math.sin(r) + ey * Math.cos(r)];
+      }));
     }
   },
   // Deutsche Bank's slash in a square, in its blue: the public-domain drawing on Wikimedia Commons ("Deutsche Bank logo
