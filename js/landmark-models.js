@@ -10,8 +10,23 @@ import { buildFountainJets } from './fountain-jets.js';
 // (js/landmark-kit.js) about the anchor; `site` carries the parts with their rings about the anchor. What it built
 // is merged, placed and added to the scene, with colliders and footprints as js/open-city-buildings.js gives them,
 // and the water its fountains throw (kit.jet: js/fountain-jets.js).
-// A model that fails to load or build is reported and skipped; faces the kit finds would flicker are reported too.
+// A model that fails to load or build is reported and skipped; faces the kit finds would flicker are reported too, on
+// a local server (or with ?flicker): where models are worked on. Every model's test checks the same, so the site skips it.
 // Returns { group, colliders, footprints, update() }.
+
+const checkFlicker = typeof location !== 'undefined' &&
+  (/^(localhost|127\.0\.0\.1|\[::1\]|.+\.localhost)$/.test(location.hostname) || location.protocol === 'file:' || new URLSearchParams(location.search).has('flicker'));
+
+// The model programs, all requested at once (one after another they cost a round trip each: seconds on a first
+// visit). Called early (main.js) so they arrive while the renderer starts and the city is built.
+let programs = null;
+function loadLandmarkPrograms() {
+  if (!programs) {
+    programs = (GEO.landmarks || []).map((L) => import(`./landmark-models/${L.model}.js`));
+    for (const p of programs) p.catch(() => {}); // (reported by buildLandmarkModels, in turn)
+  }
+  return programs;
+}
 
 async function buildLandmarkModels(scene) {
   const t0 = performance.now();
@@ -20,9 +35,10 @@ async function buildLandmarkModels(scene) {
   const colliders = [];
   const footprints = [];
   const built = [];
-  for (const L of GEO.landmarks || []) {
+  const loading = loadLandmarkPrograms();
+  for (const [k, L] of (GEO.landmarks || []).entries()) {
     try {
-      const { build } = await import(`./landmark-models/${L.model}.js`);
+      const { build } = await loading[k];
       const site = {
         id: L.id, name: L.name, x: L.x, z: L.z,
         parts: L.parts.map((p) => ({ ...p, ring: Array.from({ length: p.ring.length / 2 }, (_, k) => [p.ring[k * 2] - L.x, p.ring[k * 2 + 1] - L.z]) }))
@@ -37,7 +53,7 @@ async function buildLandmarkModels(scene) {
       // (each footprint knows its landmark: what a click on it names, js/building-info.js)
       for (const f of done.footprints) f.site = L.id;
       footprints.push(...done.footprints);
-      const flicker = kit.flicker();
+      const flicker = checkFlicker ? kit.flicker() : [];
       if (flicker.length) console.warn(`[landmarks] ${L.id}: faces that may flicker: ${flicker.map(([a, b]) => `${a} / ${b}`).join(', ')}`);
       built.push(`${L.name} (${kit.parts.length} parts, ${kit.triangles} triangles, ${kit.parts.length ? Math.round(kit.bounds().maxY) + ' m' : 'nothing built'})`);
     } catch (e) {
@@ -49,4 +65,4 @@ async function buildLandmarkModels(scene) {
   return { group, colliders, footprints, update() {} };
 }
 
-export { buildLandmarkModels };
+export { buildLandmarkModels, loadLandmarkPrograms };

@@ -18,8 +18,15 @@
       }
     }
   </script>
+  <!-- three.js itself (the import map's URLs and the core they import), which the browser would only find once
+       main.js had arrived -->
+  <link rel="modulepreload" href="https://cdn.jsdelivr.net/gh/mrdoob/three.js@f17eb5d689094a3fbd4cd0d64d54729a48036ce0/build/three.webgpu.js" crossorigin />
+  <link rel="modulepreload" href="https://cdn.jsdelivr.net/gh/mrdoob/three.js@f17eb5d689094a3fbd4cd0d64d54729a48036ce0/build/three.tsl.js" crossorigin />
+  <link rel="modulepreload" href="https://cdn.jsdelivr.net/gh/mrdoob/three.js@f17eb5d689094a3fbd4cd0d64d54729a48036ce0/build/three.core.js" crossorigin />
   <!-- Fetch the city modules in parallel before stylesheets; the module graph controls evaluation order. -->
   <link rel="modulepreload" href="./js/singapore-geodata.js" />
+  <!-- ...and the island tiles' index, which js/city-tiles.js waits for once the city is built -->
+  <link rel="preload" href="./tiles/singapore/index.json" as="fetch" crossorigin />
   <link rel="modulepreload" href="./js/geodata.js" />
   <link rel="modulepreload" href="./js/city-common.js" />
   <link rel="modulepreload" href="./js/open-city-config.js" />

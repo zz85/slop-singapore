@@ -9,7 +9,7 @@ import { buildLandmarks } from './landmarks.js';
 import { buildCityBlocks } from './buildings.js';
 import { buildOpenCityBuildings } from './open-city-buildings.js';
 import { buildSingaporeLandmarks } from './singapore-landmarks.js';
-import { buildLandmarkModels } from './landmark-models.js';
+import { buildLandmarkModels, loadLandmarkPrograms } from './landmark-models.js';
 import { CityTiles } from './city-tiles.js';
 import { loadIslandRoads } from './island-roads.js';
 import { createIslandTraffic } from './island-traffic.js';
@@ -89,6 +89,8 @@ async function initApp() {
   const loadingOverlay = document.getElementById('loading-overlay');
   const loadingStatus = document.getElementById('loading-status');
   nameThePage();
+  // (the landmark model programs download while the renderer starts and the city is built)
+  if (CITY.open && GEO.landmarks?.length) loadLandmarkPrograms();
   const loadingTrack = loadingOverlay ? loadingOverlay.querySelector('.loader-track') : null;
   const loadingFill = document.getElementById('loading-progress');
   // The loading bar sweeps while the city is being built (the main thread is busy) and fills as the shaders compile
