@@ -1,4 +1,4 @@
-# Singapore building detailing checklist
+| SG-049 | [x] || done || SG-048 | [x] || done |# Singapore building detailing checklist
 
 This is the shared work queue for Codex, Claude Code, Meta Muse and human contributors. The goal is a recognisable, closely observed Singapore miniature at **Tiny Warsaw's level of architectural care**: correct footprints, proportions, rooflines, façade depth, colours and important open spaces, legible both from the map and nearby. Follow the [modelling guide](landmark-modeling/README.md); a name in this list is a research target, not a finished architectural brief.
 
