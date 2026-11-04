@@ -192,9 +192,12 @@ export default {
     // SG-117 Skysuites @ Anson, 8 Enggor Street: its six-level podium outline (172023451) and the 71-storey tower
     // part over it (393100851, mapped 250 m from level 6); Mapletree Anson to the east remains.
     { id: 'skysuites-anson', name: 'Skysuites @ Anson', model: 'skysuites-anson', hide: [172023451, 393100851] },
-    // SG-007 Six Battery Road: its outline (mapped as a four-storey, 12 m podium) and the 42-storey tower part over it
-    // (106193384, 174 m); Singapore Land Tower, Maybank Tower, MYP Centre and the HSBC building remain.
+    // SG-007 Six Battery Road: its outline (mapped as a four-storey, 12 m podium) and 174 m tower.
     { id: 'six-battery-road', name: 'Six Battery Road', model: 'six-battery-road', hide: [172916311, 106193384] },
+    // SG-008 Singapore Land Tower: the mapped shaft and podium at 50 Raffles Place.
+    { id: 'singapore-land-tower', name: 'Singapore Land Tower', model: 'singapore-land-tower', hide: [46595418, 939684168] },
+    // SG-009 Maybank Tower: the outline, podium and three overlapping shaft/roof ways at 2 Battery Road.
+    { id: 'maybank-tower', name: 'Maybank Tower', model: 'maybank-tower', hide: [106193386, 1075240989, 1075240988, 325793730, 1075553558] },
     // SG-147 the Merlion at the tip of Merlion Park, spouting into the bay, with the Merlion cub behind it: no
     // building is mapped there (the statue is OSM way 182819157, an amenity=fountain sculpture; the cub node
     // 6283080658), so it hides nothing and stands at the statue's centre

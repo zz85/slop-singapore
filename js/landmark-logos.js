@@ -15,6 +15,28 @@ const fill = (ctx, colour, points) => {
 };
 
 export const LOGOS = {
+  // Simplified from the Singapore Land crown sign photographed by Lighting Planners Associates.
+  'singapore-land': {
+    id: 'singapore-land', aspect: 1.02,
+    draw(ctx, x, y, w, h) {
+      into(ctx, x, y, h, 100);
+      fill(ctx, '#002d74', [[28, 17], [61, 0], [61, 68], [28, 51]]);
+      fill(ctx, '#002d74', [[0, 49], [30, 34], [30, 88], [0, 100]]);
+      fill(ctx, '#e6b467', [[67, 53], [102, 36], [102, 88], [67, 100]]);
+    }
+  },
+  // The tiger roundel simplified from Maybank's yellow crown sign in Bob T's 2018 aerial photo.
+  maybank: {
+    id: 'maybank', aspect: 1,
+    draw(ctx, x, y, w, h) {
+      into(ctx, x, y, h, 100);
+      ctx.fillStyle = '#201d18';
+      ctx.fill(new Path2D('M50 0A50 50 0 1 1 50 100A50 50 0 1 1 50 0Z M50 7A43 43 0 1 0 50 93A43 43 0 1 0 50 7Z'));
+      fill(ctx, '#201d18', [[20, 36], [29, 22], [43, 25], [54, 17], [66, 24], [70, 36], [84, 47], [75, 55], [63, 54], [59, 61], [77, 64], [67, 74], [51, 74], [41, 85], [29, 74], [33, 62], [22, 55]]);
+      fill(ctx, '#f6c745', [[44, 29], [61, 31], [67, 39], [54, 35], [50, 44], [39, 45]]);
+      fill(ctx, '#f6c745', [[34, 50], [51, 48], [46, 55], [33, 60]]);
+    }
+  },
   // the hexagon: a white square between red triangles above and below its middle, and red points either side
   hsbc: {
     id: 'hsbc', aspect: 2,
