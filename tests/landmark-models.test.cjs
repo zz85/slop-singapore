@@ -601,6 +601,38 @@ test('SG-235 Parkview Square stacks plinth, shaft and crown over an open crane p
   assert.equal(kit.parts.filter((p) => p.name === 'crown-statue').length, 8, 'four crown statues on each broad side');
 });
 
+test('SG-235 Parkview Square wears its crown as photographed: grille, statues and fins only across the centre bays, tan pylons above the stepped corner tiers', async () => {
+  const { kit, at } = await siteModel('parkview-square');
+  // a m along the long faces (44 deg) and b m across (314 deg) from the tower's south corner
+  const ab = (a, b) => {
+    const north = a * Math.cos(44 * Math.PI / 180) + b * Math.cos(314 * Math.PI / 180);
+    const east = a * Math.sin(44 * Math.PI / 180) + b * Math.sin(314 * Math.PI / 180);
+    return at(103.8576055 + east / 111290, 1.2997776 + north / 110574);
+  };
+  const over = (a, b, y0, y1) => { const [x, z] = ab(a, b); return builtOver(kit, x, z, y0, y1); };
+  const top = (a, b) => Math.max(0, ...over(a, b, 0, 200).map((p) => p.y1));
+  const named = (parts, name) => parts.some((p) => p.name === name);
+  const D = 26.7, piers = [18.9, 26.63, 34.37, 42.1];
+  assert.ok(named(over(30.5, 0.9, 123.5, 124.5), 'crown-screen'), 'the bronze grille across the south-east centre bay');
+  assert.ok(named(over(30.5, D - 0.9, 123.5, 124.5), 'crown-screen'), 'and across the north-west one');
+  for (const a of [4.4, 15, 46, 56.6]) assert.ok(!named(over(a, 1, 116, 132), 'crown-screen'), `no grille on the tan stone at a ${a}`);
+  for (const a of [15, 46]) assert.ok(top(a, 3) >= 133 && top(a, 3) <= 134.5, `the pylon at a ${a} rises to the grille's top: ${top(a, 3)} m`);
+  for (const a of [4.4, 56.6]) assert.ok(top(a, 3) >= 124 && top(a, 3) <= 126.5, `the corner tier at a ${a} steps lower: ${top(a, 3)} m`);
+  for (const a of piers) {
+    for (const b of [0, D]) assert.ok(named(over(a, b, 120, 125), 'crown-statue'), `a statue on the pier at a ${a}, b ${b}`);
+    for (const b of [4.5, D - 4.5]) assert.ok(top(a, b) >= 143.5, `a stepped fin over the pier at a ${a}, b ${b}: ${top(a, b)} m`);
+  }
+  for (const a of [22.8, 30.5, 38.2]) assert.ok(top(a, 4.5) < 134, `no fin between the piers at a ${a}`);
+  assert.equal(kit.parts.filter((p) => p.name === 'crown-statue').length, 8);
+  // the centre bays' dark glass sits back between the pylons, which stand proud of the corner tiers
+  assert.equal(over(30.5, 0.3, 60, 100).length, 0, 'the centre field is recessed');
+  assert.ok(over(15, -0.2, 60, 100).length && !over(4.4, -0.2, 60, 100).length, 'the pylon stands proud of the corner tier');
+  assert.ok(over(4.4, 0.3, 60, 100).length, 'the corner tier is built to the mapped face');
+  // the green-glass lantern on the roof deck, behind the fins
+  assert.ok(named(over(30.5, D / 2, 134, 138), 'roof-lantern'), 'the lantern on the roof deck');
+  assert.ok(top(30.5, D / 2) >= 140 && top(30.5, D / 2) <= 141, `the lantern's ridge: ${top(30.5, D / 2)} m`);
+});
+
 test('SG-235 Parkview Square is finite, batched and free of coplanar flicker', async () => {
   const { kit } = await siteModel('parkview-square');
   assert.ok(kit.triangles > 600 && kit.triangles < 65000, `${kit.triangles} triangles`);
