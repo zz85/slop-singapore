@@ -102,7 +102,9 @@ export default {
       335167785, 335167790, 335167791, 335167792, 335167794, 335167796, 335167812, 335167813, 335167816, 335167818, 335167819,
       335167821, 335167822, 1075244650, 1479638475] },
     { id: 'one-raffles-place', name: 'One Raffles Place', model: 'one-raffles-place', hide: [171999293, 325793737, 325793773, 407705492, 407705505, 407705559, 852006883] },
-    { id: 'guoco-tower', name: 'Guoco Tower', model: 'guoco-tower', hide: [393100845, 393100848, 393100849, 393100850] },
+    // (SG-080: 117052184, an untagged "public building" outline, lies under Guoco Tower's City Room canopy, where the
+    // aerials show only the canopy's glass; the city stood a generic block up through it)
+    { id: 'guoco-tower', name: 'Guoco Tower', model: 'guoco-tower', hide: [393100845, 393100848, 393100849, 393100850, 117052184] },
     // The second batch: Republic Plaza (its octagonal shaft, the sloped corner parts and the crown slivers, its podium
     // outline), Asia Square's two towers (outlines and their stepped parts), Marina Bay Financial Centre (the three
     // office towers, Marina Bay Residences, the podium, the Link Mall and 116905047: the residences' lap pool, mapped as
@@ -255,7 +257,10 @@ export default {
       827855908,827855910,827855911], hideRelations: [14314416] },
     // SG-049 Apple Marina Bay Sands: the mapped glass dome way in the bay; the boardwalk is unmapped and the
     // Shoppes (SG-047) and Crystal Pavilion North (SG-057) remain.
-    { id: 'apple-marina-bay-sands', name: 'Apple Marina Bay Sands', model: 'apple-marina-bay-sands', hide: [821764692] }
+    { id: 'apple-marina-bay-sands', name: 'Apple Marina Bay Sands', model: 'apple-marina-bay-sands', hide: [821764692] },
+    // SG-090 MAS Building: its outline, the 37-level tower part and the four-level podium part; Springleaf Tower,
+    // which touches the outline's corner, remains.
+    { id: 'mas-building', name: 'MAS Building', model: 'mas-building', hide: [43755573, 172915371, 439006507] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]
