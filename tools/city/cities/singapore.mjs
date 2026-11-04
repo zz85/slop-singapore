@@ -221,7 +221,19 @@ export default {
       463425266, 463425278, 463425281, 463425283, 463425284, 463425285, 463425286, 463425287, 463425288, 463425289,
       463425290, 463425291, 463425292, 463425293, 463425294, 463425295, 463425296, 463425297, 463425298, 463425299,
       463425300, 463425303, 463425304, 463425305, 463425306,
-      460430417, 460430418, 460430419, 460430420] }
+      460430417, 460430418, 460430419, 460430420] },
+    // SG-045 IOI Central Boulevard Towers: the site outline and its duplicate "Central Square" outline, the six-level
+    // podium, the four-level part under the sky park, the West and East Towers and the two grey parts at levels 6–8;
+    // the two link bridges (1075230984, 1206694671), which only reach into the site, remain.
+    { id: 'ioi-central-boulevard-towers', name: 'IOI Central Boulevard Towers', model: 'ioi-central-boulevard-towers', hide: [
+      1206694672, 725993952, 1075230981, 1206694673, 1075230982, 1075230983, 1075230986, 1075230987] },
+    // SG-061 18 Robinson: its outline and eight stacked parts (the retail base and podium, the two glass bands, the
+    // grey block, the two small posts and the skillion-topped office tower); the Far East Financial Building remains.
+    { id: '18-robinson', name: '18 Robinson', model: '18-robinson', hide: [424896147,
+      1566724021, 1566724022, 1566724023, 1566724024, 1566724025, 1566724026, 1566724027, 1566724028] },
+    // SG-063 SGX Centre: the shared three-storey podium and the two towers over it (mapped under their pre-2001
+    // names, Unity Tower One and Two)
+    { id: 'sgx-centre', name: 'SGX Centre', model: 'sgx-centre', hide: [45098518, 47345025, 47345024] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]
