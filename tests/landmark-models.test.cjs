@@ -44,7 +44,7 @@ for (const [model, documented, masts] of [['uob-plaza', 280], ['one-raffles-plac
   ['capital-tower', 254], ['ocbc-centre', 198], ['altez', 250], ['skysuites-anson', 250], ['six-battery-road', 174], ['one-fullerton', 12], ['the-gateway', 150], ['central-fire-station', 34], ['parkview-square', 144],
   ['artscience-museum', 60], ['apple-marina-bay-sands', 21],
   ['ioi-central-boulevard-towers', 237.9], ['18-robinson', 180], ['sgx-centre', 187, 196.5],
-  ['mas-building', 138]]) {
+  ['mas-building', 138], ['gb-building', 93], ['tokio-marine-centre', 124.5], ['wing-on-life-building', 56]]) {
   test(`${model}: builds on its anchor to its documented height, with nothing to flicker`, async () => {
     const { GEO } = await geodata;
     const L = GEO.landmarks.find((l) => l.model === model);

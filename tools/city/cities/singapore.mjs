@@ -269,7 +269,17 @@ export default {
     { id: 'apple-marina-bay-sands', name: 'Apple Marina Bay Sands', model: 'apple-marina-bay-sands', hide: [821764692] },
     // SG-090 MAS Building: its outline, the 37-level tower part and the four-level podium part; Springleaf Tower,
     // which touches the outline's corner, remains.
-    { id: 'mas-building', name: 'MAS Building', model: 'mas-building', hide: [43755573, 172915371, 439006507] }
+    { id: 'mas-building', name: 'MAS Building', model: 'mas-building', hide: [43755573, 172915371, 439006507] },
+    // SG-075 GB Building, 143 Cecil Street: its outline (the diagonal podium-and-tower slab across the
+    // Cecil/McCallum corner), the tower part at its north-east end and the three-level podium part toward
+    // Robinson Road; Oxley Tower (172270395 and its parts 1566584723, 1479526103) immediately south-east remains.
+    { id: 'gb-building', name: 'GB Building', model: 'gb-building', hide: [504809533, 326926543, 1566584725] },
+    // SG-083 Tokio Marine Centre, 20 McCallum Street: its single mapped hexagonal outline (21 levels, 121 m);
+    // 158 Cecil Street (171995560, sharing its nodes) and Bangkok Bank (171995559 and its part 326926561) remain.
+    { id: 'tokio-marine-centre', name: 'Tokio Marine Centre', model: 'tokio-marine-centre', hide: [171995558] },
+    // SG-084 Wing On Life Building, 150 Cecil Street: its single mapped outline (20 levels, 56 m, 1973);
+    // Far Eastern Bank Building (171995552) and Solitaire on Cecil (171995562), which share its long edges, remain.
+    { id: 'wing-on-life-building', name: 'Wing On Life Building', model: 'wing-on-life-building', hide: [171995555] }
   ],
   // The rest of the island beyond the detail box, streamed in tiles of buildings & main roads around the player
   // (tools/city/fetch-island.mjs, tools/city/tiles.mjs, js/city-tiles.js): [south, west, north, east]
