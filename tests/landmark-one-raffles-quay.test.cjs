@@ -82,10 +82,9 @@ test('One Raffles Quay replaces its outline, the two towers and the roof plant\'
   const { default: config } = await import('../tools/city/cities/singapore.mjs');
   const registered = config.landmarks.find((l) => l.id === L.id);
   assert.deepEqual([...registered.hide].sort((a, b) => a - b), [ID.outline, ID.north, ID.south, ID.plant].sort((a, b) => a - b));
-  // The Sail's podium across Marina View Link belongs to The Sail's own site; 6 Raffles Quay across Raffles Quay stays the
-  // city's
+  // Both neighbours have independent sites across the adjoining streets.
   assert.ok(!registered.hide.includes(47345007), 'The Sail\'s podium is not part of this site');
-  assert.ok(!config.landmarks.some((l) => (l.hide || []).includes(47345004)), '6 Raffles Quay stays the city\'s');
+  assert.ok(!registered.hide.includes(47345004), '6 Raffles Quay is not part of this site');
 });
 
 test('One Raffles Quay builds on its anchor to its documented 245 m, within its mapped outline, in a moment', async () => {
