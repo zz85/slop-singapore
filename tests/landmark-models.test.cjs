@@ -40,7 +40,7 @@ test('the geodata anchors the six CBD landmarks with the mapped parts their prog
 
 for (const [model, documented] of [['uob-plaza', 280], ['one-raffles-place', 283], ['guoco-tower', 290], ['republic-plaza', 280], ['asia-square', 228], ['marina-bay-financial-centre', 245], ['marina-one', 225], ['duo', 186],
   ['capitaspring', 280], ['ocean-financial-centre', 245], ['capitagreen', 242], ['the-sail', 245], ['one-raffles-quay', 245],
-  ['capital-tower', 254], ['ocbc-centre', 198], ['altez', 250], ['skysuites-anson', 250], ['one-fullerton', 12]]) {
+  ['capital-tower', 254], ['ocbc-centre', 198], ['altez', 250], ['skysuites-anson', 250], ['six-battery-road', 174], ['one-fullerton', 12]]) {
   test(`${model}: builds on its anchor to its documented height, with nothing to flicker`, async () => {
     const { GEO } = await geodata;
     const L = GEO.landmarks.find((l) => l.model === model);
@@ -339,7 +339,7 @@ test('Raffles Place MRT keeps both entrance bays and the park gap physically ope
   }
 });
 
-test('Raffles Place MRT roofs stop descent and both façades have real ornamental geometry', async () => {
+test('Raffles Place MRT roofs stop descent and both faÃ§ades have real ornamental geometry', async () => {
   const { kit, frame } = await rafflesMrtModel(), { colliders } = kit.finish();
   for(const [lon,lat]of [[103.851453,1.283954],[103.851509,1.284578]]){
     const [x,z]=frame.toWorld(lon,lat);
@@ -678,4 +678,177 @@ test('Marina Bay Financial Centre stays finite, batched and free of flicker, its
   assert.ok(solidAt(MBFC.deck, 12), 'the pool deck is solid');
   assert.ok(!solidAt(MBFC.plaza, 30), 'the air over the plaza is not');
   assert.ok(footprints.some((f) => f.h >= 244), 'the map has Tower 2 at its height');
+});
+
+
+// SG-035 / SG-036: probes are geographic points from the source plan, independent of the model's frame helper.
+async function waterfrontModel(id) {
+  const { GEO } = await geodata;
+  const L = GEO.landmarks.find(l => l.id === id);
+  assert.ok(L, `${id} has a generated mapped anchor`);
+  const { build, info } = await import(pathToFileURL(join(__dirname, `../js/landmark-models/${id}.js`)).href);
+  const kit = createKit({ anchor: L, name: id });
+  kit.bearingDeg = GEO.frame.bearingDeg;
+  build(kit, siteOf(L));
+  const { makeFrame } = await import('../tools/city/frame.mjs');
+  const frame = makeFrame({ lat0: GEO.frame.lat0, lon0: GEO.frame.lon0, theta: GEO.frame.bearingDeg * Math.PI / 180 });
+  const at = (lon, lat, y) => {
+    const [x,z] = frame.toWorld(lon,lat);
+    return colliderAt(kit.finish().colliders,x,y,z);
+  };
+  return { kit, L, info, at };
+}
+
+for (const [id,ways,relations] of [
+  ['clifford-pier',[99348745,407926383,986973999],[13262097]],
+  ['customs-house',[395113920,406900754,406900756,986973995,986973998],[]]
+]) {
+  test(`${id}: exact mapped replacements, finite geometry, bounded materials and no flicker`, async () => {
+    const { kit, L } = await waterfrontModel(id);
+    const { default: config } = await import('../tools/city/cities/singapore.mjs');
+    const entry = config.landmarks.find(l => l.id === id);
+    assert.deepEqual([...entry.hide].sort((a,b)=>a-b), [...ways].sort((a,b)=>a-b));
+    assert.deepEqual(entry.hideRelations || [], relations);
+    assert.deepEqual(L.parts.map(p=>p.id).sort((a,b)=>a-b), [...ways].sort((a,b)=>a-b));
+    for(const part of kit.parts)for(const value of Object.values(part.bounds))assert.ok(Number.isFinite(value), part.name);
+    assert.ok(kit.triangles > 1500 && kit.triangles < 65000, `${kit.triangles} triangles`);
+    assert.ok(kit.finish().group.children.length <= 16);
+    assert.equal(kit.flicker().length, 0, JSON.stringify(kit.flicker().slice(0,10)));
+    // A wrong anchor or bounding-box-filled site would consume its neighbours.
+    const b=kit.bounds();
+    assert.ok(Math.max(b.maxX-b.minX,b.maxZ-b.minZ)<110);
+    const hotel=config.landmarks.find(l=>l.id==='fullerton-bay-hotel');
+    assert.ok(hotel.hide.includes(986973997), 'SG-032 still owns its link');
+    assert.ok(!entry.hide.includes(987031386), 'street-side promenade building survives');
+  });
+}
+
+test('Clifford Pier: column-free hall, real west portal and side arcade stay passable', async () => {
+  const { at } = await waterfrontModel('clifford-pier');
+  for(const [name,lon,lat]of [
+    ['hall',103.85352,1.283932],['west portal',103.85317,1.283956],
+    ['south arcade',103.85352,1.283815],['north arcade',103.85352,1.284049]
+  ])assert.ok(!at(lon,lat,2), name+' has no invisible wall');
+  assert.ok(at(103.85352,1.283932,10.4), 'ridge roof stops descent');
+  assert.ok(at(103.85352,1.283991,8.8), 'north sloping roof stops descent');
+  assert.ok(at(103.85352,1.283870,8.8), 'south sloping roof stops descent');
+  assert.ok(at(103.85352,1.283815,4.9), 'raised veranda roof is solid');
+  assert.ok(!at(103.85352,1.283932,13), 'no generic mass over the gable');
+});
+
+test('Clifford Pier: hall roof rises to its ridge and west portal has open arch geometry', async () => {
+  const { kit } = await waterfrontModel('clifford-pier');
+  assert.ok(kit.bounds().maxY>=11 && kit.bounds().maxY<14);
+  const arches=kit.parts.filter(p=>p.name.startsWith('hall-rib-'));
+  assert.ok(arches.length>=100, 'ten segmented transverse arches');
+  const roof=kit.parts.filter(p=>p.name.startsWith('gable-slope-'));
+  assert.equal(roof.length,2);
+  assert.ok(roof.every(p=>p.bounds.maxY-p.bounds.minY>3), 'slopes change the silhouette');
+});
+
+test('Customs House: tower is 23 m, solid through shaft and lookout, with clear air above', async () => {
+  const { kit, at, info } = await waterfrontModel('customs-house');
+  assert.equal(info.height,23);
+  assert.ok(Math.abs(kit.bounds().maxY-23)<0.1);
+  for(const y of [3,12,20,22.8])assert.ok(at(103.853706,1.282473,y), 'tower solid at '+y);
+  assert.ok(!at(103.853706,1.282473,24));
+  assert.ok(at(103.8534,1.28254,7.9), 'main roof stops descent');
+});
+
+test('Customs House: water basin and pavilion passage remain clear under solid umbrella roofs', async () => {
+  const { at } = await waterfrontModel('customs-house');
+  for(const y of [2,6,12])assert.ok(!at(103.8535,1.28277,y), 'central basin remains open at '+y);
+  assert.ok(!at(103.85372,1.28275,2), 'pavilion edge passage is open');
+  assert.ok(at(103.85372,1.28275,5.2), 'umbrella roof stops descent');
+  assert.ok(!at(103.85377,1.28275,2), 'east promenade is clear');
+  assert.ok(!at(103.8534,1.28241,2), 'southern waterfront walk is clear');
+});
+
+
+test('Clifford Pier: concrete ribs stay below the terracotta roof envelope', async () => {
+  const {kit,L}=await waterfrontModel('clifford-pier');
+  const {GEO}=await geodata;
+  const {makeFrame}=await import('../tools/city/frame.mjs');
+  const f=makeFrame({lat0:GEO.frame.lat0,lon0:GEO.frame.lon0,theta:GEO.frame.bearingDeg*Math.PI/180});
+  const c=f.toWorld(103.853518225,1.2839318),a=182.8*Math.PI/180,t=GEO.frame.bearingDeg*Math.PI/180;
+  const V=[Math.sin(a)*Math.cos(t)-Math.cos(a)*Math.sin(t),-Math.sin(a)*Math.sin(t)-Math.cos(a)*Math.cos(t)];
+  for(const p of kit.parts.filter(p=>p.name.startsWith('hall-rib-'))) {
+    const v=Math.min(...p.ring.map(q=>Math.abs((q[0]+L.x-c[0])*V[0]+(q[1]+L.z-c[1])*V[1])));
+    assert.ok(p.bounds.maxY<11.15-v/10.5*3.5-0.03, p.name+' fits beneath the sloping roof');
+  }
+  const [x,z]=f.toWorld(103.853818,1.283917);
+  assert.ok(kit.parts.some(p=>p.y0>7&&p.y0<9&&p.y1>10&&covers(p.ring,x-L.x,z-L.z)), 'east gable has its white attic face');
+});
+
+
+test('Clifford Pier: structural entrance arches stop flight above a clear doorway', async () => {
+  const {kit}=await waterfrontModel('clifford-pier');
+  const colliders=kit.finish().colliders;
+  // Independently inspected west centre-arch concrete, fixed in the generated city frame.
+  assert.ok(colliderAt(colliders,169.8766064541,5.8298702727,-91.9753031815), 'thick arch is solid');
+  assert.ok(!colliderAt(colliders,169.8766064541,2,-91.9753031815), 'doorway below stays passable');
+});
+
+test('Clifford Pier: conditioned hall glazing reaches the eaves above the veranda', async () => {
+  const {at}=await waterfrontModel('clifford-pier');
+  assert.ok(at(103.8535514,1.28401302,6), 'north upper glass wall closes the hall');
+  assert.ok(at(103.85354337,1.28384771,6), 'south upper glass wall closes the hall');
+});
+
+for (const [id, height, ways, maxSpan] of [
+  ['singapore-land-tower', 213, [46595418, 939684168], 90],
+  ['maybank-tower', 175.3, [106193386, 325793730, 1075240988, 1075240989, 1075553558], 60]
+]) {
+  test(`${id}: exact mapped replacements, bounded geometry and no coplanar flicker`, async () => {
+    const { kit, L, info } = await siteModel(id);
+    const { default: city } = await import('../tools/city/cities/singapore.mjs');
+    const entry = city.landmarks.find(l => l.id === id);
+    assert.deepEqual([...entry.hide].sort((a, b) => a - b), ways);
+    assert.deepEqual(entry.hideRelations ?? [], []);
+    assert.deepEqual(L.parts.map(p => p.id).sort((a, b) => a - b), ways);
+    assert.equal(info.height, height);
+    const bounds = kit.bounds();
+    assert.ok(Math.abs(bounds.maxY - height) < 0.5);
+    assert.ok(Math.abs(bounds.minY) < 0.05);
+    assert.ok(Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ) < maxSpan);
+    for (const part of kit.parts) assert.ok(Object.values(part.bounds).every(Number.isFinite), part.name);
+    assert.ok(kit.triangles < 65000, `${kit.triangles} triangles`);
+    assert.ok(kit.finish().group.children.length <= 16);
+    const flicker = kit.flicker();
+    assert.equal(flicker.length, 0, JSON.stringify(flicker));
+  });
+}
+
+test('SG-008: plaza stays open below the canopy and the podium and gallery decks stop descent', async () => {
+  const { kit, at } = await siteModel('singapore-land-tower');
+  const { colliders } = kit.finish();
+  const [x, z, wx, wz] = at(103.85187930, 1.28446494);
+  assert.equal(builtOver(kit, x, z, 1, 3).length, 0, 'unobstructed beneath the entrance canopy');
+  assert.ok(builtOver(kit, x, z, 7.4, 8.2).length, 'canopy is visible above the plaza');
+  assert.ok(colliderAt(colliders, wx, 7.7, wz), 'canopy stops descent');
+  assert.ok(!colliderAt(colliders, wx, 2, wz), 'walkway has no invisible wall');
+  const solidAt = (lon, lat, y) => {
+    const [, , x, z] = at(lon, lat);
+    return colliderAt(colliders, x, y, z);
+  };
+  assert.ok(!solidAt(103.85175716, 1.28446071, 2), 'west plaza is clear beyond the canopy');
+  assert.ok(solidAt(103.85221718, 1.28455848, 15.7), 'podium deck is solid');
+  assert.ok(solidAt(103.85201825, 1.28471193, 197.6), 'roof deck is solid');
+  assert.ok(!solidAt(103.85201825, 1.28471193, 208), 'sky gallery remains open between crown screens');
+});
+
+test('SG-009: the mapped podium, narrow high roof and sloping wing preserve the river edge and setbacks', async () => {
+  const { kit, at } = await siteModel('maybank-tower');
+  const { colliders } = kit.finish();
+  const solidAt = (lon, lat, y) => {
+    const [, , x, z] = at(lon, lat);
+    return colliderAt(colliders, x, y, z);
+  };
+  assert.ok(solidAt(103.85259929, 1.28571874, 20.6), 'podium roof stops descent beyond the tower');
+  assert.ok(solidAt(103.85247152, 1.28589729, 174.7), 'narrow high crown is solid');
+  assert.ok(solidAt(103.85257624, 1.28594938, 164), 'sloping wing is solid below its roof');
+  assert.ok(!solidAt(103.85257624, 1.28594938, 174.7), 'wing steps down from the high crown');
+  assert.ok(!solidAt(103.85252457, 1.28607500, 40), 'tower is set back above the river podium');
+  assert.ok(!solidAt(103.85241217, 1.28609979, 2), 'riverside promenade is clear');
+  assert.ok(!solidAt(103.85241495, 1.28582880, 3), 'Bank of China side remains outside the Maybank collider');
 });

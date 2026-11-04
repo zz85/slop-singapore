@@ -153,7 +153,9 @@ test('a city builds from OSM layers: land, blocks with lots, parks, the road gra
       id: 'testcity', name: 'Test City', origin: { lat: LAT0, lon: LON0, label: 'the crossing' }, bearing: 'auto',
       detail: [LAT0 - 0.0032, LON0 - 0.0032, LAT0 + 0.0032, LON0 + 0.0032], margin: 0.001, sidewalk: 5, strip: 6, driveSide: 'left',
       trees: { credit: 'test', shapes: { 'Fabaceae (Leguminosae)': 'locust' } },
-      landmarks: [{ id: 'tower', name: 'Test Tower', model: 'test-tower', hide: [65], hideRelations: [60] }]
+      landmarks: [{ id: 'tower', name: 'Test Tower', model: 'test-tower', hide: [65], hideRelations: [60] },
+        // a statue: nothing mapped to replace, so it stands where it is put
+        { id: 'statue', name: 'Test Statue', model: 'test-statue', at: [ll(-40, 30)[1], ll(-40, 30)[0]] }]
     };
     const out = path.join(dir, 'testcity-geodata.js');
     await buildCity(city, { out, data: dir });
@@ -207,12 +209,15 @@ test('a city builds from OSM layers: land, blocks with lots, parks, the road gra
     assert.ok(!built.some((b) => b.top === 193), 'the modelled landmark is left out');
     assert.ok(!built.some((b) => b.top === 99), 'a modelled relation is left out independently of way IDs');
     // ...and anchored for its model program: its centre and the outline it replaces, with the mapped height
-    assert.equal(GEO.landmarks.length, 1);
-    const L = GEO.landmarks[0];
+    assert.equal(GEO.landmarks.length, 2);
+    const L = GEO.landmarks.find((l) => l.id === 'tower');
     assert.deepEqual([L.id, L.name, L.model, L.parts.length], ['tower', 'Test Tower', 'test-tower', 1]);
     assert.ok(Math.abs(L.x - 150) < 2 && Math.abs(L.z + 60) < 2, `anchored at (${L.x}, ${L.z})`);
     assert.deepEqual([L.parts[0].id, L.parts[0].height, L.parts[0].minHeight, L.parts[0].levels], [65, 193, 0, 0]);
     assert.equal(L.parts[0].ring.length, 8, 'the square');
+    const S = GEO.landmarks.find((l) => l.id === 'statue');
+    assert.deepEqual([S.model, S.parts.length], ['test-statue', 0], 'a statue replaces nothing');
+    assert.ok(Math.abs(S.x + 40) < 0.2 && Math.abs(S.z - 30) < 0.2, `a statue stands where it is put (${S.x}, ${S.z})`);
     const at = (x, z) => built.find((b) => b.pts.every(([px, pz]) => Math.abs(px - x) < 17 && Math.abs(pz - z) < 17));
     assert.equal(at(160, 160).top, 32, 'ten storeys of 3.2 m');
     assert.deepEqual([at(160, 160).levels, at(160, 160).wall, at(160, 160).roofColour], [10, 0xffffff, 0xff0000]);
@@ -235,7 +240,7 @@ test('a city builds from OSM layers: land, blocks with lots, parks, the road gra
     assert.deepEqual(infoAt.get(built.indexOf(at(160, 160))), ['', 'East Street', '12', '012345']);
     assert.deepEqual(infoAt.get(built.indexOf(at(-150, -150))), ['Test House', 'North Road', '1', ''], 'the part, as its building');
     assert.deepEqual(infoAt.get(built.indexOf(at(-60, -220))), ['The Shelter', '', '', ''], 'addr:housename: a name');
-    assert.deepEqual(INFO.sites, { tower: { name: 'Test Tower', street: 'East Street', number: '1', postcode: '099999' } });
+    assert.deepEqual(INFO.sites, { tower: { name: 'Test Tower', street: 'East Street', number: '1', postcode: '099999' }, statue: { name: 'Test Statue', street: '', number: '', postcode: '' } });
     // trees: the park's, the sidewalk's and the kerbside one (moved off the roadway) stand; the rest (in the sea,
     // mid-carriageway, inside the apartment block) don't
     assert.deepEqual(GEO.trees.shapes, ['plane', 'locust']);

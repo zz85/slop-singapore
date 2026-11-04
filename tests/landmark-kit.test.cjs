@@ -442,9 +442,9 @@ test('a sign with a logo: the mark left of the name, or alone, or beside a name 
 test("the tenants' marks paint themselves inside their box, in their colours", async () => {
   const { LOGOS } = await import(pathToFileURL(join(__dirname, '../js/landmark-logos.js')).href);
   globalThis.Path2D ??= class { constructor(d) { this.d = d; } };
-  const colours = { hsbc: ['#ffffff', '#db0011'], dbs: ['#e1251b', '#ffffff'], 'standard-chartered': ['#38d200', '#0473ea'], keppel: ['#55595c', '#ffffff', '#c8102e'], ocbc: ['#e01f26'], 'deutsche-bank': ['#0018a8'] };
-  // the marks drawn from Commons paths: their drawings' width and height in its units, scaled to the box's height
-  const drawings = { 'standard-chartered': [68.92, 109.4], keppel: [501, 167] };
+  const colours = { hsbc: ['#ffffff', '#db0011'], dbs: ['#e1251b', '#ffffff'], 'standard-chartered': ['#38d200', '#0473ea'], keppel: ['#55595c', '#ffffff', '#c8102e'], ocbc: ['#e01f26'], 'deutsche-bank': ['#0018a8'], 'singapore-land': ['#002d74', '#e6b467'], maybank: ['#201d18', '#f6c745'] };
+  // The marks that use paths, with their width and height in the drawing's units.
+  const drawings = { 'standard-chartered': [68.92, 109.4], keppel: [501, 167], maybank: [100, 100] };
   assert.deepEqual(Object.keys(LOGOS).sort(), Object.keys(colours).sort());
   for (const [key, logo] of Object.entries(LOGOS)) {
     assert.equal(logo.id, key);
@@ -546,4 +546,17 @@ test('a vertical sign: the text running down a narrow panel, reading right from 
     const tops = corners.filter((c) => c.v === 1), feet = corners.filter((c) => c.v === 0);
     assert.ok(tops.length && feet.length && tops.every((c) => feet.every((d) => (t.normal[0] > 0 ? c.z < d.z : c.z > d.z))), 'reads right from ' + (t.normal[0] > 0 ? 'the front' : 'the back'));
   });
+});
+
+test('a jet of water: recorded with its flight time and where it lands in the water below, drawn elsewhere', () => {
+  const { createKit } = load();
+  const kit = createKit({ anchor: { x: 0, z: 0 } });
+  const jet = kit.jet({ from: [1, 7, 0], velocity: [7, 1, -2], floor: -2.2, width: 0.35, name: 'mouth' });
+  assert.ok(kit.jets.length === 1 && kit.jets[0] === jet, 'recorded');
+  const y = (t) => 7 + t - 9.81 * t * t / 2;
+  assert.ok(near(y(jet.time), -2.2, 1e-9) && y(jet.time / 2) > -2.2, `back down at its floor after ${jet.time} s`);
+  assert.ok(near(jet.lands[0], 1 + 7 * jet.time, 1e-9) && near(jet.lands[1], -2 * jet.time, 1e-9), 'where it lands');
+  assert.equal(kit.parts.length, 0, 'js/fountain-jets.js draws it: the kit builds nothing for it');
+  assert.throws(() => kit.jet({ from: [0, -3, 0], velocity: [1, 0, 0], floor: -2.2 }), /jet/, 'a nozzle under its water');
+  assert.throws(() => kit.jet({ from: [0, 1, 0], velocity: [1, 0] }), /jet/, 'a velocity needs three components');
 });

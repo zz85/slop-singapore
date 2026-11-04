@@ -191,8 +191,8 @@ test('CapitaSpring: the podium runs the whole strip to Chulia Street, lifted ove
 test('CapitaSpring: signs only where the building carries them, on its walls under the roofline', async () => {
   const { kit, tower } = await capitaSpring();
   const signs = kit.parts.filter((p) => p.type === 'sign');
-  assert.deepEqual(Array.from(signs, (s) => s.name).sort(), ['sign:capitaland-e', 'sign:capitaland-sw', 'sign:citadines']);
-  for (const s of signs.filter((q) => /capitaland/.test(q.name))) {
+  assert.deepEqual(Array.from(signs, (s) => s.name).sort(), ['sign:citadines', 'sign:jpmorgan-e', 'sign:jpmorgan-sw']);
+  for (const s of signs.filter((q) => /jpmorgan/.test(q.name))) {
     const [mx, mz] = [(s.ring[0][0] + s.ring[1][0]) / 2, (s.ring[0][1] + s.ring[1][1]) / 2];
     assert.ok(edgeDistance(tower, mx, mz) < 1, `${s.name} hangs on the tower's wall`);
     assert.ok(s.y1 <= H.offices && s.y0 >= H.offices - 10, `${s.name} under the crown (${s.y0}–${s.y1})`);

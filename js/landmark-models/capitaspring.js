@@ -11,7 +11,7 @@
 // of offices, a plant storey and the Sky Garden on the roof, round the restaurant pavilion. Silver aluminium fins 1.5 m
 // apart run from top to bottom of every face over near-black navy glass; where the gardens are they part like hair, in
 // lens-shaped openings, and over the roof they carry on as a lattice screen of fins over slats, a lighter band opened
-// by teardrop openings near the top. CapitaLand's name hangs under the crown toward Church Street and Market Street, Citadines' over the City Room.
+// by teardrop openings near the top. J.P. Morgan's name hangs under the crown toward Church Street and Market Street, Citadines' over the City Room.
 // Heights: 280 m (CapitaLand's fact sheet, Wikipedia) and the City Room's 18 m (CapitaLand); the levels' uses from the
 // fact sheet; the podium roof (47 m), the Green Oasis (73.5–104 m) and the crown's screen (from 252 m) measured on
 // photographs from Market Street and Telok Ayer Street; the Sky Garden floor (259 m) estimated. See
@@ -486,10 +486,10 @@ export function build(kit, site) {
   });
 
   // --- signs ------------------------------------------------------------------------------------------------------------
-  // CapitaLand's name in white at the top of the offices, under the crown, toward Church Street and toward Market Street;
-  // Citadines' over the City Room on the round end
-  const CL_FONT = '600 110px "Segoe UI", Helvetica, Arial, sans-serif';
-  kit.hang({ ring: tower, top: H.offices, toward: FACE.sw, below: 0.8, out: 0.5, text: 'CapitaLand', height: 4.4, maxWidth: 26, color: C.sign, font: CL_FONT, name: 'sign:capitaland-sw' });
-  kit.hang({ ring: tower, top: H.offices, toward: FACE.e, below: 0.8, out: 0.5, text: 'CapitaLand', height: 4.4, maxWidth: 24, color: C.sign, font: CL_FONT, name: 'sign:capitaland-e' });
+  // J.P. Morgan's wordmark (its whole logo: a serif name, no separate mark) in white at the top of the offices, under the
+  // crown, toward Church Street and toward Market Street; Citadines' over the City Room on the round end
+  const JPM_FONT = '500 110px Georgia, "Times New Roman", serif';
+  kit.hang({ ring: tower, top: H.offices, toward: FACE.sw, below: 0.8, out: 0.5, text: 'J.P.Morgan', height: 4.4, maxWidth: 26, color: C.sign, font: JPM_FONT, name: 'sign:jpmorgan-sw' });
+  kit.hang({ ring: tower, top: H.offices, toward: FACE.e, below: 0.8, out: 0.5, text: 'J.P.Morgan', height: 4.4, maxWidth: 24, color: C.sign, font: JPM_FONT, name: 'sign:jpmorgan-e' });
   kit.hang({ ring: roundEnd, top: H.podium, toward: FACE.se, below: H.podium - 21.2, out: 0.5, text: 'citadines', height: 2, color: C.sign, font: '500 110px "Segoe UI", Helvetica, Arial, sans-serif', name: 'sign:citadines' });
 }

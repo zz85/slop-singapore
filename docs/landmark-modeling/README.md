@@ -28,7 +28,7 @@ Use a restrained reference palette: main wall, shadowed wall, light trim, roof, 
 
 | File | Responsibility |
 | --- | --- |
-| `tools/city/cities/singapore.mjs` | Register `{ id, name, model, hide, hideRelations }`. Hide only the OSM objects this model replaces. |
+| `tools/city/cities/singapore.mjs` | Register `{ id, name, model, hide, hideRelations }`. Hide only the OSM objects this model replaces. A model that replaces no mapped building (a statue) gives `at: [lat, lon]` instead and is anchored there with no parts, as the Merlion. |
 | `js/landmark-models/<id>.js` | Export `info = { name, height }` and `build(kit, site)`. Keep all model-specific geometry here. |
 | `js/landmark-kit.js` | Existing geometry, material pairing, batching, collision and validation helpers. Extend it only for a genuinely reusable missing primitive. |
 | `js/singapore-geodata.js` | Generated city output. Regenerate it; do not edit its data string by hand. |
@@ -52,6 +52,8 @@ Inspect the changed building/tree counts and the resulting landmark anchor. Chec
 Use `kit.box`, `kit.prism`, `kit.loft`, `kit.cylinder`, `kit.inset` and `kit.compass`. Reuse a local face helper for columns, windows and cornices. Keep wall profiles, window proportions and column spacing consistent with the sources. A hipped roof needs a narrow ridge and sloping sides; a glass pavilion may need an explicit translated `topRing`. A pediment, canopy or curved corner should change the silhouette.
 
 Build balconies and verandas as recessed rooms behind an outer line of columns. Use real openings in important arches. Suggest tile texture and distant railings with a limited number of shapes. Concentrate small details on the principal façade and characteristic roof; simplify repeated service elevations. Avoid copying the same floor/roof treatment across historically different wings. For a tiered roof, truncate the lower hip beneath the upper tier's footprint and join the levels with a fascia or clerestory; stacking complete pointed hips leaves the upper roof floating. Check that columns, beams, walls and eaves actually meet in a low elevation view.
+
+A fountain's water is `kit.jet({ from, velocity, floor, width })` at each nozzle: the kit records the arc and where it lands, and `js/fountain-jets.js` draws it, animated, in the preview and the city (see the Merlion).
 
 Use `kit.material` and `kit.glassMaterial` so materials receive their Tiny counterparts. The kit merges geometry by material: a window should not create its own draw call. Include signs only where the real building has them, at plausible sizes, with a separate raised face. Where a sign carries a tenant's mark, give it with `logo` from `js/landmark-logos.js` (beside the name, or alone where the building shows the mark alone; a name may break onto two lines with `\n`), and add a mark there from a public-domain drawing, or simplified from photographs, noting which in its comment. Match the colours to photographs of the building in daylight, not to the material's default glass.
 

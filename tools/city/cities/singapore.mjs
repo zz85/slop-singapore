@@ -119,6 +119,11 @@ export default {
     { id: 'fullerton-bay-hotel', name: 'The Fullerton Bay Hotel', model: 'fullerton-bay-hotel', hide: [184297025,406900561,986973997], hideRelations: [13262095] },
     // SG-034: the historic Waterboat House and its lower glass annexe share one mapped envelope.
     { id: 'fullerton-waterboat-house', name: 'The Fullerton Waterboat House', model: 'fullerton-waterboat-house', hide: [172931401] },
+    // SG-035: the hall and low deck only; SG-032 keeps the separate hotel link 986973997.
+    { id: 'clifford-pier', name: 'Clifford Pier', model: 'clifford-pier', hide: [99348745,407926383,986973999], hideRelations: [13262097] },
+    // SG-036: office, shaft, lookout and north pier roof. The lighthouse alias is the Customs control tower.
+    // The separate low street-side building 987031386 remains mapped.
+    { id: 'customs-house', name: 'Customs House', model: 'customs-house', hide: [395113920,406900754,406900756,986973995,986973998] },
     { id: 'raffles-place-mrt', name: 'Raffles Place MRT', model: 'raffles-place-mrt', hide: [106193387,106193391] },
     // Raffles Hotel and Arcade: separate suite-wing ways plus the two enclosing multipolygons. These are not
     // Raffles City (across Bras Basah Road). The model keeps the gardens, Lawn and Arcade square open.
@@ -187,6 +192,16 @@ export default {
     // SG-117 Skysuites @ Anson, 8 Enggor Street: its six-level podium outline (172023451) and the 71-storey tower
     // part over it (393100851, mapped 250 m from level 6); Mapletree Anson to the east remains.
     { id: 'skysuites-anson', name: 'Skysuites @ Anson', model: 'skysuites-anson', hide: [172023451, 393100851] },
+    // SG-007 Six Battery Road: its outline (mapped as a four-storey, 12 m podium) and 174 m tower.
+    { id: 'six-battery-road', name: 'Six Battery Road', model: 'six-battery-road', hide: [172916311, 106193384] },
+    // SG-008 Singapore Land Tower: the mapped shaft and podium at 50 Raffles Place.
+    { id: 'singapore-land-tower', name: 'Singapore Land Tower', model: 'singapore-land-tower', hide: [46595418, 939684168] },
+    // SG-009 Maybank Tower: the outline, podium and three overlapping shaft/roof ways at 2 Battery Road.
+    { id: 'maybank-tower', name: 'Maybank Tower', model: 'maybank-tower', hide: [106193386, 1075240989, 1075240988, 325793730, 1075553558] },
+    // SG-147 the Merlion at the tip of Merlion Park, spouting into the bay, with the Merlion cub behind it: no
+    // building is mapped there (the statue is OSM way 182819157, an amenity=fountain sculpture; the cub node
+    // 6283080658), so it hides nothing and stands at the statue's centre
+    { id: 'merlion', name: 'Merlion', model: 'merlion', at: [1.286784, 103.854504] },
     // SG-033 One Fullerton: the curved two-storey outline (46595394) and its seven layered roof parts (the flat
     // links, the skillion wave shells and the raised drum); the Fullerton Hotel and Waterboat House remain.
     { id: 'one-fullerton', name: 'One Fullerton', model: 'one-fullerton', hide: [46595394, 407926351, 407926353,
