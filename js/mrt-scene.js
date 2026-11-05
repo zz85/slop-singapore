@@ -1,22 +1,17 @@
 import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { trackPoint } from './mrt.js';
+import { MrtCar, RouteDisplay, FLOOR, HALF_W, DOORS } from './mrt-car.js';
 
 // js/mrt-scene.js
 // The MRT in the world (js/mrt.js the network and the ride): the elevated lines' viaducts on their piers across the
-// island, and for a ride the train (its cars with their interiors: benches, poles, ceiling lights, sliding doors), the
+// island, and for a ride the train (its cars, built in js/mrt-car.js after the real trains' interiors), the
 // tunnel round it underground (lit every few metres), and the station it stands at (the platform, its screen doors and
 // name signs; a hall underground, a canopy up on the viaduct).
 //
 // A car's local frame: +z forward (the way it runs), +x to its left, y up from the rail; its floor 1.1 m up. The
 // platform is on its right (-x), as at an island platform between the two tracks, where the doors open.
 
-const CAR_W = 3.2;
-const FLOOR = 1.1;
-const ROOF = 3.75;
-const HALF_W = CAR_W / 2;
-const DOORS = [-7.6, -2.55, 2.55, 7.6]; // m along a 23 m car
-const DOOR_W = 1.45;
 const BOGIE = 8; // m from a car's middle to its bogies
 
 const TUBE_R = 3.1;
@@ -63,168 +58,21 @@ function canvasTexture(w, h, draw) {
   return tex;
 }
 
-// -------------------------------------------------------------------------------------------------------------------
-// A train car's geometries, by material: { shell, stripe, dark, glass, interior, seats, light, pole }
-// -------------------------------------------------------------------------------------------------------------------
-function carGeometries(L, { nose = 0 } = {}) {
-  const shell = [];
-  const stripe = [];
-  const dark = [];
-  const interior = [];
-  const seats = [];
-  const light = [];
-  const pole = [];
-  const h = L / 2;
-  // the sides, outside (lit) and in (unlit): below the windows, above them, and the pillars between windows & doors
-  const openings = DOORS.map((d) => [d - DOOR_W / 2, d + DOOR_W / 2]);
-  const spans = [];
-  let at = -h + 0.6;
-  for (const [a, b] of openings) { spans.push([at, a]); at = b; }
-  spans.push([at, h - 0.6]);
-  for (const side of [-1, 1]) {
-    const x = side * HALF_W;
-    // whole-length bands below and above the window line (doors cut through the lower one)
-    for (const [a, b] of spans) {
-      const len = b - a, mid = (a + b) / 2;
-      shell.push(box(0.06, 0.95, len, x, FLOOR + 0.48, mid));
-      interior.push(box(0.04, 0.95, len, x - side * 0.06, FLOOR + 0.48, mid, 0xd9dde0));
-      // window pillars every ~1.9 m within the span, and a window frame under and over
-      const n = Math.max(1, Math.round(len / 1.9));
-      for (let k = 0; k <= n; k++) {
-        const z = a + (len * k) / n;
-        shell.push(box(0.07, 1.0, 0.16, x, FLOOR + 1.45, z));
-        interior.push(box(0.04, 1.0, 0.14, x - side * 0.07, FLOOR + 1.45, z, 0xc9cdd2));
-      }
-      stripe.push(box(0.07, 0.16, len, x + side * 0.005, FLOOR + 0.88, mid));
-    }
-    shell.push(box(0.06, 0.75, L - 1.2, x, FLOOR + 2.32, 0));
-    interior.push(box(0.04, 0.6, L - 1.2, x - side * 0.06, FLOOR + 2.25, 0, 0xe7e9ea));
-    // above each doorway (the door leaves fill the rest)
-    for (const [a, b] of openings) {
-      shell.push(box(0.06, 0.0001, b - a, x, FLOOR + 2.0, (a + b) / 2));
-      dark.push(box(0.03, 0.1, b - a + 0.12, x - side * 0.08, FLOOR + 2.0, (a + b) / 2));
-    }
-  }
-  // roof (outside), ceiling with its two strip lights (inside), floor
-  shell.push(box(CAR_W, 0.12, L - 1.2, 0, ROOF - 0.06, 0));
-  shell.push(box(CAR_W - 0.6, 0.22, L - 2, 0, ROOF + 0.06, 0));
-  interior.push(box(CAR_W - 0.16, 0.06, L - 1.2, 0, FLOOR + 2.48, 0, 0xeef0f1, { bottom: 0.95 }));
-  for (const x of [-0.55, 0.55]) light.push(box(0.22, 0.03, L - 2.4, x, FLOOR + 2.44, 0, 0xffffff, { bottom: 1, top: 1, side: 1 }));
-  interior.push(box(CAR_W - 0.1, 0.06, L - 1.2, 0, FLOOR - 0.02, 0, 0x6d7276, { top: 0.85 }));
-  // under the floor: the skirt, the bogies and their wheels
-  dark.push(box(CAR_W - 0.2, 0.55, L - 3, 0, FLOOR - 0.35, 0));
-  for (const b of [-BOGIE, BOGIE]) {
-    dark.push(box(2.4, 0.5, 2.8, 0, 0.5, b));
-    for (const w of [-0.95, 0.95]) for (const s of [-0.72, 0.72]) {
-      const g = new THREE.CylinderGeometry(0.42, 0.42, 0.14, 12).toNonIndexed();
-      g.rotateZ(Math.PI / 2);
-      g.translate(s, 0.42, b + w);
-      dark.push(g);
-    }
-  }
-  // the ends: a gangway through to the next car, or the front with its windscreen (nose > 0: the front end at +z)
-  for (const end of [-1, 1]) {
-    const z = end * (h - 0.6);
-    if (nose && end === nose) {
-      // the front: a raked windscreen over a cab front (wide, for a driverless train's view ahead)
-      shell.push(box(CAR_W, 1.0, 0.1, 0, FLOOR + 0.5, z + end * 0.55));
-      shell.push(box(CAR_W, 0.12, 0.7, 0, ROOF - 0.12, z + end * 0.28));
-      dark.push(box(CAR_W - 0.2, 0.06, 0.06, 0, FLOOR + 1.02, z + end * 0.58));
-      for (const x of [-HALF_W + 0.05, HALF_W - 0.05]) shell.push(box(0.1, 2.5, 0.7, x, FLOOR + 1.25, z + end * 0.3));
-      interior.push(box(CAR_W - 0.2, 0.9, 0.06, 0, FLOOR + 0.45, z + end * 0.45, 0x2b2f33));
-      stripe.push(box(CAR_W + 0.02, 0.22, 0.04, 0, FLOOR + 0.62, z + end * 0.61));
-      // the headlights
-      for (const x of [-1.05, 1.05]) light.push(box(0.36, 0.12, 0.04, x, FLOOR + 0.3, z + end * 0.62, 0xfff4d6, { top: 1, side: 1, bottom: 1 }));
-    } else {
-      for (const x of [-1.15, 1.15]) {
-        shell.push(box(0.9, ROOF - FLOOR, 0.08, x, (ROOF + FLOOR) / 2, z));
-        interior.push(box(0.9, 2.5, 0.04, x, FLOOR + 1.25, z - end * 0.06, 0xd9dde0));
-      }
-      interior.push(box(1.4, 0.4, 0.04, 0, FLOOR + 2.3, z - end * 0.06, 0xd9dde0));
-      dark.push(box(1.5, 2.2, 0.6, 0, FLOOR + 1.1, z + end * 0.3)); // the gangway bellows
-    }
-  }
-  // inside: long benches between the doors (and at the ends), the poles at each door and down the middle
-  const benches = [];
-  let bz = -h + 1.2;
-  for (const [a, b] of openings) { benches.push([bz, a - 0.25]); bz = b + 0.25; }
-  benches.push([bz, h - 1.2]);
-  for (const side of [-1, 1]) {
-    for (const [a, b] of benches) {
-      if (b - a < 0.6) continue;
-      const mid = (a + b) / 2, len = b - a;
-      seats.push(box(0.46, 0.08, len, side * (HALF_W - 0.33), FLOOR + 0.44, mid, 0x2f5f9f, { top: 1 }));
-      seats.push(box(0.08, 0.55, len, side * (HALF_W - 0.12), FLOOR + 0.75, mid, 0x2f5f9f));
-      interior.push(box(0.3, 0.4, len, side * (HALF_W - 0.25), FLOOR + 0.2, mid, 0x9aa0a6));
-    }
-  }
-  for (const d of DOORS) {
-    for (const side of [-1, 1]) pole.push(cyl(0.022, 2.4, side * (HALF_W - 0.75), FLOOR + 1.2, d + 0.9 * side, 0xc8ccd0));
-    pole.push(cyl(0.022, 2.4, 0, FLOOR + 1.2, d, 0xc8ccd0));
-  }
-  for (const x of [-0.6, 0.6]) pole.push(box(0.03, 0.03, L - 2, x, FLOOR + 2.1, 0, 0xc8ccd0));
-  const merge = (list) => (list.length ? mergeGeometries(list, false) : null);
-  return {
-    shell: merge(shell), stripe: merge(stripe), dark: merge(dark), interior: merge(interior), seats: merge(seats),
-    light: merge(light), pole: merge(pole)
-  };
-}
-
-// The door leaves of a car's side (-1 right, 1 left): 2 per doorway, each moving off its doorway's middle
-function doorGeometry() {
-  const g = box(DOOR_W / 2 - 0.02, 2.0, 0.04, 0, FLOOR + 1.0, 0);
-  g.rotateY(Math.PI / 2);
-  return g;
-}
-
 class MrtTrain {
   constructor(scene, line) {
     this.line = line;
     this.group = new THREE.Group();
     this.group.name = `MRT ${line.id}`;
-    const colour = new THREE.Color(line.colour);
-    this.mats = {
-      shell: new THREE.MeshStandardNodeMaterial({ color: 0xe9ecef, roughness: 0.35, metalness: 0.55 }),
-      stripe: new THREE.MeshStandardNodeMaterial({ color: colour, roughness: 0.4, metalness: 0.2 }),
-      dark: new THREE.MeshStandardNodeMaterial({ color: 0x1c1f22, roughness: 0.8 }),
-      interior: new THREE.MeshBasicNodeMaterial({ vertexColors: true }),
-      seats: new THREE.MeshBasicNodeMaterial({ vertexColors: true }),
-      light: new THREE.MeshBasicNodeMaterial({ color: 0xffffff }),
-      pole: new THREE.MeshBasicNodeMaterial({ vertexColors: true }),
-      door: new THREE.MeshStandardNodeMaterial({ color: 0xd5d9dc, roughness: 0.35, metalness: 0.5 })
-    };
-    this.mats.shell.side = THREE.DoubleSide;
-    this.mats.door.side = THREE.DoubleSide;
-    const L = line.carLength;
-    const front = carGeometries(L, { nose: 1 });
-    const middle = carGeometries(L);
-    const back = carGeometries(L, { nose: -1 });
-    const doorGeo = doorGeometry();
+    // the route displays over the doors, redrawn as the train goes (one drawing for the whole train)
+    this.route = new RouteDisplay();
     this.cars = [];
     for (let i = 0; i < line.cars; i++) {
-      const geos = i === 0 ? front : i === line.cars - 1 ? back : middle;
-      const car = new THREE.Group();
-      for (const [k, g] of Object.entries(geos)) {
-        if (!g) continue;
-        const m = new THREE.Mesh(g, this.mats[k]);
-        m.castShadow = k === 'shell' || k === 'dark';
-        m.receiveShadow = k === 'shell';
-        car.add(m);
-      }
-      // the doors: each doorway's two leaves either side, on both sides
-      const doors = [];
-      for (const side of [-1, 1]) for (const d of DOORS) for (const half of [-1, 1]) {
-        const leaf = new THREE.Mesh(doorGeo, this.mats.door);
-        leaf.position.set(side * (HALF_W - 0.02), 0, d + half * (DOOR_W / 4));
-        leaf.userData = { side, d, half };
-        car.add(leaf);
-        doors.push(leaf);
-      }
-      car.userData.doors = doors;
-      this.group.add(car);
-      this.cars.push(car);
+      const car = new MrtCar(line, { front: i === 0, back: i === line.cars - 1, routeTexture: this.route.texture });
+      this.group.add(car.group);
+      this.cars.push(car.group);
+      (this.carModels ??= []).push(car);
     }
-    this.open = 0;
+    this.open = -1;
     scene.add(this.group);
     this._a = {};
     this._b = {};
@@ -250,21 +98,23 @@ class MrtTrain {
   setDoors(k) {
     if (Math.abs(k - this.open) < 1e-4) return;
     this.open = k;
-    for (const car of this.cars) {
-      for (const leaf of car.userData.doors) {
-        const { side, d, half } = leaf.userData;
-        const slide = side < 0 ? k * (DOOR_W / 2 - 0.05) : 0;
-        leaf.position.z = d + half * (DOOR_W / 4 + slide);
-        leaf.position.x = side * (HALF_W - 0.02 + (side < 0 ? k * 0.04 : 0));
-      }
-    }
+    for (const car of this.carModels) car.setDoors(k, -1);
+  }
+
+  /** The handles swing with the train's acceleration (forward) and its sideways acceleration on a curve */
+  update(dt, a, lat) {
+    for (const car of this.carModels) car.swingHandles(dt, a, lat);
+  }
+
+  /** The displays over the doors: `track`'s stops, the `at`th the one it is making for */
+  setRoute(net, track, at) {
+    this.route.draw(net, track, at);
   }
 
   dispose() {
+    for (const car of this.carModels) car.dispose();
+    this.route.dispose();
     this.group.removeFromParent();
-    const seen = new Set();
-    this.group.traverse((o) => { if (o.geometry && !seen.has(o.geometry)) { seen.add(o.geometry); o.geometry.dispose(); } });
-    for (const m of Object.values(this.mats)) m.dispose();
   }
 }
 

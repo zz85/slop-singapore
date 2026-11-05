@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 import { parseMrt, planTrip, nearestStation, trackPoint, MrtRide } from './mrt.js';
 import { MrtTrain, MrtTunnel, MrtStation, buildViaducts, FLOOR, HALF_W, DOORS } from './mrt-scene.js';
 import { MrtAudio } from './mrt-audio.js';
+import { mrtDaylight } from './mrt-car.js';
 
 // js/mrt-system.js
 // Riding the MRT (js/mrt.js): from the station nearest you to the one nearest where you want to go, changing lines on
@@ -173,11 +174,16 @@ class MrtSystem {
     this.root.updateMatrixWorld(true);
     this.place(dt);
     const below = this.cameraSystem.camera.position.y < -1.5;
+    // (the cabin's daylight eases in and out at the portals)
+    mrtDaylight.value += ((below ? 0 : 1) - mrtDaylight.value) * Math.min(1, dt * 1.5);
     if (below !== this.below) { this.below = below; this.onUnderground(below); }
     // the sounds
     const p = trackPoint(t, r.front - r.trainLength / 2, this._p);
     const q = trackPoint(t, r.front - r.trainLength / 2 + 20, this._q);
     const turn = Math.atan2(q.dx * p.dz - q.dz * p.dx, q.dx * p.dx + q.dz * p.dz);
+    // the handles swing with the train (its curve's pull to its left, +x, when turning left)
+    this.train.update(dt * SPEEDS[this.speed] > 0.2 ? 0.05 : dt, r.v > 0.01 ? r.a : 0, r.v * r.v * (turn / 20));
+    this.train.setRoute(this.net, t, r.stop);
     this.sound.update({
       v: r.v, a: r.a, curve: Math.abs(turn) / 20, underground: p.y < -3, inside: VIEWS[this.view].id !== 'outside',
       doors: this.doors, top: r.line.top
